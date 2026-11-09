@@ -168,11 +168,12 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LastUpdateException", PERSISTENT},
     {"LastUpdateTime", PERSISTENT},
     {"LiveParameters", PERSISTENT},
+    {"LiveTorqueCarParams", PERSISTENT | DONT_LOG},
+    {"LiveTorqueParameters", PERSISTENT | DONT_LOG},
     {"MapboxToken", PERSISTENT | DONT_LOG},
     {"NavDestination", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
     {"NavSettingTime24h", PERSISTENT},
     {"NavdRender", PERSISTENT},
-    {"LatMpcInputOffset", PERSISTENT},
     {"OpenpilotEnabledToggle", PERSISTENT},
     {"PandaHeartbeatLost", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
     {"PandaSignatures", CLEAR_ON_MANAGER_START},
@@ -194,7 +195,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"UpdateFailedCount", CLEAR_ON_MANAGER_START},
     {"Version", PERSISTENT},
     {"MixRadarInfo", PERSISTENT},
-    {"LanelessOffset", PERSISTENT},
+    {"PathOffset", PERSISTENT},
     {"ApiCache_Device", PERSISTENT},
     {"ApiCache_DriveStats", PERSISTENT},
     {"ApiCache_NavDestinations", PERSISTENT},
@@ -228,13 +229,18 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EarlyHoldRelax", PERSISTENT},           // 앞차 꿈틀 시 정지유지 제동 미리 줄이기 (default 1)
     {"FastLeadRelease", PERSISTENT},          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
-    {"DynamicLaneProfile", PERSISTENT},
+    {"UseLaneLineSpeed", PERSISTENT},
     {"SteeringRateCost", PERSISTENT},
+    {"PathCostApply", PERSISTENT},
+    {"LateralMotionCost", PERSISTENT},
+    {"LateralAccelCost", PERSISTENT},
+    {"LateralJerkCost", PERSISTENT},
+    {"MaxAngleFrames", PERSISTENT},
+    {"SteerDeltaUp", PERSISTENT},
+    {"SteerDeltaDown", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"LaneChangeNeedTorque", PERSISTENT},   // NOO 차선변경: -1 끔 / 0 즉시 / 1 토크필요 (carrot)
-    {"OffsetTotal", PERSISTENT},
-    {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
     {"SccSmootherSyncGasPressed", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
@@ -298,21 +304,12 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상
-    {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
-    {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
-    {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)
-    {"LateralTorqueCustom", PERSISTENT},       // 1=아래 토크값 사용, 0=차량 기본값
-    {"LateralTorqueAccelFactor", PERSISTENT},  // latAccelFactor x1000
-    {"LateralTorqueFriction", PERSISTENT},     // friction x1000
-    {"LateralTorqueKpV", PERSISTENT},          // kp x100
-    {"LateralTorqueKiV", PERSISTENT},          // ki x100
-    {"LateralTorqueKf", PERSISTENT},           // kf x100
-    {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
-    {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
-    {"LatCurveIDeadzone", PERSISTENT},         // 커브 구간 적분 정지 기준 토크 x0.001 (default 20, 예전 70)
-    {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속(<2m/s) 목표곡률 저역통과 시간상수 ms (0=끔)
-    // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
-    {"KeepSteeringTurnSignals", PERSISTENT},
+    {"LiveSteerRatioApply", PERSISTENT},
+    {"SteerRatioApply", PERSISTENT},
+    {"SteerActuatorDelay", PERSISTENT},
+    {"LateralTorqueCustom", PERSISTENT},
+    {"LateralTorqueAccelFactor", PERSISTENT},
+    {"LateralTorqueFriction", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
     {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100

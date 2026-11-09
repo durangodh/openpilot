@@ -386,13 +386,13 @@ def _path_offset(params):
   앱도 같은 값을 경로에 더해야 실제 주행선과 화면이 맞는다.
 
   lateral_planner.update():
-      self.path_xyz[:, 1] += self.offset_total
-  offset_total = OffsetTotal (m, 사용자 수동)"""
+      self.path_xyz[:, 1] += self.path_offset
+  path_offset = PathOffset (cm, aPilot 공통 설정)"""
   try:
-    total = float(params.get("OffsetTotal", encoding="utf8") or 0.0)
+    total = int(params.get("PathOffset", encoding="utf8") or 0) * 0.01
   except (TypeError, ValueError):
     total = 0.0
-  total = max(-1.0, min(1.0, total))
+  total = max(-2.0, min(2.0, total))
 
   return round(total, 3)
 
@@ -1240,7 +1240,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
       "reason": str(_field(sm["lateralPlan"], "nooLaneChangeReason", "")),
     },
     # The optimized MPC state follows a reference that already contains
-    # OffsetTotal. Keep the old offset only when falling back to the raw model
+    # PathOffset. Keep the offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.
     "pathOffset": 0.0 if path_final or not model_valid else float(path_offset),
     # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중

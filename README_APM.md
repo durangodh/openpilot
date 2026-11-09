@@ -43,8 +43,7 @@ settings.cc 에 ParamValueControlF / ParamControl 을 추가한 뒤 EON 에서
 2. 값은 `Integer.parseInt()` 로 읽고, 하나라도 실패하면 그 뒤 파라미터가 전부
    목록에서 사라진다. → apilot.py 가 빈값/실수/문자열을 default 로 대체한다.
 3. `apilot.py` 는 stdout 에 아무것도 출력하면 안 된다(`;cat` 결과와 섞여 파싱 실패).
-4. `OffsetTotal` 은 제외했다. "0.050000" 실수로 저장되므로 APM 이 파싱하지 못하고,
-   정수로 덮어쓰면 0.05m 가 5m 로 들어간다. EON UI 에서만 조정할 것.
+4. `PathOffset` 은 aPilot과 같이 정수 cm 단위로 저장하며 EON UI와 APM에서 동일하게 조정한다.
 5. 앱의 백업 메뉴는 **현재 선택된 그룹만** 저장한다(전체 백업 아님).
 
 ## 그룹 구성
@@ -60,33 +59,24 @@ settings.cc 에 ParamValueControlF / ParamControl 을 추가한 뒤 EON 에서
 - 파라미터 공통 50 / 원본에만 59 / g_abcd 에만 78. 공통 중 범위·기본값이 다른 것 42건은
   전부 g_abcd settings.cc 기준으로 맞춰져 있다(포크가 갈라진 결과, 정상).
 
-## LateralTorqueFriction
-`0.080` 지정에 따라 default 를 **80** 으로 넣었다(범위 0~200, x1000).
-`LateralTorqueAccelFactor` 는 manager.py 값 2500(=2.50) 유지.
-실제 적용은 `LateralTorqueCustom` 이 1 일 때만 되고(latcontrol_torque.py:140),
-default 는 APM 표시에만 쓰이므로 EON 실동작값과는 별개다.
+## Lateral Torque
+토크 제어와 LiveTorque는 ajouatom/apilot c2-master 기준이다.
+`LateralTorqueCustom=0`이면 LiveTorque, `1`이면 수동값을 사용한다.
+수동 기본값은 factor 2500(2.50), friction 100(0.100), actuator delay 30(0.30초)이다.
+GENESIS 2015-2016 차량 기본값은 torque_data의 factor 1.8466226944,
+friction 0.0984484465를 사용한다.
 
 ## 기본값 우선순위 (2026-08-19 결정: 매니저 값 기준)
 apilot_gen.py 는 `manager.py` 의 `default_params` 값을 정답으로 쓴다.
 `settings.cc` 의 vdefault 는 manager 에 키가 없을 때만 쓴다.
 신규 기기가 실제로 받는 값이 manager.py 쪽이기 때문.
 
-그 결과 아래 6건이 settings.cc 표시값이 아니라 manager 값으로 들어갔다.
+manager.py와 settings.cc의 토크 관련 기본값은 aPilot 값으로 통일했다.
 
 | 파라미터 | manager.py (채택) | settings.cc 표시값 |
 |---|---|---|
 | LongitudinalActuatorDelayLowerBound | 50 | 0 |
 | LongitudinalActuatorDelayUpperBound | 50 | 0 |
-| SteerActuatorDelay | 50 | 10 |
-| LateralTorqueKpV | 70 | 10 |
-| LateralTorqueKiV | 20 | 10 |
-| LateralTorqueKf | 85 | 100 |
-
-예외 1건: `LateralTorqueFriction` 은 지정에 따라 **80**(0.080) — manager 값 10 을 덮어썼다
-(apilot_gen.py EXTRA 의 `force=True`).
-
-EON UI 쪽도 맞추려면 settings.cc 의 vdefault(마지막에서 두 번째 인자)를
-위 표의 manager 값으로 바꾸면 된다. 이 zip 에는 settings.cc 를 넣지 않았다.
 
 ## EON SSH 아이콘 APK (apm-ssh)
 원본 APK 는 그대로 두고, 런처 아이콘만 초록 위·빨강 아래 화살표 아이콘으로 바꾼 사본을 따로 만든다 (직접 그린 SVG, 흰 바탕).

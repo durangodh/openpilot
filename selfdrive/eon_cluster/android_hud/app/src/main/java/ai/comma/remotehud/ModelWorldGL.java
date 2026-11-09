@@ -427,7 +427,7 @@ final class ModelWorldGL {
         if (rawPath.count < 2) {
             return false;
         }
-        // The optimized MPC path already contains OffsetTotal and is sent with
+        // The optimized MPC path already contains PathOffset and is sent with
         // zero offset. A raw-model fallback carries the separate offset here.
         float pathOffset = clamp((float) scene.optDouble("pathOffset", 0d), -1f, 1f);
         for (int i = 0; i < rawPath.count; i++) {

@@ -170,32 +170,6 @@ private:
   const QStringList labels = {"즉시", "0.1s", "0.5s", "1.0s", "1.5s", "2.0s"};
 };
 
-// ── DynamicLaneProfile Control ──────────────────────────────────
-class DynamicLaneProfileControl : public AbstractControl {
-  Q_OBJECT
-public:
-  DynamicLaneProfileControl(const QString &title, const QString &desc,
-                             const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  QPushButton *buttons[3];
-  Params params;
-  // 0: Lane only, 1: Lane less, 2: Auto
-  const QStringList labels = {"Lane only", "Lane less", "Auto"};
-};
-
-class OffsetTotalControl : public AbstractControl {
-  Q_OBJECT
-public:
-  OffsetTotalControl(const QString &title, const QString &desc,
-                     const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  void changeValue(int delta);
-  QPushButton *minus_btn, *plus_btn;
-  QLabel *value_label;
-  Params params;
-};
 // nTune JSON(/data/ntune/common.json, lat_torque_v4.json) 값을 화면에서 직접 조절한다.
 // nTune 이 dnotify 로 파일 변경을 감시하므로 저장 즉시 주행 중에도 반영된다.
 class NtuneValueControl : public AbstractControl {
@@ -227,33 +201,6 @@ private:
   void changeValue(int delta);
   QString param_;
   int vmin_, vmax_, step_, decimals_, vdefault_;
-  QPushButton *minus_btn, *plus_btn;
-  QLabel *value_label;
-  Params params;
-};
-
-class AdjustLaneOffsetControl : public AbstractControl {
-  Q_OBJECT
-public:
-  AdjustLaneOffsetControl(const QString &title, const QString &desc,
-                          const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  void changeValue(int delta);
-  QPushButton *minus_btn, *plus_btn;
-  QLabel *value_label;
-  Params params;
-};
-
-// 레인리스(차선 미사용)에서만 적용되는 횡보정. 레인모드는 건드리지 않는다.
-class LanelessOffsetControl : public AbstractControl {
-  Q_OBJECT
-public:
-  LanelessOffsetControl(const QString &title, const QString &desc,
-                        const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  void changeValue(int delta);
   QPushButton *minus_btn, *plus_btn;
   QLabel *value_label;
   Params params;

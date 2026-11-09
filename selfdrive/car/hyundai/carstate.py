@@ -35,7 +35,6 @@ class CarState(CarStateBase):
     self.cruise_main_button = 0
     self.cruise_button_samples = []
     self.cruise_main_button_samples = []
-    self.mdps_error_cnt = 0
     self.cruise_unavail_cnt = 0
     self.engine_oil_temp_seen = False
     self.engine_coolant_temp_seen = False
@@ -46,6 +45,10 @@ class CarState(CarStateBase):
     self.outside_temp_seen = False
     self.outside_temp_c = -1000.
     self.parking_sensor_age = 10000
+    # Keep the latest remote MDPS fault recorder observational only. These
+    # values are logged, but never used to disable aPilot-style lateral control.
+    self.mdps_error_cnt = 0
+    self.mdps_bits = (0, 0, 0)
 
     self.apply_steer = 0.
     
@@ -209,20 +212,12 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
 
-    # MDPS12 exposes independent LKAS fault indicators. Debounce them so the
-    # intentional two-frame high-angle reset pulse is ignored, while a real
-    # MDPS rejection still releases latActive and gets a chance to recover.
-    # Raw bits for the MDPS fault recorder (mdps_fault_log.py).
     self.mdps_bits = (int(cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"]),
                       int(cp_mdps.vl["MDPS12"]["CF_Mdps_ToiFlt"]),
                       int(cp_mdps.vl["MDPS12"]["CF_Mdps_FailStat"]))
-    mdps_fault = any(self.mdps_bits)
-    if not ret.standstill and mdps_fault:
-      self.mdps_error_cnt += 1
-    else:
-      self.mdps_error_cnt = 0
-
-    ret.steerFaultTemporary = self.mdps_error_cnt > 50
+    # Match aPilot c2-master: transient MDPS rejection does not make controlsd
+    # drop latActive; the controller keeps sending and lets the MDPS recover.
+    ret.steerFaultTemporary = False
 
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]

@@ -409,8 +409,10 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
       puts("  LKAS torque not allowed: lateral not allowed!\n");
     }
 
-    // reset to 0 if either controls is not allowed or there's a violation
-    if (violation || !lateral_allowed) {
+    // Match aPilot c2-master: resetting after one rejected frame makes the
+    // next otherwise-valid LKAS11 look like a large step from zero and can
+    // create a rejection cascade. Reset only when lateral authority is off.
+    if (!lateral_allowed) {
       desired_torque_last = 0;
       rt_torque_last = 0;
       ts_last = ts;

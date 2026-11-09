@@ -299,10 +299,6 @@ static void update_state(UIState *s) {
   }
   scene.started = sm["deviceState"].getDeviceState().getStarted() && scene.ignition;
 
-  if (sm.updated("lateralPlan")) {
-    scene.dynamic_lane_profile = sm["lateralPlan"].getLateralPlan().getDynamicLaneProfile();
-    scene.dynamic_lane_profile_status = sm["lateralPlan"].getLateralPlan().getDynamicLaneProfileStatus();
-  }
 }
 
 void ui_update_params(UIState *s) {

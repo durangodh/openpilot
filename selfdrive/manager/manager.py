@@ -85,10 +85,12 @@ def manager_init() -> None:
     ("TrafficStopMode", "2"),
     ("MixRadarInfo", "0"),
     ("LongTraceEnabled", "0"),
-    ("LanelessOffset", "0"),
+    ("PathOffset", "0"),
+    ("UseLaneLineSpeed", "0"),
+    ("PathCostApply", "100"),
+    ("MaxAngleFrames", "89"),
 
     ("SccSmootherSyncGasPressed", "0"),
-    ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
@@ -139,31 +141,20 @@ def manager_init() -> None:
     ("CruiseMaxVals6", "60"),
     ("NoLeadCruiseAccelFactor", "100"),
     ("LeadCruiseAccelFactor", "100"),
-    # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
-    #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
-    #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
-    #  - AccelFactor 2747       = torque_data/params.yaml GENESIS 2015-2016 (2.7466)
-    #  - Friction 98            = 같은 차량 정의값 (0.09845)
-    #  - Kp/Ki/Kf 100/10/100    = interfaces.py configure_torque_tune (1.0/0.1/1.0)
-    # => 새 설치에서 Custom 을 켜도 차량 정의값과 같은 기준선으로 시작한다.
-    ("CustomSteerRatio", "1650"),
-    ("UseLiveSteerRatio", "0"),
-    ("SteerActuatorDelay", "25"),
-    ("SteeringRateCost", "550"),  # DH 권장 MPC 조향변화 억제값 (낮을수록 빠른 반응)
+    ("LiveSteerRatioApply", "100"),
+    ("SteerRatioApply", "0"),
+    ("SteerActuatorDelay", "30"),
+    ("SteeringRateCost", "700"),
+    ("LateralMotionCost", "11"),
+    ("LateralAccelCost", "0"),
+    ("LateralJerkCost", "5"),
     ("LateralTorqueCustom", "0"),
-    ("LateralTorqueAccelFactor", "2747"),
-    ("LateralTorqueFriction", "98"),
-    ("LateralTorqueKpV", "100"),
-    ("LateralTorqueKiV", "10"),
-    ("LateralTorqueKf", "100"),
-    ("LatAccelFrictionFactor", "70"),
-    ("LatJerkFrictionFactor", "40"),
-    ("LatCurveIDeadzone", "20"),
+    ("LateralTorqueAccelFactor", "2500"),
+    ("LateralTorqueFriction", "100"),
+    ("SteerDeltaUp", "3"),
+    ("SteerDeltaDown", "7"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
-    ("AdjustLaneOffset", "0"),    # 좌우 여유공간/커브 보정 (cm, 0=off)
-    ("LatMpcInputOffset", "4"),   # carrot c3 차선 경로 선행 입력 (4=0.04)
-    ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)
     ("TurnVisionControl", "0"),
     ("AutoCurveSpeedFactor", "120"),
     ("AutoCurveSpeedLowerLimit", "30"),
@@ -234,10 +225,29 @@ def manager_init() -> None:
       params.put("EonClusterHudFps", "10")
     params.put_bool("EonClusterHudGeometryV2Migrated", True)
 
+  # aPilot PathOffset is an integer centimetre value. Preserve the previous
+  # common OffsetTotal calibration (metres) once before defaults are created.
+  if params.get("PathOffset") is None:
+    try:
+      with open("/data/params/d/OffsetTotal", "r") as f:
+        old_offset_m = float(f.read().strip())
+      params.put("PathOffset", str(max(-200, min(200, int(round(old_offset_m * 100.0))))))
+    except (OSError, TypeError, ValueError):
+      pass
+
   # set unset params
   for k, v in default_params:
     if params.get(k) is None:
       params.put(k, v)
+
+  # Migrate this fork's former torque defaults to the aPilot values. Custom
+  # values are preserved; only the exact old defaults are changed.
+  for key, old_value, apilot_value in (
+      ("SteerActuatorDelay", "25", "30"),
+      ("LateralTorqueAccelFactor", "2747", "2500"),
+      ("LateralTorqueFriction", "98", "100")):
+    if params.get(key, encoding="utf8") == old_value:
+      params.put(key, apilot_value)
 
   # Preserve the existing 0~40 km/h curve when introducing the 20 km/h point.
   # Devices with custom end points receive their actual midpoint rather than
@@ -257,7 +267,12 @@ def manager_init() -> None:
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
                    "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey",
-                   "LatYawMeasureBlend", "EarlyStopReqRelease",
+                   "LatYawMeasureBlend", "LateralTorqueKpV", "LateralTorqueKiV",
+                   "LateralTorqueKf", "LatAccelFrictionFactor", "LatJerkFrictionFactor",
+                   "LatCurveIDeadzone", "LatLowSpeedCurvTauMs", "EarlyStopReqRelease",
+                   "OffsetTotal", "AdjustLaneOffset", "LanelessOffset", "LatMpcInputOffset",
+                   "DynamicLaneProfile", "KeepSteeringTurnSignals",
+                   "CustomSteerRatio", "UseLiveSteerRatio",
                    # 2026-11-05: unused longitudinal params and finished one-time migrations.
                    "LongActuatorDelay", "NewRadarInterface", "E2EAccMode",
                    "ApilotC2LongMigrated", "CruiseButtonLongDelayC2Migrated",

@@ -96,110 +96,6 @@ StepperWidgets makeStepperWidgets(int value_width) {
 
 }  // namespace
 
-// ── Offset Total Control ─────────────────────────────────────────
-OffsetTotalControl::OffsetTotalControl(const QString &title,
-                                       const QString &desc,
-                                       const QString &icon,
-                                       QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  const StepperWidgets stepper = makeStepperWidgets(140);
-  minus_btn = stepper.minus;
-  value_label = stepper.value;
-  plus_btn = stepper.plus;
-  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
-  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(stepper.container);
-  refresh();
-}
-
-void OffsetTotalControl::changeValue(int delta) {
-  std::string raw = params.get("OffsetTotal");
-  double val = raw.empty() ? 0.0 : std::stod(raw);
-  val += delta * 0.01;
-  val = std::round(val * 100.0) / 100.0;
-  val = std::max(-1.00, std::min(1.00, val));
-  params.put("OffsetTotal", std::to_string(val));
-  refresh();
-}
-
-void OffsetTotalControl::refresh() {
-  std::string raw = params.get("OffsetTotal");
-  double val = raw.empty() ? 0.0 : std::stod(raw);
-  val = std::round(val * 100.0) / 100.0;
-  value_label->setText(QString::number(val, 'f', 2) + " m");
-  minus_btn->setEnabled(val > -1.00);
-  plus_btn->setEnabled(val < 1.00);
-}
-
-// ── AdjustLaneOffset Control ─────────────────────────────────────
-AdjustLaneOffsetControl::AdjustLaneOffsetControl(const QString &title,
-                                                 const QString &desc,
-                                                 const QString &icon,
-                                                 QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  const StepperWidgets stepper = makeStepperWidgets(140);
-  minus_btn = stepper.minus;
-  value_label = stepper.value;
-  plus_btn = stepper.plus;
-  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
-  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(stepper.container);
-  refresh();
-}
-
-void AdjustLaneOffsetControl::changeValue(int delta) {
-  int val = std::atoi(params.get("AdjustLaneOffset").c_str());
-  val += delta * 5;                       // 5cm 단위
-  val = std::max(0, std::min(40, val));   // 0 ~ 40cm (내부 클리핑 0.4m)
-  params.put("AdjustLaneOffset", std::to_string(val));
-  refresh();
-}
-
-void AdjustLaneOffsetControl::refresh() {
-  int val = std::atoi(params.get("AdjustLaneOffset").c_str());
-  val = std::max(0, std::min(40, val));
-  value_label->setText(val == 0 ? "OFF" : QString::number(val) + " cm");
-  minus_btn->setEnabled(val > 0);
-  plus_btn->setEnabled(val < 40);
-}
-
-// ── LanelessOffset Control ───────────────────────────────────────
-LanelessOffsetControl::LanelessOffsetControl(const QString &title,
-                                             const QString &desc,
-                                             const QString &icon,
-                                             QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  const StepperWidgets stepper = makeStepperWidgets(140);
-  minus_btn = stepper.minus;
-  value_label = stepper.value;
-  plus_btn = stepper.plus;
-  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
-  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(stepper.container);
-  refresh();
-}
-
-void LanelessOffsetControl::changeValue(int delta) {
-  int val = std::atoi(params.get("LanelessOffset").c_str());
-  val += delta;                             // 1cm 단위
-  val = std::max(-30, std::min(30, val));   // -30 ~ +30cm
-  params.put("LanelessOffset", std::to_string(val));
-  refresh();
-}
-
-void LanelessOffsetControl::refresh() {
-  int val = std::atoi(params.get("LanelessOffset").c_str());
-  val = std::max(-30, std::min(30, val));
-  value_label->setText(val == 0 ? QString("OFF")
-                                : QString(val > 0 ? "오른쪽 " : "왼쪽 ")
-                                    + QString::number(std::abs(val)) + " cm");
-  minus_btn->setEnabled(val > -30);
-  plus_btn->setEnabled(val < 30);
-}
-
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
                                                        const QString &desc,
@@ -247,59 +143,6 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
 
 void AutoLaneChangeTimerControl::refresh() {
   int val = std::atoi(params.get("AutoLaneChangeTimer").c_str());
-  val = std::clamp(val, 0, (int)labels.size() - 1);
-  for (int i = 0; i < labels.size(); i++) {
-    buttons[i]->setChecked(i == val);
-  }
-}
-
-// ── DynamicLaneProfile Control ──────────────────────────────────
-DynamicLaneProfileControl::DynamicLaneProfileControl(const QString &title,
-                                                     const QString &desc,
-                                                     const QString &icon,
-                                                     QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  // 버튼을 제목 아래에 배치
-  QWidget *btn_widget = new QWidget();
-  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
-  btn_layout->setContentsMargins(0, 8, 0, 8);
-  btn_layout->setSpacing(8);
-
-  for (int i = 0; i < labels.size(); i++) {
-    buttons[i] = new QPushButton(labels[i]);
-    buttons[i]->setFixedHeight(70);
-    buttons[i]->setCheckable(true);
-    buttons[i]->setStyleSheet(R"(
-      QPushButton {
-        font-size: 30px;
-        border-radius: 10px;
-        background-color: #393939;
-        color: #aaaaaa;
-      }
-      QPushButton:checked {
-        background-color: #0064ff;
-        color: #ffffff;
-      }
-      QPushButton:pressed {
-        background-color: #4a4a4a;
-      }
-    )");
-
-    connect(buttons[i], &QPushButton::clicked, [=]() {
-      params.put("DynamicLaneProfile", std::to_string(i));
-      refresh();
-    });
-
-    btn_layout->addWidget(buttons[i]);
-  }
-
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
-  refresh();
-}
-
-void DynamicLaneProfileControl::refresh() {
-  int val = std::atoi(params.get("DynamicLaneProfile").c_str());
   val = std::clamp(val, 0, (int)labels.size() - 1);
   for (int i = 0; i < labels.size(); i++) {
     buttons[i]->setChecked(i == val);
@@ -2001,155 +1844,84 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   // ── 조향 실시간 튜닝 (nTune 파일 직접 조절) ───────────────────
   list->addItem(horizontal_line());
 
-  list->addItem(new ParamValueControlF("CustomSteerRatio",
-      "SR",
-      "조향비(×0.01)입니다. 값 증가(+): 같은 커브에서 조향량이 커짐 / 값 감소(-): 조향량이 작아짐.\n"
-      "실시간 조향비 사용이 켜져 있으면 이 값 대신 학습값을 사용합니다.\n"
-      "범위: 1000 ~ 2000  /  기본값: 1650 (=16.50)",
-      "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
+  list->addItem(new ParamValueControlF("SteerRatioApply",
+      "STEER RATIO APPLY",
+      "aPilot 방식 고정 조향비(×0.1)입니다. 0이면 학습 조향비를 사용합니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 300, 2, 0, 0, this));
 
-  list->addItem(new ParamControl("UseLiveSteerRatio",
-      "LIVE STEER RATIO",
-      "켜짐: liveParameters가 학습한 조향비 사용 / 꺼짐: 위의 고정 조향비 사용.",
-      "../assets/offroad/icon_openpilot.png", this));
+  list->addItem(new ParamValueControlF("LiveSteerRatioApply",
+      "LIVE STEER RATIO APPLY",
+      "liveParameters 학습 조향비 적용 비율(%)입니다.",
+      "../assets/offroad/icon_openpilot.png", 50, 110, 1, 0, 100, this));
 
   list->addItem(new ParamValueControlF("SteerActuatorDelay",
       "SAD",
       "조향 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 조향 / 값 감소(-): 조향 시작이 늦어짐.\n"
       "너무 높으면 커브 안쪽으로 치우치고 너무 낮으면 바깥쪽으로 밀릴 수 있습니다.\n"
-      "범위: 0 ~ 80  /  기본값: 25 (=0.25초, 차량 정의값)",
-      "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 25, this));
+      "범위: 0 ~ 100  /  aPilot 기본값: 30 (=0.30초)",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF("SteeringRateCost",
       "MPC STEERING RATE COST",
       "목표 조향의 급격한 변화를 억제하는 MPC 비용값입니다.\n"
       "값 감소(-): 차선·경로 변화에 빠르게 반응 / 값 증가(+): 부드럽지만 반응이 느려짐.\n"
-      "제네시스 DH 권장값: 550  /  기존 고정값: 700  /  범위: 200 ~ 1200",
-      "../assets/offroad/icon_openpilot.png", 200, 1200, 25, 0, 550, this));
+      "aPilot 기본값: 700  /  범위: 0 ~ 2000",
+      "../assets/offroad/icon_openpilot.png", 0, 2000, 10, 0, 700, this));
+
+  list->addItem(new ParamValueControlF("PathCostApply", "PATH COST APPLY",
+      "aPilot 경로 추종 비용(×0.01).", "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
+  list->addItem(new ParamValueControlF("LateralMotionCost", "LATERAL MOTION COST",
+      "aPilot 횡방향 움직임 비용(×0.01).", "../assets/offroad/icon_openpilot.png", 0, 50, 1, 0, 11, this));
+  list->addItem(new ParamValueControlF("LateralAccelCost", "LATERAL ACCEL COST",
+      "aPilot 횡가속 비용(×0.01).", "../assets/offroad/icon_openpilot.png", 0, 300, 1, 0, 0, this));
+  list->addItem(new ParamValueControlF("LateralJerkCost", "LATERAL JERK COST",
+      "aPilot 횡저크 비용(×0.01).", "../assets/offroad/icon_openpilot.png", 0, 50, 1, 0, 5, this));
+  list->addItem(new ParamValueControlF("MaxAngleFrames", "MAX ANGLE FRAMES",
+      "고조향각 MDPS 보호 프레임 수. aPilot 기본값 89.", "../assets/offroad/icon_openpilot.png", 80, 100, 1, 0, 89, this));
+  list->addItem(new ParamValueControlF("SteerDeltaUp", "STEER DELTA UP",
+      "aPilot 조향 토크 증가 제한.", "../assets/offroad/icon_openpilot.png", 1, 20, 1, 0, 3, this));
+  list->addItem(new ParamValueControlF("SteerDeltaDown", "STEER DELTA DOWN",
+      "aPilot 조향 토크 감소 제한.", "../assets/offroad/icon_openpilot.png", 1, 20, 1, 0, 7, this));
 
   list->addItem(new ParamControl("LateralTorqueCustom",
       "CUSTOM TORQUE CONTROL",
-      "켜짐: 아래 토크 수동값 적용 / 꺼짐: 차량 정의값 사용.\n"
-      "차량 정의값 = torque_data/params.yaml 의 GENESIS 2015-2016 (FACTOR 2.747 / FRICTION 0.098)\n"
-      "+ kp 1.00 / ki 0.10 / kf 1.00. 코드에 있는 값이라 화면에서는 못 바꿉니다.",
+      "켜짐: 아래 aPilot 수동값 적용 / 꺼짐: LiveTorque 자동 학습값 사용.\n"
+      "GENESIS 2015-2016 차량 기준값: FACTOR 1.847 / FRICTION 0.098.",
       "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "LAT ACCEL FACTOR",
       "횡가속도 대비 토크 계수입니다. 값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐.\n"
-      "범위: 0.50 ~ 4.50  /  기본값: 2.747 (DH 차량 정의값)",
-      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.01, 3, 2.747, this));
+      "범위: 1.00 ~ 4.00  /  aPilot 수동 기본값: 2.500",
+      "../assets/offroad/icon_openpilot.png", 1.0, 4.0, 0.001, 3, 2.500, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
       "FRICTION",
       "정지마찰 보상값입니다. 값 증가(+): 중앙 부근 조향 반응이 빨라짐 / 값 감소(-): 반응이 부드럽고 느려짐.\n"
       "너무 크면 직진에서 좌우로 흔들리고, MDPS 부하가 커집니다.\n"
-      "범위: 0.000 ~ 0.200  /  기본값: 0.098 (DH 차량 정의값)",
-      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.098, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKpV",
-      "TORQUE KP", "현재 조향오차 반응값(×0.01)입니다. 값 증가(+): 조향 반응이 강하고 빠름 / 값 감소(-): 부드럽고 느림. 기본값: 100 (=1.00, 차량 정의값과 동일).",
-      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKiV",
-      "TORQUE KI", "누적 조향오차 보정값(×0.01)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정.\n"
-      "값이 크면 긴 커브에서 적분이 쌓여 안쪽으로 파고들 수 있습니다.\n"
-      "DH 차량 정의 기본값: 10 (=0.10).",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKf",
-      "TORQUE KF", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100 (=1.00, 차량 정의값과 동일).",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
-      "LAT ACCEL FRICTION FACTOR",
-      "횡가속도 오차를 마찰보상에 반영하는 비율(×0.01)입니다. 값 증가(+): 커브 조향 반응이 강해짐 / 값 감소(-): 부드러워짐. 기본값: 70.",
-      "../assets/offroad/icon_openpilot.png", 0, 300, 5, 0, 70, this));
-
-  list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
-      "LAT JERK FRICTION FACTOR",
-      "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
-
-  list->addItem(new ParamValueControlF("LatCurveIDeadzone",
-      "CURVE I DEADZONE (x0.001)",
-      "커브에서 이 값보다 작은 조향 오차는 적분(I)이 바로잡지 않습니다(토크 ×0.001). 값 감소(-): 긴 커브에서 더 돌거나 덜 도는 것을 적분이 서서히 바로잡음 / 값 증가(+): 적분 개입 줄임. 긴 커브에서 인코스로 파고들면 낮추고, 커브 중 핸들이 서서히 출렁이면 올리세요. 기본값: 20 (예전 70).",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 20, this));
-
-  list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
-      "LOW SPEED JITTER FILTER (ms)",
-      "5 km/h 이하, 거의 직진(반경 50 m 이상)일 때만 목표 곡률의 잔떨림을 걸러냅니다(9 km/h 까지 점감, 회전 중엔 자동 우회). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
-      "../assets/offroad/icon_openpilot.png", 0, 1000, 50, 0, 300, this));
+      "범위: 0.000 ~ 1.000  /  aPilot 수동 기본값: 0.100",
+      "../assets/offroad/icon_openpilot.png", 0.0, 1.0, 0.001, 3, 0.100, this));
 
   list->addItem(horizontal_line());
 
   list->addItem(horizontal_line());
 
-  // ── Offset Total ─────────────────────────────────────────────
-  // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
+  // aPilot PathOffset: integer centimetres, common to lane and laneless.
   list->addItem(horizontal_line());
-
-  auto *path_offset = new OffsetTotalControl(
-      "통합 경로 좌우보정",
-      "주행 경로 좌우 통합 보정값입니다. 레인모드·레인리스 모두 적용됩니다.\n"
-      "카메라 오프셋은 하드웨어 기본값으로 고정되고 이 값 하나로 조정합니다.\n"
-      "오른쪽으로 이동: 양수(+) / 왼쪽으로 이동: 음수(−)\n"
-      "범위: −1.00 ~ +1.00m  /  기본값: 0.00m",
-      "../assets/offroad/icon_road.png",
-      this);
-  path_offset->showDescription();
-  list->addItem(path_offset);
+  list->addItem(new ParamValueControlF("PathOffset",
+      "PATH OFFSET",
+      "aPilot 방식의 공통 경로 좌우 보정값입니다. 레인모드와 레인리스에 동일하게 적용됩니다.\n"
+      "음수(-): 왼쪽 / 양수(+): 오른쪽 / 단위: cm\n"
+      "범위: -200 ~ +200cm (1cm 단위)  /  기본값: 0",
+      "../assets/offroad/icon_road.png", -200, 200, 1, 0, 0, this));
 
   list->addItem(horizontal_line());
-
-  // ── Adjust Lane Offset ───────────────────────────────────────
-  auto *lane_offset = new AdjustLaneOffsetControl(
-      "차선 여유공간 자동보정",
-      "좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로를 옮깁니다.\n"
-      "좁은 도로에서 대형차 옆을 지날 때 효과가 있습니다.\n"
-      "양쪽 다 여유가 있거나 양쪽 다 좁으면 동작하지 않습니다.\n"
-      "커브에서는 자동 이동을 줄여 차선 중앙을 우선합니다.\n"
-      "값 증가(+): 여유 있는 쪽으로 더 많이 이동 / 값 감소(-): 이동량이 줄어듭니다.\n"
-      "범위: 0 ~ 40cm (5cm 단위)  /  기본값: OFF",
-      "../assets/offroad/icon_road.png",
-      this);
-  lane_offset->showDescription();
-  list->addItem(lane_offset);
-
-  list->addItem(horizontal_line());
-
-  // carrot c3 차선 경로 선행 입력 보상
-  list->addItem(new ParamValueControlF("LatMpcInputOffset",
-      "LATMPC INPUT OFFSET",
-      "차선 경로를 MPC에 앞서 입력하는 보상값입니다.\n"
-      "값 증가(+): 커브에 더 일찍 진입 / 값 감소(-): 더 늦게 진입.\n"
-      "커브 중에도 그대로 적용합니다(짧은 커브 진입용).\n"
-      "범위: 0 ~ 20  /  기본값: 4 (=0.04)",
-      "../assets/offroad/icon_road.png", 0, 20, 1, 0, 4, this));
-
-  list->addItem(horizontal_line());
-
-  // ── Laneless Offset ──────────────────────────────────────────
-  auto *laneless_offset = new LanelessOffsetControl(
-      "레인리스 좌우보정",
-      "차선을 쓰지 않는 레인리스 구간에서만 적용되는 좌우 보정입니다.\n"
-      "레인모드는 직진인데 레인리스에서만 한쪽으로 쏠릴 때 사용합니다.\n"
-      "차선이 잡히는 비중만큼 자동으로 줄어들어 레인모드 주행에는 영향이 없습니다.\n"
-      "오른쪽으로 이동: 양수(+) / 왼쪽으로 이동: 음수(−)\n"
-      "범위: −30 ~ +30cm (1cm 단위)  /  기본값: OFF",
-      "../assets/offroad/icon_road.png",
-      this);
-  laneless_offset->showDescription();
-  list->addItem(laneless_offset);
-
-  list->addItem(horizontal_line());
-  auto *dlp_control = new DynamicLaneProfileControl(
-      "DYNAMIC LANE PROFILE",
-      "차선 사용: 항상 차선 기반 / 차선 미사용: 항상 E2E 경로 / 자동: 차선 인식률에 따라 자동 전환.",
-      "../assets/offroad/icon_road.png",
-      this);
-  dlp_control->showDescription();
-  list->addItem(dlp_control);
+  list->addItem(new ParamValueControlF("UseLaneLineSpeed",
+      "AUTO LANE MODE CHANGE SPEED",
+      "aPilot 방식의 차선 사용 시작 속도(km/h)입니다.\n"
+      "0: 항상 레인리스 / 0보다 크면 설정 속도 이상에서 차선 인식률에 따라 자동 전환.\n"
+      "속도 전환에는 ±2km/h, 차선 확률에는 0.3/0.5 히스테리시스를 적용합니다.",
+      "../assets/offroad/icon_road.png", 0, 200, 10, 0, 0, this));
 
   list->addItem(horizontal_line());
 
@@ -2181,8 +1953,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamControl(
-      "KeepSteeringTurnSignals", "KEEP STEERING WITH BLINKER",
-      "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
+      "HudWheelStateMode", "STOCK HUD GREEN WHEEL WHEN ENGAGED",
+      "켜짐: 인게이지 중이면 차선 인식과 관계없이 순정 HUD·계기판에 녹색 핸들(과 양쪽 차선)을 표시합니다. 비인게이지는 기존과 같습니다. / 꺼짐: 기존처럼 인게이지 중에도 양쪽 차선이 보일 때만 녹색 핸들.",
       "../assets/offroad/icon_openpilot.png", this));
 
   ScrollView *scroller = new ScrollView(list, this);

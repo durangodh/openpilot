@@ -11,7 +11,6 @@ from selfdrive.eon_cluster.hud_remote import RemoteButtonSource
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
 from selfdrive.car.interfaces import CarInterfaceBase
 from common.params import Params
-from selfdrive.controls.lib.desire_helper import LANE_CHANGE_SPEED_MIN
 
 GearShifter = car.CarState.GearShifter
 EventName = car.CarEvent.EventName
@@ -51,9 +50,6 @@ class CarInterface(CarInterfaceBase):
     self.hud_remote = RemoteButtonSource()
     self.cp2 = self.CS.get_can2_parser(CP)
     # AutoLaneChangeSpeed 실시간 반영용 (VIP 패널에서 10km/h 단위 조절)
-    self._lc_speed_params = Params()
-    self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
-    self._lc_speed_params_t = 0.0
 
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
@@ -77,10 +73,6 @@ class CarInterface(CarInterfaceBase):
 
     tire_stiffness_factor = 1.
     ret.maxSteeringAngleDeg = 1000.
-
-    ret.steerFaultMaxAngle = 85
-    # Match apilot-c2: 89 valid requests followed by at most two reset frames.
-    ret.steerFaultMaxFrames = 89
 
     ret.disableLateralLiveTuning = False
 
@@ -365,21 +357,6 @@ class CarInterface(CarInterfaceBase):
     # It stays the raw stock SCC state; engagement is driven by the MAIN switch
     # edge override applied after create_common_events() below.
 
-    # turning indicator alert logic
-    t = time.monotonic()
-    if t - self._lc_speed_params_t > 1.0:
-      try:
-        auto_lc_speed_kph = int(self._lc_speed_params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
-      except (TypeError, ValueError):
-        auto_lc_speed_kph = 50
-      self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
-      self._lc_speed_params_t = t
-    if not self.CC.keep_steering_turn_signals and not self.CC.noo_turn_keep and \
-       (ret.leftBlinker or ret.rightBlinker or self.CC.turning_signal_timer) and ret.vEgo < self.lane_change_speed_min - 1.2:
-      self.CC.turning_indicator_alert = True
-    else:
-      self.CC.turning_indicator_alert = False
-
     # low speed steer alert hysteresis logic (only for cars with steer cut off above 10 m/s)
     if ret.vEgo < (self.CP.minSteerSpeed + 0.2) and self.CP.minSteerSpeed > 10.:
       self.low_speed_alert = True
@@ -426,9 +403,6 @@ class CarInterface(CarInterfaceBase):
       events.add(EventName.brakeUnavailable)
     if self.low_speed_alert and not self.CS.mdps_bus:
       events.add(EventName.belowSteerSpeed)
-    if self.CC.turning_indicator_alert:
-      events.add(EventName.turningIndicatorOn)
-
     # handle button presses
     for b in ret.buttonEvents:
       # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps

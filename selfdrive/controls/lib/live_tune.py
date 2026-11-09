@@ -26,15 +26,15 @@ def _get(key, default):
 
 def steer_actuator_delay():
   """조향 반응 지연 보상(초)."""
-  return _get("SteerActuatorDelay", 10.0) * 0.01
+  return _get("SteerActuatorDelay", 30.0) * 0.01
 
 
-def use_live_steer_ratio():
-  """liveParameters 학습 조향비 사용 여부."""
-  return _get("UseLiveSteerRatio", 1.0) > 0.5
+def steer_ratio_apply():
+  """aPilot fixed steering ratio; zero selects liveParameters."""
+  return _get("SteerRatioApply", 0.0) * 0.1
 
 
-def custom_steer_ratio():
-  """고정 조향비."""
-  return _get("CustomSteerRatio", 1650.0) * 0.01
+def live_steer_ratio_apply():
+  """aPilot multiplier applied to the learned steering ratio."""
+  return _get("LiveSteerRatioApply", 100.0) * 0.01
 

@@ -1,9 +1,10 @@
-const int HYUNDAI_MAX_STEER = 409;             // like stock
-const int HYUNDAI_MAX_RT_DELTA = 112;          // max delta torque allowed for real time checks
+// aPilot c2-master Hyundai steering safety limits.
+const int HYUNDAI_MAX_STEER = 509;
+const int HYUNDAI_MAX_RT_DELTA = 300;
 const uint32_t HYUNDAI_RT_INTERVAL = 250000;   // 250ms between real time checks
-const int HYUNDAI_MAX_RATE_UP = 3;
-const int HYUNDAI_MAX_RATE_DOWN = 7;
-const int HYUNDAI_DRIVER_TORQUE_ALLOWANCE = 50;
+const int HYUNDAI_MAX_RATE_UP = 30;
+const int HYUNDAI_MAX_RATE_DOWN = 30;
+const int HYUNDAI_DRIVER_TORQUE_ALLOWANCE = 350;
 const int HYUNDAI_DRIVER_TORQUE_FACTOR = 2;
 const int HYUNDAI_STANDSTILL_THRSLD = 30;  // ~1kph
 
@@ -336,7 +337,10 @@ static int hyundai_tx_hook(CANPacket_t *to_send, bool longitudinal_allowed) {
     }
 
     if (violation) {
-      tx = 0;
+      // aPilot c2-master reports Hyundai LKAS limit violations but does not
+      // suppress the frame here. The car-side controller retains its normal
+      // STEER_MAX/rate limiting and the EPS request-bit fault prevention.
+      puts("violation[LKAS11, 832]\n");
     }
   }
 

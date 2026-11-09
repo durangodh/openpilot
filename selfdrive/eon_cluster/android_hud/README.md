@@ -455,9 +455,9 @@ BSD 는 이 설정과 무관하게 항상 경고 띠다 (옆차 앞뒤 위치를
 Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다.
 기하 데이터 1.6KB -> 3.2KB, EON 부하(1~3%)는 그대로. **앱 변경 없음.**
 
-**2. `OffsetTotal` 반영** (패킷 `pathOffset`)
+**2. `PathOffset` 반영** (패킷 `pathOffset`)
 
-`lateral_planner.py:157` 이 `path_xyz[:, 1] += self.offset_total` 로 최종
+`lateral_planner.py`가 `path_xyz[:, 1] += self.path_offset`으로 최종
 경로에만 오프셋을 더한다. 모델의 laneLines / roadEdges 에는 안 들어간다.
 그래서 앱도 **경로 리본에만** 더한다. 차선·경계는 원본 그대로.
 
@@ -479,7 +479,7 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
 * EON이 `modelV2.position`이나 MPC 입력 기준값인 `dPathPoints` 대신,
   `lateralPlan.mpcPathX/mpcPathY`에 발행된 MPC 최적화 상태 경로를 전송한다.
   Z축은 같은 shooting-node 인덱스의 `modelV2.position.z`를 사용한다.
-* 최종 MPC 경로에는 `OffsetTotal`이 이미 포함되어 있으므로 패킷
+* 최종 MPC 경로에는 `PathOffset`이 이미 포함되어 있으므로 패킷
   `pathOffset`은 0으로 보낸다. MPC가 무효이면 기존 모델 경로와 별도 오프셋을
   보내며 Android 렌더러가 경로 Y 좌표에 적용한다.
 * `pathFinal`은 이전 v6 APK와의 호환을 위해 계속 전송하지만 현재 렌더러는

@@ -135,7 +135,6 @@ struct CarEvent @0x9b1657f34caf3ad3 {
     startupOneplusDEPRECATED @82;
     startupFuzzyFingerprintDEPRECATED @97;
     
-    turningIndicatorOn @112;
     autoLaneChange @113;
     slowingDownSpeed @114;
     slowingDownSpeedSound @115;

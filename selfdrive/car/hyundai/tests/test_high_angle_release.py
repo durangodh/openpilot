@@ -1,20 +1,17 @@
-"""Past the high angle the torque is released, never pulsed (MDPS fault logs 2026-11-09)."""
+"""aPilot high-angle steering request pulse behavior."""
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / 'carcontroller.py'
 
 
-def test_no_reset_pulse_is_started():
+def test_two_frame_torque_fault_pulse_is_used():
   text = SOURCE.read_text(encoding='utf-8')
+  assert "torque_fault = lkas_active and self.angle_limit_counter > self.max_angle_frames" in text
+  assert "lkas_active = lkas_active and not torque_fault" in text
+  assert "self.max_angle_frames + MAX_ANGLE_CONSECUTIVE_FRAMES" in text
+
+
+def test_old_latched_release_path_is_removed():
+  text = SOURCE.read_text(encoding='utf-8')
+  assert "self.high_angle_release" not in text
   assert "self.cut_steer = True" not in text
-  block = text[text.index("if self.angle_limit_counter > self.steer_fault_max_frames:"):]
-  block = block[:block.index("elif")]
-  assert "self.high_angle_release = True" in block
-
-
-def test_release_holds_until_back_under_the_angle_in_the_same_frame():
-  text = SOURCE.read_text(encoding='utf-8')
-  release = text.index("if self.high_angle_release:")
-  zero = text.index("if not lkas_active:\n      apply_steer = 0")
-  assert release < zero
-  assert "if abs(CS.out.steeringAngleDeg) < self.steer_fault_max_angle:\n        self.high_angle_release = False" in text

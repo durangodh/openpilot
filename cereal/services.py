@@ -28,10 +28,7 @@ services = {
   "gpsNMEA": (True, 9.),
   "deviceState": (True, 2., 1),
   "can": (True, 100.),
-  # controlsState / carControl 은 controlsd 에서 25 Hz 로 발행한다(_pub_div=4).
-  # 소비자가 UI 계열(ui 20fps, soundd, remote_hud 10Hz, plannerd 20Hz)이라
-  # 25 Hz 로 충분하다. controlsd._pub_div 와 반드시 같이 바꿀 것.
-  "controlsState": (True, 25., 10),
+  "controlsState": (True, 100., 10),
   "pandaStates": (True, 2., 1),
   "peripheralState": (True, 2., 1),
   "radarState": (True, 20., 5),
@@ -43,7 +40,7 @@ services = {
   "liveCalibration": (True, 4., 4),
   "androidLog": (True, 0.),
   "carState": (True, 100., 10),
-  "carControl": (True, 25., 10),
+  "carControl": (True, 100., 10),
   "longitudinalPlan": (True, 20., 5),
   "procLog": (True, 0.5),
   "gpsLocationExternal": (True, 10., 10),
@@ -53,6 +50,7 @@ services = {
   "ubloxRaw": (True, 20.),
   "liveLocationKalman": (True, 20., 5),
   "liveParameters": (True, 20., 5),
+  "liveTorqueParameters": (True, 4., 1),
   "cameraOdometry": (True, 20., 5),
   "lateralPlan": (True, 20., 5),
   "thumbnail": (True, 0.2, 1),

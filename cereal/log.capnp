@@ -1043,8 +1043,6 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   
   autoLaneChangeEnabled @32 :Bool;
   autoLaneChangeTimer @33 :Int8;
-  dynamicLaneProfile @34 :Int8;
-  dynamicLaneProfileStatus @35 :Bool;
   laneChangePrev @36 :Bool;
 
   solverCost @39 :Float32;
@@ -1803,8 +1801,7 @@ struct LiveTorqueParametersData {
   points @10 :List(List(Float32));
   version @11 :Int32;
   useParams @12 :Bool;
-  calPerc @13 :Int8;
-  carFingerprint @14 :Text;
+  debugText @13 :Text;
 }
 
 struct LiveMapDataDEPRECATED {

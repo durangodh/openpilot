@@ -33,6 +33,7 @@ procs = [
   NativeProcess("locationd", "selfdrive/locationd", ["./locationd"]),
   NativeProcess("boardd", "selfdrive/boardd", ["./boardd"], enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
+  PythonProcess("torqued", "selfdrive.locationd.torqued"),
   PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
   # External HUD output is S9-only. EON publishes compact telemetry/native
   # TMAP assets plus live S9 render tuning; Android renders/JPEG-encodes/USB.

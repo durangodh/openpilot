@@ -4,21 +4,17 @@ from common.filter_simple import FirstOrderFilter
 from common.numpy_fast import interp, clip, mean
 from common.realtime import DT_MDL
 from selfdrive.swaglog import cloudlog
-from common.params import Params
 from selfdrive.controls.lib.lane_path_validation import (valid_samples, valid_lane_path,
                                                        valid_lane_times, lane_horizon_weights,
                                                        curve_centering_weight, repair_lane_times)
 
 TRAJECTORY_SIZE = 33
-ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
 # 커브 차선중앙 유지는 커브가 이어질 때만: 처음 1초는 모델 라인, 3초에 완전 적용.
 # 짧은 커브는 모델의 자연스러운 라인을, 긴 커브는 차선 중앙을 따른다(2026-10-08).
 CURVE_CENTER_DELAY_BP = [1.0, 3.0]
 
-# CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
-# → lateral_planner.py에서 Params 기반으로 주입됨
-CAMERA_OFFSET = -0.06          # EON 카메라 장착 위치 보정
-DEFAULT_CAMERA_OFFSET = -0.06
+CAMERA_OFFSET = -0.06
+PATH_OFFSET = 0.0
 
 ENABLE_ZORROBYTE = True
 ENABLE_INC_LANE_PROB = True
@@ -52,9 +48,10 @@ class LanePlanner:
 
     self.wide_camera = wide_camera
 
-    # camera_offset: 하드웨어 기본값 고정 (사용자 조정은 offset_total 로 일원화)
-    # 초기값은 DEFAULT_CAMERA_OFFSET 사용 (wide_camera 부호 반전은 lateral_planner에서 처리)
-    self.camera_offset = -DEFAULT_CAMERA_OFFSET if wide_camera else DEFAULT_CAMERA_OFFSET
+    # aPilot: hardware camera calibration is fixed. User path correction is
+    # applied once in lateral_planner, after lane/laneless path selection.
+    self.camera_offset = -CAMERA_OFFSET if wide_camera else CAMERA_OFFSET
+    self.path_offset = -PATH_OFFSET if wide_camera else PATH_OFFSET
 
     self.readings = []
     self.frame = 0
@@ -69,16 +66,6 @@ class LanePlanner:
     self.lane_width_right = 0.0
     self.lane_width_left_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_width_right_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
-    self.lane_offset_filtered = FirstOrderFilter(0.0, 2.0, DT_MDL)
-    self.lane_offset = 0.0
-    self.params = Params()
-    self.adjust_lane_offset = 0.0
-    self.lat_mpc_input_offset = 0.04
-    # 레인리스에서만 쓰는 횡보정. 모델 경로 자체가 한쪽으로 치우쳐 있을 때
-    # 쓴다(양수 = 왼쪽). 차선이 잡히는 비중만큼 자동으로 사라지므로 레인모드
-    # 주행에는 영향이 없다.
-    self.laneless_offset = 0.0
-    self.param_read_frame = 0
     self.curve_time = 0.0
     self.curve_sign = 0.0
     self.curve_center_weight = 0.0
@@ -153,24 +140,6 @@ class LanePlanner:
   def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active, curve_speed=200.0):
     path_xyz = path_xyz.copy()
     lane_line_blend = float(clip(float(lanelines_active), 0.0, 1.0))
-    self.param_read_frame += 1
-    if self.param_read_frame % 20 == 1:      # 1초 주기
-      try:
-        self.adjust_lane_offset = float(self.params.get("AdjustLaneOffset", encoding="utf8") or "0") * 0.01
-      except (TypeError, ValueError):
-        self.adjust_lane_offset = 0.0
-      try:
-        self.laneless_offset = float(self.params.get("LanelessOffset", encoding="utf8") or "0") * 0.01
-      except (TypeError, ValueError):
-        self.laneless_offset = 0.0
-      try:
-        # carrot c3 stores 4 as 0.04 (4 percent of the model time axis).
-        self.lat_mpc_input_offset = float(
-          self.params.get("LatMpcInputOffset", encoding="utf8") or "4") * 0.01
-      except (TypeError, ValueError):
-        self.lat_mpc_input_offset = 0.04
-      self.lat_mpc_input_offset = float(clip(self.lat_mpc_input_offset, 0.0, 0.20))
-
     # 같은 방향 커브가 이어진 시간. 직선이 되거나 방향이 바뀌면(S커브) 바로 0.
     curve_weight = curve_centering_weight(curve_speed)
     if curve_weight > 0.5 and np.sign(curve_speed) == self.curve_sign:
@@ -184,9 +153,8 @@ class LanePlanner:
                   valid_samples(path_t) and np.all(np.diff(path_t) > 0.0))
     if not lane_valid:
       self.d_prob = 0.0
-      # Preserve the model path and the existing laneless offset, with no stale
-      # lane-centering or road-edge correction. Do not feed NaNs to interpolation.
-      path_xyz[:, 1] += self.laneless_offset
+      # Preserve the model path with no stale lane-centering correction. Do not
+      # feed NaNs to interpolation.
       return path_xyz
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
@@ -271,33 +239,6 @@ class LanePlanner:
     lane_path_y = ((1.0 - center_strength) * lane_path_y +
                    center_strength * (self.lll_y + self.rll_y) / 2.0)
 
-    # ── carrot 이식 2 : 여유공간 비대칭 시 경로 오프셋 ────────────────────
-    #   AdjustLaneOffset (cm 단위 정수 파라미터). 0 이면 동작 안함.
-    #   양쪽 다 여유(>2.2m) 또는 양쪽 다 빡빡(<2.0m) 하면 보정하지 않고,
-    #   한쪽만 여유가 있을 때 그 반대쪽(좁은 쪽)에서 떨어지도록 민다.
-
-    lwl = self.lane_width_left_filtered.x
-    lwr = self.lane_width_right_filtered.x
-    offset_lane = 0.0
-    if self.adjust_lane_offset > 0.0:
-      if lwl > 2.2 and lwr > 2.2:
-        offset_lane = 0.0
-      elif lwl < 2.0 and lwr < 2.0:
-        offset_lane = 0.0
-      elif lwl > lwr:
-        # 좌측이 여유 → 좌로(+) 이동. 차로가 좁으면(2.5m 미만) 하지 않음
-        offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, self.adjust_lane_offset])
-      else:
-        offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, -self.adjust_lane_offset])
-    # Automatic space offsets are for straight travel. On bends, keep the
-    # lane centre rather than adding an offset in the direction of the curve.
-    offset_total = clip(offset_lane * (1.0 - curve_weight),
-                        -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
-
-    # d_prob 가 낮으면 오프셋도 서서히 0 으로 (2초 필터)
-    self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_total]))
-    self.lane_offset = float(self.lane_offset_filtered.x)
-
     safe_idxs = np.isfinite(self.ll_t)
     effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
@@ -307,18 +248,12 @@ class LanePlanner:
       # If lanes cover less than the full model horizon, fade their authority
       # over the last measured second rather than extending the endpoint.
       horizon_weights = lane_horizon_weights(self.ll_t, np.asarray(path_t))
-      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset), self.ll_t[safe_idxs][-1])
+      preview_t = np.minimum(path_t, self.ll_t[safe_idxs][-1])
       lane_path_y_interp = np.interp(preview_t,
                                      self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       effective_d_prob = self.d_prob * lane_line_blend * horizon_weights
       path_xyz[:,1] = effective_d_prob * lane_path_y_interp + (1.0 - effective_d_prob) * path_xyz[:,1]
-      # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.
-      path_xyz[:,1] += self.lane_offset * effective_d_prob
     elif not safe_idxs[0]:
       cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
 
-    # 모델 경로가 쓰이는 비중(= 1 - effective_d_prob)만큼만 레인리스 보정을
-    # 적용한다. 차선이 잘 보이면 0 에 가까워지므로 레인모드는 그대로다.
-    if self.laneless_offset != 0.0:
-      path_xyz[:,1] += self.laneless_offset * (1.0 - effective_d_prob)
     return path_xyz

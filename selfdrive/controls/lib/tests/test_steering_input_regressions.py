@@ -23,7 +23,7 @@ from selfdrive.controls.lib.tests.test_navigation_noo import noo_state, confirm_
 def load_planner_module(name):
   class Params:
     def get(self, key, encoding=None):
-      return {"LanelessOffset": "10", "NooMode": "1"}.get(key)
+      return {"PathOffset": "10", "NooMode": "1"}.get(key)
 
     def get_bool(self, key):
       return key == "NavigationOnOpenpilot"

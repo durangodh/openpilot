@@ -849,14 +849,6 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     ET.NO_ENTRY: NoEntryAlert("LKAS Disabled"),
   },
 
-  EventName.turningIndicatorOn: {
-    ET.WARNING: Alert(
-      "TAKE CONTROL",
-      "Steer Unavailable while Turning",
-      AlertStatus.userPrompt, AlertSize.small,
-      Priority.LOW, VisualAlert.none, AudibleAlert.none, .2),
-  },
-
   EventName.autoLaneChange: {
     ET.WARNING: auto_lane_change_alert,
   },

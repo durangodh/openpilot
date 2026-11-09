@@ -903,7 +903,7 @@ void NvgWindow::drawCarrotBottomContent(QPainter &p) {
 
       // 레인모드/레인리스는 글자 대신 점으로. 가운데 정렬된 문자열의 바로
       // 왼쪽에 붙인다. 파랑 = 차선 사용, 노랑 = 차선 미사용(E2E).
-      const bool laneless = sm["lateralPlan"].getLateralPlan().getDynamicLaneProfileStatus();
+      const bool laneless = !sm["lateralPlan"].getLateralPlan().getUseLaneLines();
       const int text_w = QFontMetrics(p.font()).boundingRect(lat_debug).width();
       const int dot_r = 9;
       const int dot_cx = left_limit + avail / 2 - text_w / 2 - dot_r - 12;

@@ -3,7 +3,7 @@ from random import randint
 from cereal import car
 from common.realtime import DT_CTRL
 from common.numpy_fast import clip
-from selfdrive.car import apply_std_steer_torque_limits
+from selfdrive.car import apply_driver_steer_torque_limits
 from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
@@ -18,6 +18,13 @@ from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
+
+# Match aPilot c2-master: the EPS faults if torque is requested above about
+# 90 degrees for too long. Keep the request valid for 89 frames, then clear
+# the actuation bit and set ToiFlt for two consecutive frames.
+MAX_ANGLE = 85
+MAX_ANGLE_FRAMES = 89
+MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego, pre_release=False,
@@ -40,12 +47,30 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   return bool(stopping and (actual_standstill or latched) and not pre_release)
 
 
-# Past steerFaultMaxAngle for steerFaultMaxFrames the torque request is released (no
-# CF_Lkas_ToiFlt reset pulse) until the wheel is back under the angle. MDPS fault logs
-# 2026-11-09: every reset pulse gave a 2-frame FailStat blip, and a run of them ended in a
-# latched ToiFlt + FailStat (steering off) at the 5th pulse (10:32:03, -93 deg, 84 deg/s)
-# and the 7th (11:55:04, -141 deg, 8 deg/s). No angle, rate or torque value separated the
-# pulses that recovered from the ones that latched; the pulses themselves are the trigger.
+# 순정 HUD/계기판 핸들 표시(LKAS11 CF_Lkas_LdwsSysState). 실차(DH): 3 일 때만 녹색 핸들.
+LKAS_STATE_ACTIVE = 3
+# 정차 중 상태값을 강제로 바꿔 보는 시험용 파일(selfdrive/debug/lkas_hud_state_test.py 가 쓴다).
+LKAS_STATE_TEST_FILE = "/dev/shm/lkas_sys_state_test"
+def hud_wheel_state(sys_state, enabled, state_mode, test_state=None):
+  """state_mode: 인게이지 중이면 차선 인식과 관계없이 녹색 핸들(3).
+
+  비인게이지는 기존(차선 인식) 값 그대로. 3 은 양쪽 차선 표시를 포함하므로 인게이지 중
+  HUD 차선 그림이 항상 나온다. test_state 는 인게이지가 아닐 때만 적용한다.
+  """
+  if test_state is not None and not enabled:
+    return int(test_state)
+  if state_mode and enabled:
+    return LKAS_STATE_ACTIVE
+  return sys_state
+
+
+def read_lkas_state_test():
+  try:
+    with open(LKAS_STATE_TEST_FILE) as f:
+      value = int(f.read().strip())
+    return value if 0 <= value <= 15 else None
+  except (OSError, ValueError):
+    return None
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -87,19 +112,12 @@ class CarController:
     self.resume_cnt = 0
     self.resume_wait_timer = 0
 
-    self.turning_signal_timer = 0
     self.longcontrol = CP.openpilotLongitudinalControl
     self.scc_live = not CP.radarOffCan
-
-    self.turning_indicator_alert = False
-    # NOO is steering a turn in the same direction as the driver's blinker.
-    # Read by the interface (one frame later) to skip the low-speed blinker cut.
-    self.noo_turn_keep = False
 
     param = Params()
 
     self.mad_mode_enabled = param.get_bool('MadModeEnabled')
-    self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
     self.op_params = param
 
@@ -108,38 +126,17 @@ class CarController:
     # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
     # when the same param was in the safety config at startup (interface.py).
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
+    self.lkas_state_test = None
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
     self.last_active_cam_frame = 0
 
     self.angle_limit_counter = 0
-    self.cut_steer_frames = 0
-    self.cut_steer = False
-    self.cut_steer_temp = False   # last frame's high-angle cut pulse (MDPS fault recorder)
-    # Torque off instead of a reset pulse past the high angle; held until the angle is back
-    # under steerFaultMaxAngle.
-    self.high_angle_release = False
+    self.max_angle_frames = MAX_ANGLE_FRAMES
+    self.steer_delta_up = 3
+    self.steer_delta_down = 7
 
-    self.steer_fault_max_angle = CP.steerFaultMaxAngle
-    self.steer_fault_max_frames = CP.steerFaultMaxFrames
-
-
-  @staticmethod
-  def _noo_turn_matches_blinker(CS, controls):
-    try:
-      noo_turn = int(controls.sm['lateralPlan'].nooTurnDirection)
-    except (AttributeError, KeyError, TypeError, ValueError):
-      return False
-    # The DH MDPS faulted when steering stayed active past ~90 deg while the
-    # driver turned the wheel against it in an intersection turn (2026-10-16).
-    # Beyond 80 deg or with the driver steering, the normal blinker cut applies.
-    if abs(CS.out.steeringAngleDeg) >= 80.0 or CS.out.steeringPressed:
-      return False
-    # Also covers the 0.5 s hold after the blinker goes off; only an opposite
-    # blinker keeps the cut.
-    left, right = CS.out.leftBlinker, CS.out.rightBlinker
-    return (noo_turn < 0 and not right) or (noo_turn > 0 and not left)
 
   def update(self, CC, CS, controls):
     actuators = CC.actuators
@@ -147,28 +144,18 @@ class CarController:
     pcm_cancel_cmd = CC.cruiseControl.cancel
 
     # Steering Torque
+    if self.frame % 100 == 0:
+      self.max_angle_frames = int(clip(self.op_params.get_int("MaxAngleFrames"), 80, 100))
+      self.steer_delta_up = int(clip(self.op_params.get_int("SteerDeltaUp"), 1, 20))
+      self.steer_delta_down = int(clip(self.op_params.get_int("SteerDeltaDown"), 1, 20))
+
     new_steer = int(round(actuators.steer * self.params.STEER_MAX))
-    apply_steer = apply_std_steer_torque_limits(new_steer, self.apply_steer_last, CS.out.steeringTorque, self.params)
+    self.params.STEER_DELTA_UP = self.steer_delta_up
+    self.params.STEER_DELTA_DOWN = self.steer_delta_down
+    apply_steer = apply_driver_steer_torque_limits(new_steer, self.apply_steer_last, CS.out.steeringTorque, self.params)
 
     # disable when temp fault is active, or below LKA minimum speed
     lkas_active = CC.latActive
-
-    # Disable steering while turning blinker on and speed below 60 kph
-    if CS.out.leftBlinker or CS.out.rightBlinker:
-      self.turning_signal_timer = 0.5 / DT_CTRL  # Disable for 0.5 Seconds after blinker turned off
-    # A driver blinker that matches an active NOO turn is the expected turn
-    # signal, not a request to hand the wheel back.
-    self.noo_turn_keep = self._noo_turn_matches_blinker(CS, controls)
-    if self.turning_indicator_alert and not self.noo_turn_keep:  # set and clear by interface
-      lkas_active = 0
-    if self.turning_signal_timer > 0:
-      self.turning_signal_timer -= 1
-
-    if self.high_angle_release:
-      if abs(CS.out.steeringAngleDeg) < self.steer_fault_max_angle:
-        self.high_angle_release = False
-      else:
-        lkas_active = 0
 
     if not lkas_active:
       apply_steer = 0
@@ -176,6 +163,10 @@ class CarController:
     self.apply_steer_last = apply_steer
 
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
+    if self.frame % 50 == 0:
+      self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
+      self.lkas_state_test = read_lkas_state_test()
+    sys_state = hud_wheel_state(sys_state, CC.enabled, self.hud_wheel_state_mode, self.lkas_state_test)
 
     if self.haptic_feedback_speed_camera:
       if self.prev_active_cam != controls.cruise_helper.active_cam:
@@ -199,40 +190,27 @@ class CarController:
 
     self.lkas11_cnt = (self.lkas11_cnt + 1) % 0x10
 
-    cut_steer_temp = False
+    if lkas_active and abs(CS.out.steeringAngleDeg) >= MAX_ANGLE:
+      self.angle_limit_counter += 1
+    else:
+      self.angle_limit_counter = 0
 
-    if self.steer_fault_max_angle > 0:
-      if lkas_active and abs(CS.out.steeringAngleDeg) >= self.steer_fault_max_angle:
-        self.angle_limit_counter += 1
-      else:
-        self.angle_limit_counter = 0
+    torque_fault = lkas_active and self.angle_limit_counter > self.max_angle_frames
+    lkas_active = lkas_active and not torque_fault
 
-      # Avoid the MDPS 90 degree fault by releasing torque (the old induced-ToiFlt pulse that
-      # kept torque past it led to latched faults, see the note above process_hud_alert).
-      if self.angle_limit_counter > self.steer_fault_max_frames:
-        # No reset pulse: release torque from the next frame until back under the angle.
-        self.high_angle_release = True
-        self.angle_limit_counter = 0
-      elif self.cut_steer_frames > 1:
-        self.cut_steer_frames = 0
-        self.cut_steer = False
-
-      if self.cut_steer:
-        cut_steer_temp = True
-        self.angle_limit_counter = 0
-        self.cut_steer_frames += 1
+    if self.angle_limit_counter >= self.max_angle_frames + MAX_ANGLE_CONSECUTIVE_FRAMES:
+      self.angle_limit_counter = 0
 
 
-    self.cut_steer_temp = cut_steer_temp
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
-                                   left_lane_warning, right_lane_warning, 0, False, cut_steer_temp))
+                                   left_lane_warning, right_lane_warning, 0, False, torque_fault))
 
     if CS.mdps_bus or CS.scc_bus == 1:  # send lkas11 bus 1 if mdps or scc is on bus 1
       can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                      CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
-                                     left_lane_warning, right_lane_warning, 1, False, cut_steer_temp))
+                                     left_lane_warning, right_lane_warning, 1, False, torque_fault))
 
     if self.frame % 2 and CS.mdps_bus:  # send clu11 to mdps if it is not on bus 0
       can_sends.append(create_clu11(self.packer, CS.mdps_bus, CS.clu11, Buttons.NONE, enabled_speed))

@@ -43,39 +43,21 @@ GROUPS = OrderedDict([
     ("UISettingsPanel",   "화면"),
 ])
 
-# 실수로 저장되어 APM 이 파싱하지 못하거나, 정수로 덮어쓰면 위험한 파라미터
-BLOCKLIST = {
-    "OffsetTotal",        # "0.050000" 형태의 미터 단위 실수. 정수로 쓰면 5m 가 된다
-}
+# APM edits integer Params only. PathOffset follows aPilot and is stored in cm.
+BLOCKLIST = set()
 
 # settings.cc 의 전용 위젯으로만 편집되는 파라미터 (수동 정의)
 EXTRA = [
     dict(group="VIPPanel", name="LateralTorqueAccelFactor",
          title="LAT ACCEL FACTOR (x1000)",
-         descr="횡가속도 대비 토크 계수 x1000. 2700 = 2.70.\n"
-               "값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐. 범위 500~4500.",
-         min=500, max=4500, step=1, default=2747),
+         descr="횡가속도 대비 토크 계수 x1000. 2500 = 2.50.\n"
+               "값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐. 범위 1000~4000.",
+         min=1000, max=4000, step=1, default=2500),
     dict(group="VIPPanel", name="LateralTorqueFriction",
          title="FRICTION (x1000)",
-         descr="정지마찰 보상값 x1000. 80 = 0.080.\n"
-               "값 증가(+): 중앙 부근 반응이 빨라짐 / 너무 크면 직진에서 흔들림. 범위 0~200.",
-         min=0, max=200, step=1, default=98, force=True),   # DH 0.098 기준
-    dict(group="VIPPanel", name="AdjustLaneOffset",
-         title="AUTO LANE OFFSET (cm)",
-         descr="좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로 이동. 0=끔, 0~40cm.",
-         min=0, max=40, step=5, default=0),
-    dict(group="VIPPanel", name="LanelessOffset",
-         title="LANELESS OFFSET (cm)",
-         descr="차선 미사용 경로의 좌우 오프셋입니다. 음수: 왼쪽 / 양수: 오른쪽 / 0: 끔.",
-         min=-30, max=30, step=1, default=0),
-    dict(group="VIPPanel", name="LatMpcInputOffset",
-         title="LATMPC INPUT OFFSET",
-         descr="차선 경로를 앞서 입력합니다. 값이 크면 커브에 더 일찍 진입. 4=기본(0.04).",
-         min=0, max=20, step=1, default=4),
-    dict(group="VIPPanel", name="DynamicLaneProfile",
-         title="DYNAMIC LANE PROFILE",
-         descr="0: 차선 사용 / 1: 차선 미사용(E2E) / 2: 자동 전환.",
-         min=0, max=2, step=1, default=0),
+         descr="정지마찰 보상값 x1000. 100 = 0.100.\n"
+               "값 증가(+): 중앙 부근 반응이 빨라짐 / 너무 크면 직진에서 흔들림. 범위 0~1000.",
+         min=0, max=1000, step=1, default=100, force=True),
     dict(group="VIPPanel", name="AutoLaneChangeTimer",
          title="AUTO LANE CHANGE DELAY",
          descr="0: 즉시 / 1: 0.1s / 2: 0.5s / 3: 1.0s / 4: 1.5s / 5: 2.0s.",

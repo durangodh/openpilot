@@ -166,7 +166,7 @@ class Controls:
         ignore += ['driverCameraState', 'managerState']
       self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                      'driverMonitoringState', 'longitudinalPlan', 'lateralPlan', 'liveLocationKalman',
-                                     'managerState', 'liveParameters', 'radarState'] + self.camera_packets + joystick_packet,
+                                     'managerState', 'liveParameters', 'radarState', 'liveTorqueParameters'] + self.camera_packets + joystick_packet,
                                     ignore_alive=ignore,
                                     ignore_avg_freq=['radarState', 'longitudinalPlan', 'driverMonitoringState'])
 
@@ -300,14 +300,6 @@ class Controls:
       self.mdps_log = MdpsFaultLog()
     self._mdps_prev_start = None
 
-    # ---- 발행 감속 ---------------------------------------------------------
-    # controlsState / carControl 은 소비자가 전부 UI 계열(ui 20fps, soundd,
-    # remote_hud 10Hz, plannerd 20Hz)이라 100Hz 로 만들 필요가 없다.
-    # services.py 의 25 Hz 선언과 맞춘다. 미등록 Params 키를 읽으면
-    # controlsd 시작이 중단되므로 발행 분배값은 고정한다.
-    # 2026-09-09: 2(50Hz) → 4(25Hz). 되돌리면 services.py 도 같이 50 으로.
-    self._pub_div = 4
-    # carState 는 감속하지 않는다 (locationd/paramsd/radard 가 먹는다)
     self._not_running_processes = set()
 
   def update_events(self, CS):
@@ -449,7 +441,7 @@ class Controls:
 
     if not self.sm['liveParameters'].valid:
       self.events.add(EventName.vehicleModelInvalid)
-    if not self.sm['lateralPlan'].mpcSolutionValid and not (EventName.turningIndicatorOn in self.events.names):
+    if not self.sm['lateralPlan'].mpcSolutionValid:
       self.events.add(EventName.plannerError)
     if not (self.sm['liveParameters'].sensorValid or self.sm['liveLocationKalman'].sensorsOK) and not NOSENSOR:
       if self.sm.frame > 5 / DT_CTRL:  # Give locationd some time to receive all the inputs
@@ -727,12 +719,21 @@ class Controls:
     x = max(params.stiffnessFactor, 0.1)
     #sr = max(params.steerRatio, 0.1)
 
-    if live_tune.use_live_steer_ratio():
-      sr = max(params.steerRatio, 0.1)
+    fixed_sr = live_tune.steer_ratio_apply()
+    if fixed_sr > 0.0:
+      sr = fixed_sr
     else:
-      sr = max(live_tune.custom_steer_ratio(), 0.1)
+      sr = max(params.steerRatio, 0.1) * live_tune.live_steer_ratio_apply()
 
     self.VM.update_params(x, sr)
+
+    # Update Torque Params
+    if self.CP.lateralTuning.which() == 'torque':
+      torque_params = self.sm['liveTorqueParameters']
+      if self.sm.all_checks(['liveTorqueParameters']) and torque_params.useParams and not self.LaC.lateralTorqueCustom:
+        self.LaC.update_live_torque_params(torque_params.latAccelFactorFiltered,
+                                           torque_params.latAccelOffsetFiltered,
+                                           torque_params.frictionCoefficientFiltered)
 
     lat_plan = self.sm['lateralPlan']
     long_plan = self.sm['longitudinalPlan']
@@ -786,8 +787,7 @@ class Controls:
                                                                                        lat_plan.curvatureRates)
       actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params,
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
-                                                                             self.desired_curvature_rate, self.sm['liveLocationKalman'],
-                                                                             self.sm['modelV2'])
+                                                                             self.desired_curvature_rate, self.sm['liveLocationKalman'])
     else:
       lac_log = log.ControlsState.LateralDebugState.new_message()
       if self.sm.rcv_frame['testJoystick'] > 0:
@@ -924,10 +924,6 @@ class Controls:
     if current_alert:
       hudControl.visualAlert = current_alert.visual_alert
 
-    # controlsState / carControl remain on the configured publish cadence.
-    # CI.apply, sendcan, and carState remain at the full 100 Hz.
-    _send_ctrlstate = (self.sm.frame % self._pub_div == 0)
-
     self._sp.mark("pub_pre")  # _prof
     if not self.read_only and self.initialized:
       # send car controls over can
@@ -938,19 +934,18 @@ class Controls:
       CC.actuatorsOutput = self.last_actuators
       self.steer_limited = abs(CC.actuators.steer - CC.actuatorsOutput.steer) > 1e-2
 
-    if _send_ctrlstate:
-      force_decel = (self.sm['driverMonitoringState'].awarenessStatus < 0.) or \
-                    (self.state == State.softDisabling)
+    force_decel = (self.sm['driverMonitoringState'].awarenessStatus < 0.) or \
+                  (self.state == State.softDisabling)
 
-      # Curvature & Steering angle
-      params = self.sm['liveParameters']
+    # Curvature & Steering angle
+    params = self.sm['liveParameters']
 
-      steer_angle_without_offset = math.radians(CS.steeringAngleDeg - params.angleOffsetDeg)
-      curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, params.roll)
+    steer_angle_without_offset = math.radians(CS.steeringAngleDeg - params.angleOffsetDeg)
+    curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, params.roll)
 
-      self._publish_controls_state(CS, start_time, lac_log, current_alert,
-                                   curvature, steer_angle_without_offset, force_decel)
-      self._sp.mark("pub_ctrlstate")  # _prof
+    self._publish_controls_state(CS, start_time, lac_log, current_alert,
+                                 curvature, steer_angle_without_offset, force_decel)
+    self._sp.mark("pub_ctrlstate")  # _prof
 
     # carState
     car_events = self.events.to_msg()
@@ -974,13 +969,12 @@ class Controls:
       cp_send.carParams = self.CP
       self.pm.send('carParams', cp_send)
 
-    # carControl (UI 소비자만 있으므로 controlsState 와 같은 주기로 발행)
-    if _send_ctrlstate:
-      cc_send = messaging.new_message('carControl')
-      cc_send.valid = CS.canValid
-      cc_send.carControl = CC
-      self.pm.send('carControl', cc_send)
-      self._sp.mark("pub_carctrl")  # _prof
+    # carControl
+    cc_send = messaging.new_message('carControl')
+    cc_send.valid = CS.canValid
+    cc_send.carControl = CC
+    self.pm.send('carControl', cc_send)
+    self._sp.mark("pub_carctrl")  # _prof
 
     # copy CarControl to pass to CarInterface on the next iteration
     self.CC = CC

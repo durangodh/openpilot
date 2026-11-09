@@ -2,15 +2,12 @@ import numpy as np
 from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
-from selfdrive.controls.lib.lateral_response import LateralResponse
-from selfdrive.controls.lib.lane_path_validation import curve_lane_center_blend, valid_lane_path
 from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
-from selfdrive.controls.lib.navigation_route import NavigationRouteData
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
@@ -19,32 +16,15 @@ LaneChangeState = log.LateralPlan.LaneChangeState
 
 TRAJECTORY_SIZE = 33
 
-# MPC 비용 고정값 (UI 설정 제거, 2026-10-29 실사용값 1000/110/0/40)
+# aPilot c2-master lateral MPC defaults. Values are refreshed from Params.
 DEFAULT_PATH_COST = 1.0
 DEFAULT_LATERAL_MOTION_COST = 0.11
 DEFAULT_LATERAL_ACCEL_COST = 0.0
-DEFAULT_LATERAL_JERK_COST = 0.04
-DEFAULT_STEERING_RATE_COST = 550.0
-# 레인모드 ↔ 레인리스 경로 전환 시간. 0.6 s 는 차선중심과 모델경로 차이(수십 cm)를
-# 너무 빨리 옮겨 핸들이 튀었다. 1.5 s 면 체감상 자연스럽고 차선변경 시작에도 늦지 않다.
-LANE_MODE_BLEND_TIME = 1.5
-# Pure model paths can move a few centimetres to either side from frame to
-# frame even when both lane lines are reliable.  Keep a small amount of lane
-# centre authority in laneless mode; this is deliberately too small to turn
-# laneless back into lane-line control.
-LANELESS_LANE_CENTER_BLEND = 0.15
-LANELESS_LANE_PROB_MIN = 0.50
-LANELESS_LANE_PROB_FULL = 0.70
-NOO_MAP_BLEND_MAX = 0.60
-NOO_MAP_BLEND_FULL_SPEED_KPH = 20.0
-NOO_MAP_BLEND_ZERO_SPEED_KPH = 50.0
-NOO_MAP_BLEND_IN_TIME = 0.5
-NOO_MAP_BLEND_OUT_TIME = 0.25
-NOO_MAP_MAX_LAT_ACCEL = 2.0
-NOO_MAP_MAX_CURVATURE = 0.06
+DEFAULT_LATERAL_JERK_COST = 0.05
+DEFAULT_STEERING_RATE_COST = 700.0
 
-# 기본값 상수
-DEFAULT_OFFSET_TOTAL = 0.0
+# aPilot stores PathOffset as integer centimetres.
+DEFAULT_PATH_OFFSET = 0
 
 
 
@@ -53,18 +33,12 @@ class LateralPlanner:
     self.params = Params()
     self.wide_camera = wide_camera
 
-    # Keep the hardware camera offset fixed and apply the cached user
-    # OffsetTotal once to the final path.
-    self.offset_total = DEFAULT_OFFSET_TOTAL
+    # Apply the aPilot PathOffset once to the final lane/laneless path.
+    self.path_offset = DEFAULT_PATH_OFFSET * 0.01
 
     self.LP = LanePlanner(wide_camera=wide_camera)
 
     self.DH = DesireHelper()
-    # DesireHelper intentionally reads the polyline-free guide file on every
-    # model tick.  Keep a separate full-route reader for the short low-speed
-    # window where NOO actually needs the TMAP polyline for curvature blending.
-    self.noo_map_navigation_route = NavigationRouteData()
-
     self.factor1 = CP.wheelbase - CP.centerToFront
     self.factor2 = (CP.centerToFront * CP.mass) / (CP.wheelbase * CP.tireStiffnessRear)
     self.last_cloudlog_t = 0
@@ -84,17 +58,14 @@ class LateralPlanner:
 
     self.debug_mode = debug
 
-    self.lateral_response = LateralResponse()
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
-    self.dynamic_lane_profile = 0
-    self.dynamic_lane_profile_status = True
-    self.dynamic_lane_profile_status_buffer = True
-    self.lane_line_blend = None
-    self.noo_map_blend = 0.0
-    self.noo_map_profile_cache = None
-    self.noo_map_path_cache = None
+    self.use_lane_line_speed = 0.0
+    self.use_lane_line_mode = False
+    self.lane_lines_active = False
+    self.lane_lines_active_buffer = False
+    self.lane_line_blend = 0.0
 
     self.param_read_counter = 0
     self.path_cost = DEFAULT_PATH_COST
@@ -116,24 +87,29 @@ class LateralPlanner:
     # refresh; cached values are used for every MPC update in between.
     if force or self.param_read_counter % 20 == 0:
       try:
-        self.dynamic_lane_profile = int(
-          self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+        self.use_lane_line_speed = float(
+          int(self.params.get("UseLaneLineSpeed", encoding="utf8") or "0"))
       except (TypeError, ValueError):
-        self.dynamic_lane_profile = 0
-      self.offset_total = self._read_offset_total()
-      # Very small values can make the DH steering response abrupt, while
-      # values above this range add little stability and noticeably delay
-      # lane/path changes. Keep the live UI setting inside a safe range.
+        self.use_lane_line_speed = 0.0
+      self.path_offset = self._read_path_offset()
       self.steering_rate_cost = self._read_mpc_cost(
-        "SteeringRateCost", DEFAULT_STEERING_RATE_COST, 200.0, 1200.0, scale=1.0)
+        "SteeringRateCost", DEFAULT_STEERING_RATE_COST, 0.0, 2000.0, scale=1.0)
+      self.path_cost = self._read_mpc_cost(
+        "PathCostApply", DEFAULT_PATH_COST, 0.0, 2.0, scale=100.0)
+      self.lateral_motion_cost = self._read_mpc_cost(
+        "LateralMotionCost", DEFAULT_LATERAL_MOTION_COST, 0.0, 0.5, scale=100.0)
+      self.lateral_accel_cost = self._read_mpc_cost(
+        "LateralAccelCost", DEFAULT_LATERAL_ACCEL_COST, 0.0, 3.0, scale=100.0)
+      self.lateral_jerk_cost = self._read_mpc_cost(
+        "LateralJerkCost", DEFAULT_LATERAL_JERK_COST, 0.0, 0.5, scale=100.0)
     self.param_read_counter += 1
 
-  def _read_offset_total(self):
+  def _read_path_offset(self):
     try:
-      val = float(self.params.get("OffsetTotal", encoding="utf8") or str(DEFAULT_OFFSET_TOTAL))
+      val_cm = int(self.params.get("PathOffset", encoding="utf8") or str(DEFAULT_PATH_OFFSET))
     except (TypeError, ValueError):
-      val = DEFAULT_OFFSET_TOTAL
-    return max(-1.0, min(1.0, val))
+      val_cm = DEFAULT_PATH_OFFSET
+    return max(-2.0, min(2.0, val_cm * 0.01))
 
   def reset_mpc(self, x0=np.zeros(4)):
     self.x0 = x0
@@ -165,17 +141,25 @@ class LateralPlanner:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    # Lane profile selection is independent of vehicle speed. In Auto mode,
-    # lane probabilities and lane-change state alone decide whether to use
-    # the laneless path.
-    if self.dynamic_lane_profile == 0:
-      use_laneless = False
-    elif self.dynamic_lane_profile == 1:
-      use_laneless = True
-    else:
-      use_laneless = self.get_dynamic_lane_profile()
+    # aPilot lane/laneless selection. UseLaneLineSpeed == 0 means always
+    # laneless. Above a positive threshold, lane probabilities select whether
+    # lane lines are active, with 2 km/h and probability hysteresis.
+    speed_kph = self.v_ego * CV.MS_TO_KPH
+    if speed_kph >= self.use_lane_line_speed + 2.0:
+      self.use_lane_line_mode = True
+    elif speed_kph < self.use_lane_line_speed - 2.0:
+      self.use_lane_line_mode = False
 
-    self.dynamic_lane_profile_status = use_laneless
+    if self.use_lane_line_mode and self.use_lane_line_speed > 0.0:
+      if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
+        self.lane_lines_active_buffer = False
+      elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
+        self.lane_lines_active_buffer = True
+      self.lane_lines_active = self.lane_lines_active_buffer
+    else:
+      self.lane_lines_active = False
+
+    use_laneless = not self.lane_lines_active
     # carrot-wip removes lane-line authority while ATC is turning.  Do the
     # same with the existing smooth blend so modelV2 and the bounded TMAP
     # curvature can shape the intersection instead of fighting a straight
@@ -193,36 +177,10 @@ class LateralPlanner:
       # Do not let pre-intersection lane lines fight the navigation turn.
       lane_line_blend_target = 0.0
     elif use_laneless:
-      # A fixed left/right offset cannot correct a model path that wanders to
-      # either side.  When both lane lines are trustworthy, use them only as
-      # a weak symmetric centre reference.  The correction disappears when
-      # either line is uncertain or a lane change lowers its probability.
-      lane_confidence = min(self.LP.lll_prob, self.LP.rll_prob)
-      lane_line_blend_target = interp(
-        lane_confidence,
-        [LANELESS_LANE_PROB_MIN, LANELESS_LANE_PROB_FULL],
-        [0.0, LANELESS_LANE_CENTER_BLEND],
-      )
-      # On a sustained visible bend (LanePlanner.curve_center_weight), prefer
-      # the measured lane centre to a model path cutting the corner. Keep the
-      # existing 1.5 s mode blend and never
-      # override navigation turns or an active lane change.
-      if (self.DH.lane_change_state == LaneChangeState.off and
-          valid_lane_path(self.LP.ll_t, self.LP.ll_x, self.LP.lll_y, self.LP.rll_y)):
-        width = np.abs(self.LP.rll_y - self.LP.lll_y)
-        lane_line_blend_target = curve_lane_center_blend(
-          lane_line_blend_target, self.LP.curve_center_weight, lane_confidence,
-          max(self.LP.lll_std, self.LP.rll_std), float(np.max(width)))
+      lane_line_blend_target = 0.0
     else:
       lane_line_blend_target = 1.0
-    if self.lane_line_blend is None:
-      self.lane_line_blend = lane_line_blend_target
-    else:
-      # Avoid a lateral target jump when Auto mode changes between the
-      # lane-line and model paths. At 20 Hz this completes in about 1.5 s.
-      max_blend_step = DT_MDL / LANE_MODE_BLEND_TIME
-      self.lane_line_blend += np.clip(lane_line_blend_target - self.lane_line_blend,
-                                      -max_blend_step, max_blend_step)
+    self.lane_line_blend = lane_line_blend_target
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend, curve_speed)
     # Feed the selected lane/model blend into MPC. Previously this result was
@@ -239,8 +197,9 @@ class LateralPlanner:
     heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
                     (1.0 - self.lane_line_blend) * laneless_heading_cost)
 
-    # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
-    self.path_xyz[:, 1] += self.offset_total
+    # aPilot: apply PathOffset after lane/laneless selection, so both modes use
+    # exactly the same user calibration.
+    self.path_xyz[:, 1] += self.path_offset
 
     # Reuse the path-distance vector for both interpolations. The trajectory is
     # unchanged between them, so a second NumPy norm only wastes planner CPU.
@@ -252,91 +211,11 @@ class LateralPlanner:
                             path_distance, self.plan_yaw)
     yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N + 1]
 
-    map_profile = None
-    map_path = None
-    navigation_state = self.DH.navigation_state
-    noo_map_candidate = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
-                         getattr(self.DH, 'noo_pose_trusted', False) and
-                         navigation_state.get('fresh', False) and
-                         navigation_state.get('route_fresh', False) and
-                         navigation_state.get('kind') in ('turn', 'uturn') and
-                         3.0 <= float(navigation_state.get('distance', -1.0)) <= 60.0 and
-                         self.v_ego <= 50.0 * CV.KPH_TO_MS)
-    # carrot_navi_guide.json deliberately omits route.polyline, so it can gate
-    # the maneuver but cannot build a curvature profile.  Read the full file
-    # only in this active turn window and reject the brief state/guide skew
-    # possible while the server atomically replaces the two files in sequence.
-    map_navigation_state = self.noo_map_navigation_route.update() if noo_map_candidate else None
-    noo_map_requested = (noo_map_candidate and isinstance(map_navigation_state, dict) and
-                         map_navigation_state.get('fresh', False) and
-                         map_navigation_state.get('route_fresh', False) and
-                         map_navigation_state.get('kind') in ('turn', 'uturn') and
-                         int(map_navigation_state.get('direction', 0)) == self.DH.noo_turn_direction and
-                         int(map_navigation_state.get('turn_type', -1)) ==
-                         int(navigation_state.get('turn_type', -1)))
-    if noo_map_requested:
-      speed_sq = max(self.v_ego * self.v_ego, 1.0)
-      max_curvature = min(NOO_MAP_MAX_CURVATURE, NOO_MAP_MAX_LAT_ACCEL / speed_sq)
-      map_profile = self.noo_map_navigation_route.cached_route_curvature_profile(
-        map_navigation_state, sample_distances, max_curvature=max_curvature)
-      if map_profile is not None:
-        map_path = NavigationRouteData.integrate_curvature_profile(map_profile, sample_distances)
-
-    fresh_map_path = map_path is not None
-    if fresh_map_path:
-      self.noo_map_profile_cache = map_profile
-      self.noo_map_path_cache = map_path
-    elif not noo_map_requested and not self.DH.noo_driver_cancel and self.noo_map_blend > 0.0:
-      # Keep the last vehicle-relative shape only for the short normal exit
-      # fade. Invalid/stale data and driver cancellation never use the cache.
-      map_profile = self.noo_map_profile_cache
-      map_path = self.noo_map_path_cache
-
-    map_invalid = noo_map_requested and map_path is None
-    if self.DH.noo_driver_cancel or map_invalid:
-      self.noo_map_blend = 0.0
-      self.noo_map_profile_cache = None
-      self.noo_map_path_cache = None
-    else:
-      speed_kph = self.v_ego * CV.MS_TO_KPH
-      # Stronger map assistance is restricted to low speed. Preserve the
-      # existing 50 km/h zero point and all curvature, lateral-acceleration,
-      # driver-cancel, and Panda torque limits.
-      blend_target = NavigationRouteData.map_steering_blend(
-        speed_kph, NOO_MAP_BLEND_MAX,
-        NOO_MAP_BLEND_FULL_SPEED_KPH, NOO_MAP_BLEND_ZERO_SPEED_KPH,
-      ) if fresh_map_path else 0.0
-      blend_time = NOO_MAP_BLEND_IN_TIME if blend_target > self.noo_map_blend else NOO_MAP_BLEND_OUT_TIME
-      blend_step = NOO_MAP_BLEND_MAX * DT_MDL / blend_time
-      self.noo_map_blend += float(np.clip(blend_target - self.noo_map_blend, -blend_step, blend_step))
-      if self.noo_map_blend <= 0.0:
-        self.noo_map_profile_cache = None
-        self.noo_map_path_cache = None
-
-    if map_path is not None and self.noo_map_blend > 0.0:
-      map_y, map_heading = (np.asarray(map_path[0]), np.asarray(map_path[1]))
-      map_y += y_pts[0]
-      map_heading += heading_pts[0]
-      y_pts = (1.0 - self.noo_map_blend) * y_pts + self.noo_map_blend * map_y
-      heading_pts = ((1.0 - self.noo_map_blend) * heading_pts +
-                     self.noo_map_blend * map_heading)
-      map_yaw_rate = np.asarray(map_profile) * self.v_plan[:LAT_MPC_N + 1]
-      yaw_rate_pts = ((1.0 - self.noo_map_blend) * yaw_rate_pts +
-                      self.noo_map_blend * map_yaw_rate)
     self.y_pts = y_pts
 
-    # Use the final lane/model/map reference, including lane-centre shifts.
-    # Remove the user offset so a fixed calibration cannot trigger the boost.
-    preview_y = float(np.interp(0.8, self.t_idxs[:LAT_MPC_N + 1], y_pts)) - self.offset_total
-    response_active = (sm['carControl'].latActive and not sm['carState'].steeringPressed and
-                       sm.valid['modelV2'] and len(md.position.x) == TRAJECTORY_SIZE and
-                       len(md.orientation.x) == TRAJECTORY_SIZE)
-    effective_rate_cost = self.lateral_response.update(
-      self.steering_rate_cost, preview_y, measured_curvature,
-      self.v_ego, response_active, DT_MDL)
     self.lat_mpc.set_weights(self.path_cost, heading_cost,
                              self.lateral_accel_cost, self.lateral_jerk_cost,
-                             effective_rate_cost)
+                             self.steering_rate_cost)
 
     assert len(y_pts) == LAT_MPC_N + 1
     assert len(heading_pts) == LAT_MPC_N + 1
@@ -353,7 +232,6 @@ class LateralPlanner:
     mpc_nans = np.isnan(self.lat_mpc.x_sol[:, 3]).any()
     t = sec_since_boot()
     if mpc_nans or self.lat_mpc.solution_status != 0:
-      self.lateral_response = LateralResponse()
       self.reset_mpc()
       self.x0[3] = measured_curvature * self.v_ego
       if t > self.last_cloudlog_t + 5.0:
@@ -364,27 +242,6 @@ class LateralPlanner:
       self.solution_invalid_cnt += 1
     else:
       self.solution_invalid_cnt = 0
-
-  def get_dynamic_lane_profile(self):
-    """True = 레인리스 경로 사용, False = 레인모드(차선) 경로 사용.
-    DynamicLaneProfile 하나로만 결정한다. (0=레인모드 1=레인리스 2=오토)
-    """
-    if self.dynamic_lane_profile == 1:
-      return True
-    elif self.dynamic_lane_profile == 0:
-      return False
-    elif self.dynamic_lane_profile == 2:
-      # laneless while lane change in progress
-      if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
-        return True
-      elif self.DH.lane_change_state == LaneChangeState.off:
-        if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
-          self.dynamic_lane_profile_status_buffer = True
-        elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
-          self.dynamic_lane_profile_status_buffer = False
-        if self.dynamic_lane_profile_status_buffer:
-          return True
-    return False
 
   def publish(self, sm, pm):
     plan_solution_valid = self.solution_invalid_cnt < 2
@@ -417,10 +274,10 @@ class LateralPlanner:
       lateralPlan.solverState.u = self.lat_mpc.u_sol.flatten().tolist()
 
     lateralPlan.desire = self.DH.desire
-    lateralPlan.useLaneLines = not self.dynamic_lane_profile_status
+    lateralPlan.useLaneLines = bool(self.lane_line_blend > 0.5)
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
-    lateralPlan.nooMapBlend = float(self.noo_map_blend)
+    lateralPlan.nooMapBlend = 0.0
     # Publish the active guidance/model desire even when the optional TMAP
     # polyline is unavailable. nooMapBlend separately tells the HUD whether
     # route curvature is actually contributing to steering.
@@ -442,17 +299,11 @@ class LateralPlanner:
     lateralPlan.autoLaneChangeEnabled = self.DH.auto_lane_change_enabled
     lateralPlan.autoLaneChangeTimer = int(AUTO_LCA_START_TIME) - int(self.DH.auto_lane_change_timer)
 
-    lateralPlan.dynamicLaneProfile = int(self.dynamic_lane_profile)
-
     # ── UI 하단 중앙 차선/오프셋 디버그 문자열 ──
     # 레인모드/레인리스는 글자 대신 onroad.cc 가 문자열 왼쪽에 점으로 그린다
-    # (파랑=레인모드 / 노랑=레인리스). dynamicLaneProfileStatus 를 쓴다.
-    offset_cm = self.offset_total * 100.0
+    # (파랑=레인모드 / 노랑=레인리스). useLaneLines 를 쓴다.
+    offset_cm = self.path_offset * 100.0
     tail = f'offset={offset_cm:.1f}cm'
-    if abs(self.LP.lane_offset) > 0.005:
-      tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
-    if self.noo_map_blend > 0.005:
-      tail += f' noomap={self.noo_map_blend * 100.0:.0f}%'
     # NOO 상태는 offset 앞의 별도 칸에 넣는다. onroad.cc 의 하단 표시는
     # "offset" 이 나오는 칸부터 잘라내므로, tail 에 붙이면 EON 화면에서는
     # 보이지 않는다(rlog 에만 남는다).
@@ -471,6 +322,4 @@ class LateralPlanner:
       + (f"{noo_text.strip()} | " if noo_text else "")
       + f"{tail}"
     )
-    lateralPlan.dynamicLaneProfileStatus = bool(self.dynamic_lane_profile_status)
-
     pm.send('lateralPlan', plan_send)
