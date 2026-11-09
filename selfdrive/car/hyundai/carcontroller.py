@@ -40,15 +40,12 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   return bool(stopping and (actual_standstill or latched) and not pre_release)
 
 
-# High-angle reset pulse (CF_Lkas_ToiFlt for two frames) only while the wheel is nearly
-# still. 2026-11-09 10:32 left turn: four pulses at 0-40 deg/s each gave a 2-frame
-# FailStat blip and recovered; the pulse at 84 deg/s, with the wheel unwinding through
-# -93 deg and the command changing, latched ToiFlt + FailStat (MDPS fault, steering off).
-HIGH_ANGLE_PULSE_MAX_RATE = 60.0   # deg/s
-
-
-def high_angle_pulse_allowed(steering_rate_deg):
-  return abs(steering_rate_deg) < HIGH_ANGLE_PULSE_MAX_RATE
+# Past steerFaultMaxAngle for steerFaultMaxFrames the torque request is released (no
+# CF_Lkas_ToiFlt reset pulse) until the wheel is back under the angle. MDPS fault logs
+# 2026-11-09: every reset pulse gave a 2-frame FailStat blip, and a run of them ended in a
+# latched ToiFlt + FailStat (steering off) at the 5th pulse (10:32:03, -93 deg, 84 deg/s)
+# and the 7th (11:55:04, -141 deg, 8 deg/s). No angle, rate or torque value separated the
+# pulses that recovered from the ones that latched; the pulses themselves are the trigger.
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -120,8 +117,8 @@ class CarController:
     self.cut_steer_frames = 0
     self.cut_steer = False
     self.cut_steer_temp = False   # last frame's high-angle cut pulse (MDPS fault recorder)
-    # Torque off instead of a reset pulse while the wheel moves fast past the high angle;
-    # held until the angle is back under steerFaultMaxAngle.
+    # Torque off instead of a reset pulse past the high angle; held until the angle is back
+    # under steerFaultMaxAngle.
     self.high_angle_release = False
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
@@ -210,15 +207,12 @@ class CarController:
       else:
         self.angle_limit_counter = 0
 
-      # stop requesting torque to avoid 90 degree fault and hold torque with induced temporary fault
-      # two cycles avoids race conditions every few minutes
+      # Avoid the MDPS 90 degree fault by releasing torque (the old induced-ToiFlt pulse that
+      # kept torque past it led to latched faults, see the note above process_hud_alert).
       if self.angle_limit_counter > self.steer_fault_max_frames:
-        if high_angle_pulse_allowed(CS.out.steeringRateDeg):
-          self.cut_steer = True
-        else:
-          # Wheel moving fast: no pulse; release torque from the next frame instead.
-          self.high_angle_release = True
-          self.angle_limit_counter = 0
+        # No reset pulse: release torque from the next frame until back under the angle.
+        self.high_angle_release = True
+        self.angle_limit_counter = 0
       elif self.cut_steer_frames > 1:
         self.cut_steer_frames = 0
         self.cut_steer = False
