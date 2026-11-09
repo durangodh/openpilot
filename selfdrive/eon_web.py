@@ -28,7 +28,6 @@ PARAM_KEYS = (
   "EonClusterHudFps", "EonClusterHudMapFps", "EonClusterHudJpegQuality",
   "EonClusterHudNavApp", "EonClusterHudNaviLayout", "EonClusterHudMapScaleTmap",
   "EonClusterHudMapScaleNaver", "EonClusterHudMapScaleKakao",
-  "LongTraceEnabled",
 )
 
 PAGE = """<!doctype html>

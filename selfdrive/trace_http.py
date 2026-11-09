@@ -1,4 +1,4 @@
-"""기록 파일(long_trace CSV) 내려받기 페이지.
+"""HUD, M-CAN 및 MDPS 진단 기록 내려받기 페이지.
 
 carrot_navi_server(포트 7714)가 WebSocket 이 아닌 일반 GET /trace 요청을 여기로 넘긴다.
 폰 브라우저에서 http://EON_IP:7714/trace 를 열면 목록이 나오고, 누르면 받는다.
@@ -13,8 +13,6 @@ import time
 from urllib.parse import unquote
 
 TRACE_DIRS = {
-  # long_trace.TRACE_DIR 와 같아야 한다.
-  "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "hud": ("HUD 앱 로그 (휴대폰)", "/data/media/0/hud_log"),
   # selfdrive/debug/mcan_logger.py 의 LOG_DIR 와 같아야 한다.
   "mcan": ("M-CAN 로그 (버스 1)", "/data/media/0/mcan_logs"),
@@ -94,7 +92,7 @@ def _listing(deleted=None):
 
 
 def _delete_all():
-  """두 기록 폴더의 기록 파일을 지운다. 지금 기록 중인 파일은 남긴다."""
+  """진단 폴더의 기록 파일을 지운다. 지금 기록 중인 파일은 남긴다."""
   now = time.time()
   count = 0
   for _, directory in TRACE_DIRS.values():
@@ -170,7 +168,7 @@ def keep_field_lines(directory, app, body):
 
 
 def serve(conn, path):
-  """GET /trace, /trace?delete=all 또는 /trace/<long|lat>/<이름>.csv 에 답한다."""
+  """GET /trace, /trace?delete=all 또는 /trace/<종류>/<이름> 에 답한다."""
   query = path.split("?", 1)[1] if "?" in path else ""
   path = unquote(path.split("?", 1)[0]).rstrip("/")
   if path == "/trace":
