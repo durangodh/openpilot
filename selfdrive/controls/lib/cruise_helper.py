@@ -6,7 +6,7 @@ from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
-from selfdrive.controls.lib.navigation_route import GUIDE_FILE, STATE_FILE, NavigationRouteData
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.rear_camera import RearCameraHold
 from selfdrive.eon_cluster.section_average import SectionAverage, section_boost_speed
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
@@ -156,11 +156,7 @@ class CruiseHelper:
     self.section_last_valid_time = 0.0
     self.section_passed = False
 
-    # Guidance, cameras, sections and lanes come from the guide file (the route file without
-    # the polyline). The route file carries the whole route polyline (thousands of points on
-    # a long drive) and is parsed only for the NOO route-curve speed, its one user here.
-    self.navigation_route = NavigationRouteData(GUIDE_FILE)
-    self.navigation_route_full = NavigationRouteData(STATE_FILE)
+    self.navigation_route = NavigationRouteData()
     self.nav_app_selected = None
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
@@ -1095,8 +1091,8 @@ class CruiseHelper:
     # 내비 경로 커브 감속(ROUTE)은 NOO 를 켰을 때만. 목적지만 넣어도 교차로 회전 지점을
     # 커브로 보고 감속해, NOO 를 꺼도 NOO 가 켜진 것처럼 느껴졌다(2026-10-26 요청).
     if self.turn_vision_control and self.noo_enabled:
-      map_speed = self.navigation_route_full.cached_map_curve_speed_kph(
-        self.navigation_route_full.update(), CS.out.vEgo * CV.MS_TO_KPH,
+      map_speed = self.navigation_route.cached_map_curve_speed_kph(
+        navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
         self.auto_curve_speed_decel_rate)
       if map_speed is not None:

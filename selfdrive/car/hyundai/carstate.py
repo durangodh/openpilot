@@ -6,7 +6,6 @@ from opendbc.can.parser import CANParser
 from opendbc.can.can_define import CANDefine
 from common.conversions import Conversions as CV
 from common.params import Params
-from common import section_prof as _subprof  # _prof
 from selfdrive.car.hyundai.cruise_buttons import collect_button_samples
 
 GearShifter = car.CarState.GearShifter
@@ -74,7 +73,6 @@ class CarState(CarStateBase):
     self.prev_cruise_buttons = self.cruise_buttons
     self.prev_cruise_main_button = self.cruise_main_button
 
-    _st = _subprof.start()  # _prof
     ret = car.CarState.new_message()
 
     ret.frontLeftDoorOpen = bool(cp.vl["CGW1"]["CF_Gway_DrvDrSw"])
@@ -174,7 +172,6 @@ class CarState(CarStateBase):
     ret.aBasis = cp.vl["TCS13"]["aBasis"]
 
     ret.standstill = ret.vEgoRaw < 0.1
-    _st = _subprof.lap("cs.body_speed", _st)  # _prof
 
     ret.steeringAngleDeg = cp_sas.vl["SAS11"]["SAS_Angle"]
     ret.steeringRateDeg = cp_sas.vl["SAS11"]["SAS_Speed"]
@@ -230,7 +227,6 @@ class CarState(CarStateBase):
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]
 
-    _st = _subprof.lap("cs.steer_lamps", _st)  # _prof
     # cruise state
     ret.cruiseState.enabled = (cp_scc.vl["SCC12"]["ACCMode"] != 0) if not self.no_radar else \
                                       cp.vl["LVR12"]["CF_Lvr_CruiseSet"] != 0
@@ -304,7 +300,6 @@ class CarState(CarStateBase):
         self.engine_rpm_seen = True
       ret.engineRpm = rpm_raw if self.engine_rpm_seen else 0.
 
-    _st = _subprof.lap("cs.cruise_pedals", _st)  # _prof
     # TODO: refactor gear parsing in function
     # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
     # as this seems to be standard over all cars, but is not the preferred method.
@@ -355,7 +350,6 @@ class CarState(CarStateBase):
     ret.parkingSensors.rearCenter = int(pas["CF_Gway_PASDisplayRCTR"])
     ret.parkingSensors.rearRight = int(pas["CF_Gway_PASDisplayRRH"])
 
-    _st = _subprof.lap("cs.gear_pas", _st)  # _prof
     # Blind Spot Detection and Lane Change Assist signals
     if self.CP.enableBsm:
       # LCA normal operating modes are OFF, passive and active.  Values from
@@ -412,7 +406,6 @@ class CarState(CarStateBase):
     self.obj_valid = cp_scc.vl["SCC11"]["ObjValid"]
     if self.prev_cruise_buttons == Buttons.CANCEL:
       self.prev_cruiseState_speed = 0
-    _subprof.lap("cs.bsm_scc_tpms", _st)  # _prof
 
     return ret
 

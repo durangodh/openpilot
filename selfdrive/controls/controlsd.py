@@ -8,17 +8,14 @@ from common.numpy_fast import clip
 from common.realtime import sec_since_boot, config_realtime_process, Priority, Ratekeeper, DT_CTRL
 from common.profiler import Profiler
 import time as _ptime
-from common import section_prof as _subprof  # _prof
 
 
 class _SectionProf:
   """controlsd 구간 타이머. /tmp/controlsd_prof 파일이 있을 때만 켜지고,
-  500 루프마다 /tmp/controlsd_prof.txt 를 덮어쓰고 /data/media/0/cpu_log/controlsd_prof_MMDD.log 에
-  덧붙인다(와이파이 /trace "CPU 로그"). 제거 = _prof 표시 줄 전부 삭제."""
+  500 루프마다 /tmp/controlsd_prof.txt 를 덮어쓴다. 제거 = _prof 표시 줄 전부 삭제."""
   PERIOD = 500
   OUT = "/tmp/controlsd_prof.txt"
   FLAG = "/tmp/controlsd_prof"
-  LOG_DIR = "/data/media/0/cpu_log"   # selfdrive/debug/proc_cpu_log.py LOG_DIR
 
   def __init__(self):
     self.on = False
@@ -48,31 +45,19 @@ class _SectionProf:
     import os
     was_on = self.on
     self.on = os.path.exists(self.FLAG)
-    _subprof.enabled = self.on
-    sub = _subprof.take()
     if not was_on:
       self.acc, self.n, self.wall0 = {}, 0, _ptime.monotonic()
       self.t = self.wall0
       return
     self.n += 1
     wall = _ptime.monotonic() - self.wall0
-    for k, v in sub.items():
-      self.acc["  " + k] = self.acc.get("  " + k, 0.0) + v
-    # Indented names are parts of a section above them: not added to busy again.
-    busy = sum(v for k, v in self.acc.items() if not k.startswith(" "))
+    busy = sum(self.acc.values())
     lines = ["loops=%d wall=%.3fs hz=%.1f busy=%.1f%%" % (self.n, wall, self.n / max(wall, 1e-6), 100.0 * busy / max(wall, 1e-6))]
     for k, v in sorted(self.acc.items(), key=lambda kv: -kv[1]):
-      lines.append("%-16s %7.3f ms  %5.1f%%" % (k, 1000.0 * v / self.n, 100.0 * v / max(busy, 1e-9)))
+      lines.append("%-14s %7.3f ms  %5.1f%%" % (k, 1000.0 * v / self.n, 100.0 * v / max(busy, 1e-9)))
     try:
       with open(self.OUT, "w") as f:
         f.write("\n".join(lines) + "\n")
-    except OSError:
-      pass
-    # Also keep a history next to the per-process CPU log (http://EON_IP:7714/trace "CPU 로그").
-    try:
-      os.makedirs(self.LOG_DIR, exist_ok=True)
-      with open(os.path.join(self.LOG_DIR, "controlsd_prof_%s.log" % _ptime.strftime("%m%d")), "a") as f:
-        f.write("== %s %s\n" % (_ptime.strftime("%H:%M:%S"), "\n".join(lines)))
     except OSError:
       pass
     self.acc, self.n, self.wall0 = {}, 0, _ptime.monotonic()
@@ -340,7 +325,6 @@ class Controls:
       self.events.add(EventName.controlsInitializing)
       return
 
-    _st = _subprof.start()  # _prof
     # Block resume if cruise never previously enabled
     resume_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
                          for be in CS.buttonEvents)
@@ -391,7 +375,6 @@ class Controls:
       else:
         self.events.add(EventName.calibrationInvalid)
 
-    _st = _subprof.lap("ev.basic_device", _st)  # _prof
     # Handle lane change. Settings changes may wait up to one second, while
     # avoiding a Params file read on every 100 Hz control iteration.
     if self.sm.frame % 100 == 0:
@@ -439,7 +422,6 @@ class Controls:
       if log.PandaState.FaultType.relayMalfunction in pandaState.faults:
         self.events.add(EventName.relayMalfunction)
 
-    _st = _subprof.lap("ev.lane_change", _st)  # _prof
     # Check for HW or system issues
     if len(self.sm['radarState'].radarErrors):
       self.events.add(EventName.radarFault)
@@ -484,7 +466,6 @@ class Controls:
       if self.cruise_mismatch_counter > int(3. / DT_CTRL):
         self.events.add(EventName.cruiseMismatch)
 
-    _st = _subprof.lap("ev.comm_checks", _st)  # _prof
     # Check for FCW
     stock_long_is_braking = self.enabled and not self.CP.openpilotLongitudinalControl and CS.aEgo < -1.25
     model_fcw = self.sm['modelV2'].meta.hardBrakePredicted and not CS.brakePressed and not stock_long_is_braking
@@ -733,9 +714,7 @@ class Controls:
     # that enables controlsd can also arm longitudinal control in this frame.
     # If engagement is rejected by a NO_ENTRY event, CruiseHelper still sees
     # controls disabled and leaves longitudinal control disarmed.
-    _st = _subprof.start()  # _prof
     self.cruise_helper.update_controls(self, CS, self.CP.openpilotLongitudinalControl)
-    _subprof.lap("tr.cruise_helper", _st)  # _prof
 
     if self.active:
       self.current_alert_types.append(ET.WARNING)
@@ -743,7 +722,6 @@ class Controls:
   def state_control(self, CS):
     """Given the state, this function returns a CarControl packet"""
 
-    _st = _subprof.start()  # _prof
     # Update VehicleModel
     params = self.sm['liveParameters']
     x = max(params.stiffnessFactor, 0.1)
@@ -773,7 +751,6 @@ class Controls:
     CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear and \
                              self.cruise_helper.auto_cruise_control
 
-    _st = _subprof.lap("ctl.vm_cc_new", _st)  # _prof
     actuators = CC.actuators
     actuators.longControlState = self.LoC.long_control_state
 
@@ -794,7 +771,6 @@ class Controls:
       set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
       cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
       pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
-      _st = _subprof.lap("ctl.accel_limit", _st)  # _prof
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
@@ -802,7 +778,6 @@ class Controls:
         self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
         self.sm.updated['radarState'],
         plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
-      _st = _subprof.lap("ctl.LoC", _st)  # _prof
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -813,7 +788,6 @@ class Controls:
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
                                                                              self.desired_curvature_rate, self.sm['liveLocationKalman'],
                                                                              self.sm['modelV2'])
-      _st = _subprof.lap("ctl.LaC", _st)  # _prof
     else:
       lac_log = log.ControlsState.LateralDebugState.new_message()
       if self.sm.rcv_frame['testJoystick'] > 0:
@@ -863,7 +837,6 @@ class Controls:
       if not math.isfinite(attr):
         cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
         setattr(actuators, p, 0.0)
-    _subprof.lap("ctl.rest", _st)  # _prof
 
     return CC, lac_log
 
