@@ -4,6 +4,7 @@ from selfdrive.hardware import EON, TICI, PC
 from selfdrive.manager.process import PythonProcess, NativeProcess
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
+EON_ROUTE_LOGGING = EON and os.path.isfile("/persist/comma/enable-eon-route-logging")
 
 procs = [
   # due to qualcomm kernel bugs SIGKILLing camerad sometimes causes page table corruption
@@ -15,9 +16,8 @@ procs = [
   # controlsd.py 의 ignore 목록에서 driverMonitoringState 를 빼면 된다.
   NativeProcess("dmonitoringmodeld", "selfdrive/modeld", ["./dmonitoringmodeld"], enabled=False, driverview=True),
   #NativeProcess("logcatd", "selfdrive/logcatd", ["./logcatd"]),
-  # Disable route logging on EON to remove its CPU, compression, and disk-I/O
-  # load from the driving path. This intentionally disables rlog/qlog output.
-  NativeProcess("loggerd", "selfdrive/loggerd", ["./loggerd"], enabled=False),
+  # Opt in after preparing the EON kernel for route recording.
+  NativeProcess("loggerd", "selfdrive/loggerd", ["./loggerd"], enabled=EON_ROUTE_LOGGING),
   NativeProcess("modeld", "selfdrive/modeld", ["./modeld"]),
   NativeProcess("navd", "selfdrive/ui/navd", ["./navd"], enabled=(PC or TICI), persistent=True),
   # procLog 구독자는 selfdrive/debug/live_cpu_and_temp.py 와 테스트뿐이고
@@ -41,8 +41,7 @@ procs = [
   # Bluetooth remote input is read locally on EON from the kernel HID node; no phone or Wi-Fi.
   PythonProcess("bt_remote", "selfdrive.eon_cluster.bt_remote", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
-  # loggerd 가 꺼져 있어 지울 로그가 없다.
-  PythonProcess("deleter", "selfdrive.loggerd.deleter", enabled=False, persistent=True),
+  PythonProcess("deleter", "selfdrive.loggerd.deleter", enabled=EON_ROUTE_LOGGING, persistent=True),
   # dmonitoringmodeld 가 꺼져 driverState 가 안 오므로 같이 끈다.
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", enabled=False, driverview=True),
   #PythonProcess("logmessaged", "selfdrive.logmessaged", persistent=True),
@@ -61,6 +60,7 @@ procs = [
   #PythonProcess("statsd", "selfdrive.statsd", persistent=True),
 
   # EON only
+  PythonProcess("eon_web", "selfdrive.eon_web", enabled=EON, persistent=True),
   PythonProcess("rtshield", "selfdrive.rtshield", enabled=EON),
   PythonProcess("shutdownd", "selfdrive.hardware.eon.shutdownd", enabled=EON),
   PythonProcess("androidd", "selfdrive.hardware.eon.androidd", enabled=EON, persistent=True),
