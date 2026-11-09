@@ -132,23 +132,22 @@ public final class VoiceAssistant {
         return "com.skt.tmap.ku";
     }
 
-    /**
-     * Remote "내비 음성": press the selected navigation app's own voice button, like nMirror.
-     * Only the navigation app's own voice screen appears; the HUD shows no card for it
-     * (2026-11-08 운전자 요청). A failure is written to the HUD diagnostic log only.
-     */
+    /** Remote "내비 음성": press the selected navigation app's own voice button, like nMirror. */
     void onNavButton() {
         synchronized (this) {
-            if (state == State.LISTENING || state == State.THINKING || state == State.CONFIRM) {
+            if (state == State.LISTENING || state == State.THINKING) {
                 session++;
                 cancelRecognition();
-                state = State.IDLE;   // AI 카드가 떠 있었다면 조용히 닫는다
             }
             pending = null;
         }
         new Thread(() -> {
             String error = openNavVoice();
-            if (error != null) HudDiagnostics.log("nav voice failed: " + error);
+            if (error == null) {
+                show(State.RESULT, "내비 음성", "목적지를 말씀하세요", 2_500L);
+            } else {
+                show(State.ERROR, "내비 음성 실패", error, ERROR_MS);
+            }
         }, "hud-nav-voice").start();
     }
 
