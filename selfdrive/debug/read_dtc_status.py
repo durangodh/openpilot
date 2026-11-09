@@ -29,6 +29,7 @@ except CalledProcessError as e:
   if e.returncode != 1: # 1 == no process found (boardd not running)
     raise e
 
+kwp = False
 panda = Panda()
 try:
   panda.set_safety_mode(Panda.SAFETY_ELM327)
@@ -39,7 +40,14 @@ try:
     print("extended diagnostic session ...")
     uds_client.diagnostic_session_control(SESSION_TYPE.EXTENDED_DIAGNOSTIC)
     print("read diagnostic codes ...")
-  data = uds_client.read_dtc_information(DTC_REPORT_TYPE.DTC_BY_STATUS_MASK, DTC_STATUS_MASK_TYPE.ALL)
+  try:
+    data = uds_client.read_dtc_information(DTC_REPORT_TYPE.DTC_BY_STATUS_MASK, DTC_STATUS_MASK_TYPE.ALL)
+  except NegativeResponseError as e:
+    if not args.mdps or (e.service_id, e.error_code) != (0x19, 0x11):
+      raise
+    print("UDS 0x19 unsupported; trying KWP2000 read-only request 18 02 FF 00")
+    kwp = True
+    data = uds_client._uds_request(0x18, data=b"\x02\xFF\x00")
 except (MessageTimeoutError, NegativeResponseError) as e:
   sys.exit(f"DTC read failed: {type(e).__name__}: {e}")
 finally:
@@ -48,6 +56,16 @@ finally:
       panda.set_safety_mode(Panda.SAFETY_SILENT)
     finally:
       panda.close()
+
+if kwp:
+  print("Raw KWP DTC response:", (b"\x58" + data).hex(" "))
+  if not data or len(data) != 1 + 3 * data[0]:
+    sys.exit("Unexpected KWP DTC layout; see raw response above.")
+  print(f"DTC count: {data[0]}")
+  for i in range(1, len(data), 3):
+    code = int.from_bytes(data[i:i+2], "big")
+    print(f"{'PCBU'[code >> 14]}{code & 0x3FFF:04X} status=0x{data[i+2]:02X}")
+  sys.exit(0)
 
 if not data or (len(data) - 1) % 4:
   sys.exit(f"Invalid DTC response: {data.hex()}")
