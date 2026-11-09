@@ -61,14 +61,18 @@ void encoder_thread(LoggerdState *s, const LogCameraInfo &cam_info) {
       VisionBuf buf_info = vipc_client.buffers[0];
       LOGD("encoder init %dx%d", buf_info.width, buf_info.height);
 
-      // main encoder
-      encoders.push_back(new Encoder(cam_info.filename, cam_info.type, buf_info.width, buf_info.height,
-                                     cam_info.fps, cam_info.bitrate, cam_info.is_h265,
-                                     cam_info.downscale, cam_info.record));
-      // qcamera encoder
-      if (cam_info.has_qcamera) {
-        encoders.push_back(new Encoder(qcam_info.filename, cam_info.type, qcam_info.frame_width, qcam_info.frame_height,
-                                       qcam_info.fps, qcam_info.bitrate, qcam_info.is_h265, qcam_info.downscale));
+      // EON web replay uses only the low-resolution H.264 encoder.
+      if (EON_WEB_VIDEO && cam_info.type == RoadCam) {
+        encoders.push_back(new Encoder("qcamera.mp4", cam_info.type, qcam_info.frame_width, qcam_info.frame_height,
+                                       qcam_info.fps, qcam_info.bitrate, false, true));
+      } else {
+        encoders.push_back(new Encoder(cam_info.filename, cam_info.type, buf_info.width, buf_info.height,
+                                       cam_info.fps, cam_info.bitrate, cam_info.is_h265,
+                                       cam_info.downscale, cam_info.record));
+        if (cam_info.has_qcamera) {
+          encoders.push_back(new Encoder(qcam_info.filename, cam_info.type, qcam_info.frame_width, qcam_info.frame_height,
+                                         qcam_info.fps, qcam_info.bitrate, qcam_info.is_h265, qcam_info.downscale));
+        }
       }
     }
 

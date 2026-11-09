@@ -72,6 +72,7 @@ private:
   std::vector<OMX_BUFFERHEADERTYPE *> out_buf_headers;
 
   uint64_t last_t;
+  int64_t segment_timestamp_us = -1;
 
   SafeQueue<OMX_BUFFERHEADERTYPE *> free_in;
   SafeQueue<OMX_BUFFERHEADERTYPE *> done_out;

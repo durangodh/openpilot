@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 
 #include <OMX_Component.h>
 #include <OMX_IndexExt.h>
@@ -445,7 +446,13 @@ void OmxEncoder::handle_out_buf(OmxEncoder *e, OmxBuffer *out_buf) {
       e->wrote_codec_config = true;
     }
 
-    if (out_buf->header.nTimeStamp > 0) {
+    if (e->wrote_codec_config && out_buf->header.nFilledLen > 0 &&
+        !(out_buf->header.nFlags & OMX_BUFFERFLAG_CODECCONFIG) && out_buf->header.nTimeStamp > 0) {
+      int64_t timestamp = out_buf->header.nTimeStamp;
+      if (std::strcmp(e->filename, "qcamera.mp4") == 0) {
+        if (e->segment_timestamp_us < 0) e->segment_timestamp_us = timestamp;
+        timestamp -= e->segment_timestamp_us;
+      }
       // input timestamps are in microseconds
       AVRational in_timebase = {1, 1000000};
 
@@ -455,7 +462,7 @@ void OmxEncoder::handle_out_buf(OmxEncoder *e, OmxBuffer *out_buf) {
       pkt.size = out_buf->header.nFilledLen;
 
       enum AVRounding rnd = static_cast<enum AVRounding>(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-      pkt.pts = pkt.dts = av_rescale_q_rnd(out_buf->header.nTimeStamp, in_timebase, e->ofmt_ctx->streams[0]->time_base, rnd);
+      pkt.pts = pkt.dts = av_rescale_q_rnd(timestamp, in_timebase, e->ofmt_ctx->streams[0]->time_base, rnd);
       pkt.duration = av_rescale_q(50*1000, in_timebase, e->ofmt_ctx->streams[0]->time_base);
 
       if (out_buf->header.nFlags & OMX_BUFFERFLAG_SYNCFRAME) {
@@ -569,6 +576,7 @@ void OmxEncoder::encoder_open(const char* path) {
     assert(err >= 0);
 
     this->wrote_codec_config = false;
+    this->segment_timestamp_us = -1;
   } else {
     if (this->write) {
       this->of = util::safe_fopen(this->vid_path, "wb");
@@ -615,7 +623,7 @@ void OmxEncoder::encoder_close() {
     write_handler_thread.join();
 
     if (this->remuxing) {
-      av_write_trailer(this->ofmt_ctx);
+      if (this->wrote_codec_config) av_write_trailer(this->ofmt_ctx);
       avcodec_free_context(&this->codec_ctx);
       avio_closep(&this->ofmt_ctx->pb);
       avformat_free_context(this->ofmt_ctx);

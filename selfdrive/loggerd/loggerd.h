@@ -41,6 +41,8 @@ const int DCAM_BITRATE = Hardware::TICI() ? MAIN_BITRATE : 2500000;
 const bool LOGGERD_TEST = getenv("LOGGERD_TEST");
 const int SEGMENT_LENGTH = LOGGERD_TEST ? atoi(getenv("LOGGERD_SEGMENT_LENGTH")) : 60;
 const bool LIGHTWEIGHT_LOGGING = Hardware::EON();
+const bool EON_WEB_VIDEO = LIGHTWEIGHT_LOGGING &&
+                           access("/persist/comma/enable-eon-web-video", F_OK) == 0;
 
 struct LogCameraInfo {
   CameraType type;
@@ -68,7 +70,7 @@ const LogCameraInfo cameras_logged[] = {
     .downscale = false,
     .has_qcamera = true,
     .trigger_rotate = true,
-    .enable = !LIGHTWEIGHT_LOGGING,
+    .enable = !LIGHTWEIGHT_LOGGING || EON_WEB_VIDEO,
     .record = true,
   },
   {
