@@ -20,14 +20,14 @@ TRACE_DIRS = {
   "mcan": ("M-CAN 로그 (버스 1)", "/data/media/0/mcan_logs"),
   # selfdrive/eon_cluster/voice_params.py 의 MEMO_DIR 와 같아야 한다.
   "memo": ("음성 메모 (리모컨 AI)", "/data/media/0/voice_memo"),
-  # selfdrive/debug/proc_cpu_log.py 의 LOG_DIR 와 같아야 한다.
-  "cpu": ("CPU 로그 (프로세스별)", "/data/media/0/cpu_log"),
+  # selfdrive/car/hyundai/mdps_fault_log.py 의 LOG_DIR 와 같아야 한다.
+  "mdps": ("MDPS 폴트 기록", "/data/media/0/mdps_log"),
 }
 EMPTY_MSG = {
   "hud": "파일이 없습니다. HUD 앱이 EON 과 연결되면 1분 안에 올라옵니다.",
   "mcan": "파일이 없습니다. SSH 에서 python3 selfdrive/debug/mcan_logger.py 로 기록하면 생깁니다.",
   "memo": "메모가 없습니다. 리모컨 AI 버튼으로 '메모해 줘'처럼 말하면 생깁니다.",
-  "cpu": "파일이 없습니다. SSH 에서 python3 selfdrive/debug/proc_cpu_log.py 로 기록하면 생깁니다.",
+  "mdps": "기록이 없습니다. 주행 중 MDPS 폴트가 나면 그 앞뒤 3초가 자동으로 남습니다.",
 }
 # HUD 앱이 올릴 수 있는 파일. HudDiagnostics 는 512KB 에서 previous 로 넘긴다.
 HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log", "naver-hud.log",

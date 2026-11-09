@@ -4,7 +4,7 @@ controlsd calls update() once per control frame with the MDPS12 fault bits and o
 numbers. A row is kept in a fixed-size ring; nothing is written until a fault bit turns on.
 The file write runs in a background thread so the 100 Hz loop never waits on storage.
 
-Log: /data/media/0/cpu_log/mdps_fault_MMDD.log (http://EON_IP:7714/trace "CPU 로그").
+Log: /data/media/0/mdps_log/mdps_fault_MMDD.log (http://EON_IP:7714/trace "MDPS 폴트 기록").
 Each row: time, loop interval ms, speed km/h, angle deg, angle rate deg/s, driver torque,
 MDPS output torque, commanded torque (apply), latActive, cut pulse, fault bits
 (ToiUnavail ToiFlt FailStat).
@@ -15,7 +15,7 @@ import queue
 import threading
 import time
 
-LOG_DIR = "/data/media/0/cpu_log"
+LOG_DIR = "/data/media/0/mdps_log"   # trace_http.py TRACE_DIRS["mdps"]
 PRE_FRAMES = 200    # 2 s before the fault
 POST_FRAMES = 100   # 1 s after
 HEADER = "time         dt_ms  kph   angle   rate  drvTq  epsTq  apply lat cut  unav flt fail"
