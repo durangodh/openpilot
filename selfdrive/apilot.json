@@ -935,20 +935,20 @@
    "group": "\ud6a1\ubc29\ud5a5",
    "name": "LateralTorqueAccelFactor",
    "title": "LAT ACCEL FACTOR (x1000)",
-   "descr": "\uc218\ub3d9 \ud6a1\uac00\uc18d\ub3c4 \ub300\ube44 \ud1a0\ud06c \uacc4\uc218 \u00d70.001. aPilot \uae30\ubcf8\uac12 2500.",
+   "descr": "\uc218\ub3d9 \ud6a1\uac00\uc18d\ub3c4 \ub300\ube44 \ud1a0\ud06c \uacc4\uc218 \u00d70.001. Genesis G-MCAN \uae30\ubcf8\uac12 2747.",
    "min": 1000,
    "max": 4000,
-   "default": 2500,
+   "default": 2747,
    "unit": 1
   },
   {
    "group": "\ud6a1\ubc29\ud5a5",
    "name": "LateralTorqueFriction",
    "title": "FRICTION (x1000)",
-   "descr": "\uc218\ub3d9 \ub9c8\ucc30 \ubcf4\uc0c1\uac12 \u00d70.001. aPilot \uae30\ubcf8\uac12 100.",
+   "descr": "\uc218\ub3d9 \ub9c8\ucc30 \ubcf4\uc0c1\uac12 \u00d70.001. Genesis G-MCAN \uae30\ubcf8\uac12 98.",
    "min": 0,
    "max": 1000,
-   "default": 100,
+   "default": 98,
    "unit": 1
   },
   {
