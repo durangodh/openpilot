@@ -4,7 +4,8 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
-from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
+from selfdrive.controls.lib import lane_count
+from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData, NavigationPoseTrust
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 from selfdrive.eon_cluster.hud_remote import RemoteLaneChangeSource
 
@@ -20,6 +21,12 @@ LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 
 LANE_CHANGE_SPEED_MIN = 50 * CV.KPH_TO_MS
+# NOO lane preparation for a turn must also work in city traffic, where the car
+# rarely reaches AutoLaneChangeSpeed (default 50 km/h); otherwise it stays in
+# lane 2/3 and drives past a left turn. NooLaneChangeSpeed (km/h) sets it.
+# Driver blinker lane changes keep AutoLaneChangeSpeed.
+NOO_LANE_CHANGE_SPEED_DEFAULT_KPH = 30
+NOO_LANE_CHANGE_SPEED_RANGE_KPH = (10, 60)
 LANE_CHANGE_TIME_MAX = 10.
 
 DESIRES = {
@@ -64,6 +71,7 @@ class DesireHelper:
     self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
     self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
     self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
+    self.noo_lane_change_speed_min = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH * CV.KPH_TO_MS
     self.last_params_update = 0.0
 
     self.auto_lane_change_timer = 0.0
@@ -94,6 +102,8 @@ class DesireHelper:
     self.navigation_route = NavigationRouteData(GUIDE_FILE)
     self.empty_navigation_state = self.navigation_route.empty_state()
     self.noo_controller = NavigationLaneChangeController()
+    self.noo_pose_trust = NavigationPoseTrust()
+    self.noo_pose_trusted = False
     self.noo_enabled = False
     # NavigationOnOpenpilot 안에서 기능을 분리한다. 기존 0/1/2 의미는
     # 유지하고 carrot-wip의 속도 전용 모드만 3으로 확장한다.
@@ -181,6 +191,22 @@ class DesireHelper:
                                   not target_lane_space)
 
     return close_physical_edge or c2_single_lane_edge or left_centre_line or uncertain_single_lane_edge
+
+  @staticmethod
+  def _camera_reason_code(reason):
+    """Short code for lane_count.estimate()'s failure text (HUD diagnostics)."""
+    reason = reason or ""
+    if reason.startswith("lane prob"):
+      return "cam_prob"
+    if reason.startswith("roadEdgeStd"):
+      return "cam_edge"
+    if reason.startswith("only"):
+      return "cam_sect"
+    if reason.startswith("inconsistent"):
+      return "cam_fork"
+    if reason.startswith("lane count"):
+      return "cam_count"
+    return "cam_none"
 
   def _road_edge_blocked(self, model_data, direction):
     raw_blocked = self._road_edge_detected(model_data, direction)
@@ -349,6 +375,13 @@ class DesireHelper:
         auto_lc_speed_kph = 50
       self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
       try:
+        noo_lc_speed_kph = int(self.params.get('NooLaneChangeSpeed', encoding='utf8') or
+                               NOO_LANE_CHANGE_SPEED_DEFAULT_KPH)
+      except (TypeError, ValueError):
+        noo_lc_speed_kph = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH
+      lo, hi = NOO_LANE_CHANGE_SPEED_RANGE_KPH
+      self.noo_lane_change_speed_min = max(lo, min(hi, noo_lc_speed_kph)) * CV.KPH_TO_MS
+      try:
         self.auto_lane_change_timer_setting = int(
           self.params.get("AutoLaneChangeTimer", encoding="utf8") or "0")
       except (TypeError, ValueError):
@@ -376,6 +409,17 @@ class DesireHelper:
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
     navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state
+    # Turn steering, the map path and lane preparation all use the app's
+    # vehicle position. Hold them while that position does not follow the car
+    # (no GPS, e.g. leaving an underground car park).
+    if noo_available:
+      self.noo_pose_trusted = self.noo_pose_trust.update(navigation_state, v_ego, DT_MDL)
+    else:
+      self.noo_pose_trust.reset()
+      self.noo_pose_trusted = False
+    noo_lane_change_configured = noo_lane_change_available
+    noo_steering = noo_steering and self.noo_pose_trusted
+    noo_lane_change_available = noo_lane_change_available and self.noo_pose_trusted
     # Pre-compute both sides every model frame, like carrot-wip SideState.
     # This prevents a single open frame from releasing a last-lane block.
     left_road_edge = self._road_edge_blocked(model_data, -1)
@@ -395,7 +439,9 @@ class DesireHelper:
     noo_turn_matches_blinker = (noo_steering and turn_event and
                                ((turn_direction < 0 and carstate.leftBlinker) or
                                 (turn_direction > 0 and carstate.rightBlinker)))
-    ego_lane = self.navigation_route.camera_lane_position(model_data) if noo_lane_change_available else None
+    # One estimate per model frame; its reason is reused for HUD diagnostics.
+    ego_lane, camera_reason = (self.navigation_route.camera_lane_estimate(model_data)
+                               if noo_lane_change_available else (None, ""))
     self.noo_camera_lane_count = int(ego_lane['count']) if isinstance(ego_lane, dict) else 0
     route_lane = navigation_state.get('lane_current')
     try:
@@ -438,11 +484,21 @@ class DesireHelper:
     self.noo_direction = noo_direction
     # Diagnostics only: keep every lane-change gate and request unchanged.
     self.noo_reason = self.noo_controller.reason if noo_lane_change_available else ""
+    # Why the camera lane count is missing, so the HUD does not show a bare
+    # "lane detection failed" (and NOO with lane changes off is not reported
+    # as a camera failure at all).
+    if noo_available and not noo_lane_change_configured:
+      self.noo_reason = "lc_off"
+    elif noo_available and not self.noo_pose_trusted:
+      self.noo_reason = "nav_gps"
+    elif noo_lane_change_available and ego_lane is None and self.noo_reason == "no_plan":
+      self.noo_reason = self._camera_reason_code(camera_reason)
     if self.noo_reason == "lane_blocked":
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
       self.noo_reason = "blindspot" if blindspot else "road_edge"
-    if noo_direction and v_ego < self.lane_change_speed_min:
+    noo_lane_change_speed_min = self.noo_lane_change_speed_min
+    if noo_direction and v_ego < noo_lane_change_speed_min:
       self.noo_reason = "low_speed"
     if self.noo_enabled and not lateral_active:
       self.noo_reason = "standby"
@@ -459,8 +515,6 @@ class DesireHelper:
     left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
     right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
     one_blinker = left_blinker != right_blinker
-    below_lane_change_speed = v_ego < self.lane_change_speed_min
-
     # Driver lane changes retain the original road-edge gate. NOO raises its
     # virtual blinker only after model geometry and matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
@@ -468,6 +522,8 @@ class DesireHelper:
     # override) the NOO controller used to raise the request. Otherwise the
     # request opens while the FSM below stays edge-blocked.
     noo_auto_request = noo_direction != 0 and direction == noo_direction
+    below_lane_change_speed = v_ego < (noo_lane_change_speed_min if noo_auto_request
+                                       else self.lane_change_speed_min)
     if noo_auto_request:
       self.road_edge = not (noo_left_open if direction < 0 else noo_right_open)
     else:

@@ -1,8 +1,8 @@
 import json
 import math
 import os
-import statistics
 import time
+from selfdrive.controls.lib import lane_count
 
 
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
@@ -50,6 +50,80 @@ def _first(data, names, default=None):
     if name in data and data[name] is not None:
       return data[name]
   return default
+
+
+# Navigation pose trust (2026-11-06): leaving an underground car park with
+# Naver guidance on, NOO steered at once and the MDPS faulted. Without GPS the
+# app keeps an old or dead-reckoned position, so the turn trigger and the map
+# curvature (anchored at that position) belonged to the street, not the ramp.
+# The pose is trusted only while it moves with the car and the app's speed
+# agrees with the car's.
+POSE_FROZEN_MIN_EGO = 3.0          # m/s, frozen-position check above this speed
+POSE_FROZEN_MOVE_M = 1.0           # m, less than this movement ...
+POSE_FROZEN_TIME = 2.0             # s, ... for this long = frozen
+POSE_SPEED_TOL_KPH = 8.0           # app speed vs car speed, absolute ...
+POSE_SPEED_TOL_RATIO = 0.35        # ... or relative, whichever is larger
+POSE_SPEED_BAD_TIME = 1.0          # s of disagreement before distrust
+POSE_RECOVER_TIME = 2.0            # s of agreement before trusting again
+
+
+class NavigationPoseTrust:
+  """Whether the navigation app's vehicle pose can steer the car."""
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.trusted = False
+    self.anchor = None
+    self.anchor_time = 0.0
+    self.bad_time = 0.0
+    self.good_time = 0.0
+
+  def update(self, state, v_ego, dt):
+    vehicle = state.get("vehicle") if isinstance(state, dict) else None
+    if not isinstance(state, dict) or not state.get("route_fresh", False) or not isinstance(vehicle, dict):
+      self.reset()
+      return False
+    try:
+      lat = float(vehicle.get("lat"))
+      lon = float(vehicle.get("lon"))
+    except (TypeError, ValueError):
+      self.reset()
+      return False
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+      self.reset()
+      return False
+
+    # Frozen position while the car moves.
+    frozen = False
+    if self.anchor is None:
+      self.anchor, self.anchor_time = (lat, lon), 0.0
+    else:
+      moved = math.hypot(math.radians(lon - self.anchor[1]) * EARTH_RADIUS_M * math.cos(math.radians(lat)),
+                         math.radians(lat - self.anchor[0]) * EARTH_RADIUS_M)
+      if moved >= POSE_FROZEN_MOVE_M or v_ego < POSE_FROZEN_MIN_EGO:
+        self.anchor, self.anchor_time = (lat, lon), 0.0
+      else:
+        self.anchor_time += dt
+        frozen = self.anchor_time >= POSE_FROZEN_TIME
+
+    # The app's own speed must agree with the car (missing speed is not held against it).
+    speed_bad = False
+    nav_speed = _number(vehicle.get("speed_kph"), float("nan"))
+    if math.isfinite(nav_speed):
+      ego_kph = v_ego * 3.6
+      speed_bad = abs(nav_speed - ego_kph) > max(POSE_SPEED_TOL_KPH, POSE_SPEED_TOL_RATIO * ego_kph)
+    self.bad_time = self.bad_time + dt if speed_bad else 0.0
+
+    if frozen or self.bad_time >= POSE_SPEED_BAD_TIME:
+      self.trusted = False
+      self.good_time = 0.0
+    elif not speed_bad:
+      self.good_time += dt
+      if self.good_time >= POSE_RECOVER_TIME:
+        self.trusted = True
+    return self.trusted
 
 
 class NavigationRouteData:
@@ -183,6 +257,40 @@ class NavigationRouteData:
             "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
             "next": None}
 
+  # A lane point within this distance of the next maneuver belongs to it.
+  LANE_AHEAD_MATCH_MIN_M = 100.0
+  LANE_AHEAD_MATCH_RATIO = 0.3
+
+  @classmethod
+  def select_lane_ahead(cls, lane_ahead, current_distance, next_state):
+    """The lane_ahead entry for the next maneuver, or None.
+
+    A dict is used as is. From a list (TMAP), take the entry whose distance is
+    closest to the next maneuver (current distance + its segment); fail closed
+    when none is near it, so another junction's lanes are never used.
+    """
+    if isinstance(lane_ahead, dict):
+      return lane_ahead
+    if not isinstance(lane_ahead, list) or not isinstance(next_state, dict):
+      return None
+    current = _number(current_distance, -1.0)
+    segment = _number(next_state.get("segment"), -1.0)
+    if current < 0.0 or segment < 0.0:
+      return None
+    target = current + segment
+    best, best_error = None, None
+    for item in lane_ahead:
+      if not isinstance(item, dict):
+        continue
+      distance = _number(item.get("distance_m"), -1.0)
+      if distance < 0.0:
+        continue
+      error = abs(distance - target)
+      if best_error is None or error < best_error:
+        best, best_error = item, error
+    tolerance = max(cls.LANE_AHEAD_MATCH_MIN_M, cls.LANE_AHEAD_MATCH_RATIO * target)
+    return best if best is not None and best_error <= tolerance else None
+
   @staticmethod
   def toll_fee_won(guidance):
     """Explicit KRW fee of this guidance point; do not infer from unrelated numbers."""
@@ -271,10 +379,10 @@ class NavigationRouteData:
       lane_ahead = root.get("lane_ahead")
       lane_ahead_updated_at = stream_times.get("lane_ahead", lane_updated_at)
       lane_ahead_age = time.time() - _number(lane_ahead_updated_at, 0.0) / 1000.0
-      self.state["lane_ahead_fresh"] = (-5.0 <= lane_ahead_age <= STALE_TIMEOUT and
-                                        isinstance(lane_ahead, dict) and
-                                        not guidance_blocked)
-      self.state["lane_ahead"] = lane_ahead if self.state["lane_ahead_fresh"] else None
+      # TMAP sends lane_ahead as a list (up to 4 lane points ahead); pick the
+      # one for the next maneuver below, once its distance is known.
+      lane_ahead_ok = (-5.0 <= lane_ahead_age <= STALE_TIMEOUT and
+                       isinstance(lane_ahead, (dict, list)) and not guidance_blocked)
       speed_state = root.get("speed") or {}
       speed_updated_at = stream_times.get("speed", root.get("updated_at_ms"))
       speed_age = time.time() - _number(speed_updated_at, 0.0) / 1000.0
@@ -299,6 +407,10 @@ class NavigationRouteData:
       next_fresh = -5.0 <= next_age <= STALE_TIMEOUT and not guidance_blocked
       next_state = self.guidance_state(root.get("guidance_next") or {}, next_fresh)
       self.state["next"] = next_state if next_state["fresh"] else None
+      selected_ahead = self.select_lane_ahead(lane_ahead, self.state["distance"],
+                                              self.state["next"]) if lane_ahead_ok else None
+      self.state["lane_ahead_fresh"] = selected_ahead is not None
+      self.state["lane_ahead"] = selected_ahead
     except (IOError, OSError, ValueError, TypeError):
       self.file_signature = None
       self.cached_root = None
@@ -398,112 +510,15 @@ class NavigationRouteData:
       return ("fork" if any(word in lower for word in ("분기", "진출", "fork")) else "turn"), 1
     return "none", 0
 
-  # roadEdgeStds is a standard deviation in metres, not a probability, so it is
-  # compared against a distance threshold instead of being read as confidence.
-  # 도로경계 불확실성 상한. 0.5 는 3차로 이상 도로에서 반대편 경계가 거의 항상
-  # 넘겨서 차로 판정 자체가 안 됐다. 판정 결과는 차선변경 "계획"에만 쓰이고
-  # 실제 차단은 DesireHelper._road_edge_detected 와 BSD 가 따로 하므로 완화한다.
-  ROAD_EDGE_STD_MAX = 1.2
-  # 자차 차선 확률 하한. 옆차로 진입/차선 흐림 구간에서 0.45 는 자주 미달했다.
-  LANE_PROB_MIN = 0.35
-  # 도로경계가 차선보다 살짝 안쪽으로 찍히는 모델 노이즈 허용치(m).
-  EDGE_INSIDE_TOL = 0.5
-  # An outer model lane line is independent evidence that one adjacent lane
-  # exists even when roadEdges temporarily collapses onto the ego lane.
-  ADJACENT_LANE_PROB_MIN = 0.55
+  @staticmethod
+  def camera_lane_position(model_data):
+    """Camera ego lane / lane count. Shared with the HUD (lane_count.py)."""
+    return lane_count.camera_lane_position(model_data)
 
-  @classmethod
-  def camera_lane_position(cls, model_data):
-    """Conservatively estimate total/current lane from modelV2 geometry.
-
-    TMAP's current_lane can describe its recommended lane rather than the
-    camera vehicle.  NOO therefore uses the ego-lane boundaries and road
-    edges, and accepts the result only while both are confident.
-
-    The returned left_error/right_error are how far each side is from a whole
-    number of lanes.  A paved shoulder or a wide median produces a large error
-    there, which lets the lane planner drop that phantom lane instead of
-    silently disagreeing with the TMAP lane count.
-    """
-    if model_data is None:
-      return None
-
-    def near_y(line):
-      try:
-        values = [float(y) for x, y in zip(line.x, line.y)
-                  if math.isfinite(float(x)) and 0.0 <= float(x) <= 30.0 and
-                  math.isfinite(float(y))]
-      except (AttributeError, TypeError, ValueError):
-        return None
-      return statistics.median(values) if len(values) >= 2 else None
-
-    try:
-      lanes = model_data.laneLines
-      edges = model_data.roadEdges
-      if len(lanes) < 3 or len(edges) < 2:
-        return None
-      inner = [near_y(lanes[1]), near_y(lanes[2])]
-      outer = [near_y(lanes[0]) if len(lanes) > 0 else None,
-               near_y(lanes[3]) if len(lanes) > 3 else None]
-      road = [near_y(edges[0]), near_y(edges[1])]
-      inner_conf = min(float(model_data.laneLineProbs[1]),
-                       float(model_data.laneLineProbs[2]))
-      edge_std = max(float(model_data.roadEdgeStds[0]),
-                     float(model_data.roadEdgeStds[1]))
-    except (AttributeError, IndexError, TypeError, ValueError):
-      return None
-    if any(value is None for value in inner + road) or inner_conf < cls.LANE_PROB_MIN or \
-       not math.isfinite(edge_std) or edge_std > cls.ROAD_EDGE_STD_MAX:
-      return None
-
-    lane_left, lane_right = max(inner), min(inner)
-    road_left, road_right = max(road), min(road)
-    lane_width = lane_left - lane_right
-    if not 2.5 <= lane_width <= 4.5:
-      return None
-
-    def adjacent_visible(index, outer_y, inner_y):
-      if outer_y is None:
-        return False
-      try:
-        probability = float(model_data.laneLineProbs[index])
-      except (AttributeError, IndexError, TypeError, ValueError):
-        return False
-      spacing = abs(outer_y - inner_y)
-      return (probability >= cls.ADJACENT_LANE_PROB_MIN and
-              lane_width * 0.65 <= spacing <= lane_width * 1.35)
-
-    left_adjacent = adjacent_visible(0, outer[0], lane_left)
-    right_adjacent = adjacent_visible(3, outer[1], lane_right)
-    # 경계가 차선보다 조금 안쪽이면 노이즈로 보고 차선에 붙인다. 그 이상 안쪽이면
-    # 기하가 어긋난 것이므로 종전대로 실패 처리한다.
-    if road_left < lane_left:
-      if lane_left - road_left > cls.EDGE_INSIDE_TOL:
-        return None
-      road_left = lane_left
-    if road_right > lane_right:
-      if road_right - lane_right > cls.EDGE_INSIDE_TOL:
-        return None
-      road_right = lane_right
-
-    left_ratio = max(0.0, road_left - lane_left) / lane_width
-    right_ratio = max(0.0, lane_right - road_right) / lane_width
-    left_lanes = int(round(left_ratio))
-    right_lanes = int(round(right_ratio))
-    total = 1 + left_lanes + right_lanes
-    current = 1 + left_lanes
-    if not 1 <= total <= 8 or not 1 <= current <= total:
-      return None
-    # left_frac / right_frac 은 그 쪽 여유폭이 차로폭의 몇 배인지의 소수부다.
-    # 0.5 이상이면 반올림에서 차로 하나가 "올라간" 쪽이므로 갓길·중앙분리대가
-    # 유령차로로 잡혔을 후보가 된다. 0.5 미만이면 애초에 세지 않았으므로
-    # 유령차로를 만들 수 없다.
-    return {"count": total, "current": current,
-            "confidence": inner_conf, "width": lane_width,
-            "left_frac": left_ratio - math.floor(left_ratio),
-            "right_frac": right_ratio - math.floor(right_ratio),
-            "left_adjacent": left_adjacent,
-            "right_adjacent": right_adjacent}
+  @staticmethod
+  def camera_lane_estimate(model_data):
+    """(camera_lane_position, reason) from one estimate (lane_count.py)."""
+    return lane_count.estimate(model_data)
 
   @staticmethod
   def _lat_lon(point):

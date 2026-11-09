@@ -37,6 +37,9 @@ class FakeRoute:
   def camera_lane_position(self, model_data):
     return {"count": 3, "current": 2, "left_adjacent": True, "right_adjacent": True}
 
+  def camera_lane_estimate(self, model_data):
+    return self.camera_lane_position(model_data), "test"
+
   def steering_request(self, state, v_ego):
     return 0
 
@@ -59,22 +62,31 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     helper.noo_enabled = True
     helper.noo_mode = 2
     helper.lane_change_speed_min = 50 / 3.6
+    helper.noo_lane_change_speed_min = 30 / 3.6
     helper.auto_lane_change_timer_setting = 0
     helper.noo_controller = FakeNoo()
     helper.navigation_route = FakeRoute(helper.empty_navigation_state)
+    helper.noo_pose_trust = NS(update=lambda *args: True, reset=lambda: None)
     self.edge = {-1: False, 1: False}
     helper._road_edge_blocked = lambda model_data, direction: self.edge[direction]
     self.helper = helper
 
   def test_request_raised_below_speed_starts_once_speed_gate_opens(self):
+    # NooLaneChangeSpeed (30 km/h here) so it also works in city traffic.
     self.helper.noo_controller.direction = -1
-    self.helper.update(car(40), True, 0.0)
+    self.helper.update(car(25), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, OFF)
     self.assertEqual(self.helper.noo_reason, "low_speed")
-    self.helper.update(car(55), True, 0.0)
+    self.helper.update(car(35), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, PRE)
-    self.helper.update(car(55), True, 0.0)
+    self.helper.update(car(35), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, STARTING)
+
+  def test_driver_blinker_keeps_auto_lane_change_speed(self):
+    driver = car(40)
+    driver.leftBlinker = True
+    self.helper.update(driver, True, 0.0)
+    self.assertEqual(self.helper.lane_change_state, OFF)
 
   def test_adjacent_line_override_also_opens_the_fsm_edge_gate(self):
     # The raw road edge reads blocked, but the NOO adjacent-lane override opens it.
@@ -153,6 +165,14 @@ class TestRemoteLaneLatch(TestNooLaneChangeFsm):
     c.brakePressed = True
     self.helper.update(c, True, 0.5)
     self.assertEqual(self.helper.remote_direction, 0)
+
+
+  def test_noo_lane_change_speed_setting_moves_the_gate(self):
+    self.helper.noo_lane_change_speed_min = 45 / 3.6
+    self.helper.noo_controller.direction = -1
+    self.helper.update(car(40), True, 0.0)
+    self.assertEqual(self.helper.lane_change_state, OFF)
+    self.assertEqual(self.helper.noo_reason, "low_speed")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import math
-import statistics
+
+from selfdrive.controls.lib import lane_count
 
 
 def _field(message, name, default=None):
@@ -17,185 +18,53 @@ def _finite_float(value, default=0.0):
   return number if math.isfinite(number) else default
 
 
-LANE_SAMPLE_XS = (5.0, 10.0, 15.0, 20.0, 25.0)
-LANE_GEOMETRY_MAD_MAX = 0.35
-
-
-def _line_y_at(line, x):
-  """Interpolate one model line at an exact forward distance."""
-  xs = list(_field(line, "x", []) or [])
-  ys = list(_field(line, "y", []) or [])
-  points = []
-  for raw_x, raw_y in zip(xs, ys):
-    px = _finite_float(raw_x, float("nan"))
-    py = _finite_float(raw_y, float("nan"))
-    if math.isfinite(px) and math.isfinite(py):
-      points.append((px, py))
-  if len(points) < 2:
-    return None
-  points.sort(key=lambda point: point[0])
-  if x < points[0][0] or x > points[-1][0]:
-    return None
-  for (x0, y0), (x1, y1) in zip(points, points[1:]):
-    if x <= x1:
-      if x1 <= x0:
-        continue
-      ratio = (x - x0) / (x1 - x0)
-      return y0 + ratio * (y1 - y0)
-  return None
-
-
-ROAD_EDGE_STD_MAX = 0.5
-PHANTOM_LANE_MIN_ERROR = 0.10
-ADJACENT_LANE_PROB_MIN = 0.55
-
-
-def camera_lane_position(model):
-  """Estimate the ego lane from matched modelV2 cross-sections.
-
-  Lane lines and road edges are sampled at the same forward distances.  This
-  avoids comparing unrelated points on curves.  Medians reject a single noisy
-  section, while inconsistent merge/fork geometry fails closed instead of
-  publishing a wrong current lane.  The result is display-only.
-  """
-  lanes = list(_field(model, "laneLines", []) or [])
-  edges = list(_field(model, "roadEdges", []) or [])
-  lane_probs = list(_field(model, "laneLineProbs", []) or [])
-  edge_stds = list(_field(model, "roadEdgeStds", []) or [])
-  if len(lanes) < 3 or len(edges) < 2:
-    return None
-
-  try:
-    inner_conf = min(_finite_float(lane_probs[1], 0.0),
-                     _finite_float(lane_probs[2], 0.0))
-    # roadEdgeStds is a standard deviation in metres, not a probability.
-    edge_std = max(_finite_float(edge_stds[0], 9.9),
-                   _finite_float(edge_stds[1], 9.9))
-  except (IndexError, TypeError):
-    return None
-  if inner_conf < 0.45 or edge_std > ROAD_EDGE_STD_MAX:
-    return None
-
-  lane_widths = []
-  left_ratios = []
-  right_ratios = []
-  for x in LANE_SAMPLE_XS:
-    inner = [_line_y_at(lanes[1], x), _line_y_at(lanes[2], x)]
-    road = [_line_y_at(edges[0], x), _line_y_at(edges[1], x)]
-    if any(value is None for value in inner + road):
-      continue
-
-    lane_left, lane_right = max(inner), min(inner)
-    road_left, road_right = max(road), min(road)
-    lane_width = lane_left - lane_right
-    if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
-      continue
-    lane_widths.append(lane_width)
-    left_ratios.append(max(0.0, road_left - lane_left) / lane_width)
-    right_ratios.append(max(0.0, lane_right - road_right) / lane_width)
-
-  if len(lane_widths) < 3:
-    return None
-
-  lane_width = statistics.median(lane_widths)
-  left_ratio = statistics.median(left_ratios)
-  right_ratio = statistics.median(right_ratios)
-  left_mad = statistics.median(abs(value - left_ratio) for value in left_ratios)
-  right_mad = statistics.median(abs(value - right_ratio) for value in right_ratios)
-  if max(left_mad, right_mad) > LANE_GEOMETRY_MAD_MAX:
-    return None
-
-  def adjacent_visible(outer_index, inner_index):
-    try:
-      probability = _finite_float(lane_probs[outer_index], 0.0)
-      gaps = []
-      for x in LANE_SAMPLE_XS:
-        outer_y = _line_y_at(lanes[outer_index], x)
-        inner_y = _line_y_at(lanes[inner_index], x)
-        if outer_y is not None and inner_y is not None:
-          gaps.append(abs(outer_y - inner_y))
-      spacing = statistics.median(gaps) if len(gaps) >= 3 else 0.0
-    except (IndexError, TypeError):
-      return False
-    return (probability >= ADJACENT_LANE_PROB_MIN and
-            lane_width * 0.65 <= spacing <= lane_width * 1.35)
-
-  left_adjacent = adjacent_visible(0, 1)
-  right_adjacent = adjacent_visible(3, 2)
-
-  left_lanes = int(round(left_ratio))
-  right_lanes = int(round(right_ratio))
-  total = 1 + left_lanes + right_lanes
-  current = 1 + left_lanes
-  if not 1 <= total <= 8 or not 1 <= current <= total:
+def _hud_lane_position(position):
+  """Shared lane estimate (controls/lib/lane_count.py) in the HUD JSON keys."""
+  if not isinstance(position, dict):
     return None
   return {
-    "n": total,
-    "cur": current,
-    "confidence": round(inner_conf, 2),
-    "laneWidth": round(lane_width, 2),
-    "leftFrac": round(left_ratio - math.floor(left_ratio), 4),
-    "rightFrac": round(right_ratio - math.floor(right_ratio), 4),
-    "leftAdjacent": left_adjacent,
-    "rightAdjacent": right_adjacent,
+    "n": int(position["count"]),
+    "cur": int(position["current"]),
+    "confidence": round(float(position["confidence"]), 2),
+    "laneWidth": round(float(position["width"]), 2),
+    "leftFrac": round(float(position["left_frac"]), 4),
+    "rightFrac": round(float(position["right_frac"]), 4),
+    "leftAdjacent": bool(position["left_adjacent"]),
+    "rightAdjacent": bool(position["right_adjacent"]),
   }
 
 
-def reconcile_lane_position(position, route_count):
-  """Reconcile camera geometry with a TMAP/Naver navigation lane count.
+def camera_lane_position(model):
+  """Ego lane from modelV2 geometry, the same estimate NOO uses. Display-only."""
+  return _hud_lane_position(lane_count.camera_lane_position(model))
 
-  This is display-only. An undercount is expanded only when the fixed outer
-  lane lines uniquely locate the vehicle on a two- or three-lane road. A
-  single camera-only shoulder/median lane can also be removed when one side
-  was clearly rounded up from a partial width. Ambiguous geometry fails closed.
+
+def reconcile_lane_position(position, route_count):
+  """Reconcile the camera lane with the TMAP/Naver lane count, as NOO does.
+
+  An over-count from a shoulder/median is removed and a road-edge under-count
+  is expanded from the outer lane lines; ambiguous geometry fails closed.
   """
   if not isinstance(position, dict):
     return None
   try:
-    camera_count = int(position.get("n", 0))
-    current = int(position.get("cur", 0))
+    ego_lane = {
+      "count": int(position.get("n", 0)),
+      "current": int(position.get("cur", 0)),
+      "left_frac": float(position.get("leftFrac", 0.0)),
+      "right_frac": float(position.get("rightFrac", 0.0)),
+      "left_adjacent": position.get("leftAdjacent") is True,
+      "right_adjacent": position.get("rightAdjacent") is True,
+    }
     route_count = int(route_count)
   except (TypeError, ValueError):
     return None
-  if not 1 <= route_count <= 8 or not 1 <= current <= camera_count:
+  current = lane_count.resolve_current_lane(ego_lane, route_count)
+  if current is None:
     return None
-
   resolved = dict(position)
-  if camera_count == route_count:
+  if ego_lane["count"] == route_count:
     return resolved
-  if camera_count < route_count and route_count in (2, 3):
-    left_adjacent = position.get("leftAdjacent") is True
-    right_adjacent = position.get("rightAdjacent") is True
-    current = ({
-      (False, True): 1,
-      (True, False): route_count,
-      (True, True): 2 if route_count == 3 else None,
-    }).get((left_adjacent, right_adjacent))
-    if current is None:
-      return None
-    resolved["n"] = route_count
-    resolved["cur"] = current
-    resolved["reconciled"] = True
-    return resolved
-  if camera_count - route_count != 1:
-    return None
-
-  try:
-    left_frac = float(position.get("leftFrac", 0.0))
-    right_frac = float(position.get("rightFrac", 0.0))
-  except (TypeError, ValueError):
-    return None
-
-  def phantom(frac):
-    return 0.5 <= frac <= 1.0 - PHANTOM_LANE_MIN_ERROR
-
-  phantom_left = phantom(left_frac)
-  phantom_right = phantom(right_frac)
-  if phantom_left == phantom_right:
-    return None
-  current -= 1 if phantom_left else 0
-  if not 1 <= current <= route_count:
-    return None
   resolved["n"] = route_count
   resolved["cur"] = current
   resolved["reconciled"] = True

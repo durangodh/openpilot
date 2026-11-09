@@ -6147,6 +6147,15 @@ public final class HudService extends Service {
             case "too_far": return lang("차선변경 거리 대기", "WAIT DISTANCE");
             case "stale": return lang("최신 안내 대기", "WAIT NAV DATA");
             case "off_route": return lang("경로 재탐색 중", "OFF ROUTE");
+            case "lc_off": return lang("차선변경 꺼짐", "LANE CHG OFF");
+            case "nav_gps": return lang("내비 위치 불량", "NAV GPS WAIT");
+            // 카메라 차로판정이 안 된 이유(lane_count.estimate).
+            case "cam_prob": return lang("차선 인식 약함", "WEAK LINES");
+            case "cam_edge": return lang("도로끝 불확실", "EDGE UNSURE");
+            case "cam_sect": return lang("차선폭 판정 불가", "LANE WIDTH ?");
+            case "cam_fork": return lang("분기·합류 구간", "FORK/MERGE");
+            case "cam_count": return lang("차로수 범위 밖", "LANE COUNT ?");
+            case "cam_none": return lang("차선 정보 없음", "NO LANES");
             default: break;
         }
         // 3) 계획은 섰지만 아직 실행 전 — 어느 차로로 갈지.

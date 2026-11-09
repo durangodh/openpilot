@@ -176,6 +176,7 @@ class TestTurnInputRegression(unittest.TestCase):
            patch("time.monotonic", side_effect=lambda: clock[0]):
         helper = module.DesireHelper()
         helper.navigation_route = NavigationRouteData(str(guide))
+        helper.noo_pose_trust = NS(update=lambda *args: True, reset=lambda: None)
         helper.update(car, True, 0.0)
         self.assertEqual(helper.noo_turn_direction, -1)
         clock[0] = 103.1

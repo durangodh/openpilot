@@ -244,6 +244,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooTurnSpeed", PERSISTENT},
     {"NooMode", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
+    {"NooLaneChangeSpeed", PERSISTENT},     // NOO 차선준비 최저속도(km/h)
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"HumanAcceleration", PERSISTENT},
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
