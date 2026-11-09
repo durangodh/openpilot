@@ -308,6 +308,12 @@ class Controls:
     self.rk = Ratekeeper(100, print_delay_threshold=None)
     self.prof = Profiler(False)  # off by default
     self._sp = _SectionProf()  # _prof
+    # MDPS fault recorder (Hyundai carstate exposes the MDPS12 fault bits).
+    self.mdps_log = None
+    if hasattr(getattr(self.CI, "CS", None), "mdps_error_cnt"):
+      from selfdrive.car.hyundai.mdps_fault_log import MdpsFaultLog
+      self.mdps_log = MdpsFaultLog()
+    self._mdps_prev_start = None
 
     # ---- 발행 감속 ---------------------------------------------------------
     # controlsState / carControl 은 소비자가 전부 UI 계열(ui 20fps, soundd,
@@ -1070,6 +1076,18 @@ class Controls:
 
     self.pm.send('controlsState', dat)
 
+  def _record_mdps(self, CS, CC, start_time):
+    dt_ms = 0.0 if self._mdps_prev_start is None else (start_time - self._mdps_prev_start) * 1000.0
+    self._mdps_prev_start = start_time
+    try:
+      cs_obj, cc_obj = self.CI.CS, self.CI.CC
+      self.mdps_log.update(getattr(cs_obj, "mdps_bits", (0, 0, 0)), (
+        _ptime.time(), dt_ms, CS.vEgo * 3.6, CS.steeringAngleDeg, CS.steeringRateDeg,
+        CS.steeringTorque, CS.steeringTorqueEps, getattr(cc_obj, "apply_steer_last", 0),
+        CC.latActive, getattr(cc_obj, "cut_steer_temp", False)))
+    except Exception:
+      cloudlog.exception("mdps fault recorder")
+
   def step(self):
     start_time = sec_since_boot()
     self.prof.checkpoint("Ratekeeper", ignore=True)
@@ -1099,6 +1117,8 @@ class Controls:
 
     # Publish data
     self.publish_logs(CS, start_time, CC, lac_log)
+    if self.mdps_log is not None:
+      self._record_mdps(CS, CC, start_time)
     self._sp.mark("pub_rest")  # _prof
     self._sp.tick()  # _prof
     self.prof.checkpoint("Sent")

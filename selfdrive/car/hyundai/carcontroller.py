@@ -109,6 +109,7 @@ class CarController:
     self.angle_limit_counter = 0
     self.cut_steer_frames = 0
     self.cut_steer = False
+    self.cut_steer_temp = False   # last frame's high-angle cut pulse (MDPS fault recorder)
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
     self.steer_fault_max_frames = CP.steerFaultMaxFrames
@@ -206,6 +207,7 @@ class CarController:
 
 
     _st = _subprof.lap("cc.steer_logic", _st)  # _prof
+    self.cut_steer_temp = cut_steer_temp
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
