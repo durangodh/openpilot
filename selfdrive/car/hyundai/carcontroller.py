@@ -13,7 +13,7 @@ from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
-from common.params import Params
+from common.params import Params, UnknownKeyName
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
@@ -164,7 +164,11 @@ class CarController:
 
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
     if self.frame % 50 == 0:
-      self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
+      try:
+        self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
+      except UnknownKeyName:
+        # Older Params binaries may still be loaded after a source-only update.
+        self.hud_wheel_state_mode = False
       self.lkas_state_test = read_lkas_state_test()
     sys_state = hud_wheel_state(sys_state, CC.enabled, self.hud_wheel_state_mode, self.lkas_state_test)
 
