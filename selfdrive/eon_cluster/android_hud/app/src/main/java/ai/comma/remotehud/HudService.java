@@ -843,7 +843,7 @@ public final class HudService extends Service {
         }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
-        // 리모컨 내비 음성 버튼용 접근성 서비스(nMirror 서비스는 그대로 둔다).
+        // AI 비서의 내비 검색용 접근성 서비스.
         new Thread(() -> NavVoiceService.ensureEnabled(this), "hud-nav-voice-enable").start();
         final VoiceAssistant assistantInit = new VoiceAssistant(this, data -> {
             DatagramSocket socket = receiverSocket;

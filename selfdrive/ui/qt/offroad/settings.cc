@@ -1284,7 +1284,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     auto actions = new QComboBox(&dialog);
     // 음성 두 항목을 맨 위에 둔다. 12개는 EON 화면 높이를 넘어 아래쪽이 잘리고 스크롤바가 너무 작았다.
     const std::array<std::pair<const char *, const char *>, 12> remoteActions = {{
-      {"음성 비서 (AI)", "voice"}, {"내비 음성 검색 (티맵·네이버·카카오)", "nav_voice"},
+      {"음성 비서 (AI)", "voice"},
       {"RES / 속도 +1", "res"},
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
       {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},

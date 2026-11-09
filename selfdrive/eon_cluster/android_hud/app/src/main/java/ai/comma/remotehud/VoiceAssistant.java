@@ -119,9 +119,7 @@ public final class VoiceAssistant {
         if (seq == previous) return;
         lastSeq = seq;
         if (previous == -2) return;   // 앱 시작 직전의 누름은 무시
-        if ("nav".equals(mode)) {
-            onNavButton();
-        } else {
+        if ("ai".equals(mode)) {
             onButton();
         }
     }
@@ -130,26 +128,6 @@ public final class VoiceAssistant {
         if (navApp == 2) return "com.nhn.android.nmap";
         if (navApp == 3) return "com.locnall.KimGiSa";
         return "com.skt.tmap.ku";
-    }
-
-    /**
-     * Remote "내비 음성": press the selected navigation app's own voice button, like nMirror.
-     * Only the navigation app's own voice screen appears; the HUD shows no card for it
-     * (2026-11-08 운전자 요청). A failure is written to the HUD diagnostic log only.
-     */
-    void onNavButton() {
-        synchronized (this) {
-            if (state == State.LISTENING || state == State.THINKING || state == State.CONFIRM) {
-                session++;
-                cancelRecognition();
-                state = State.IDLE;   // AI 카드가 떠 있었다면 조용히 닫는다
-            }
-            pending = null;
-        }
-        new Thread(() -> {
-            String error = openNavVoice();
-            if (error != null) HudDiagnostics.log("nav voice failed: " + error);
-        }, "hud-nav-voice").start();
     }
 
     /** null on success, otherwise a short reason for the card. */

@@ -37,7 +37,7 @@ class TestGestures(unittest.TestCase):
 
   def test_voice_fires_on_press(self):
     out = []
-    g = core.Gestures({"key:40@short": "nav_voice", "key:41@short": "voice", "key:41@long": "gap"},
+    g = core.Gestures({"key:40@short": "voice", "key:41@short": "voice", "key:41@long": "gap"},
                       lambda t, gesture, at: out.append((t, gesture)))
     g.key("key:40", 1, 0.0)
     self.assertEqual(out, [("key:40", "short")])
@@ -134,6 +134,15 @@ class TestCommandJournal(unittest.TestCase):
 
   def tearDown(self):
     self.dir.cleanup()
+
+  def test_removed_nav_voice_mapping_does_not_reach_hud(self):
+    self.assertNotIn("nav_voice", hr.ALL_COMMANDS)
+    self.assertEqual(self.sync.apply("nav_voice", {"nav_voice"}), "blocked")
+    path = os.path.join(self.dir.name, "voice.json")
+    hr.atomic_json(path, {"seq": 1, "ts": self.clock(), "mode": "nav"})
+    self.assertIsNone(hr.voice_request(path, clock=self.clock))
+    hr.atomic_json(path, {"seq": 2, "ts": self.clock(), "mode": "ai"})
+    self.assertEqual(hr.voice_request(path, clock=self.clock), (2, "ai"))
 
   def test_button_reaches_car_state_once_and_expires(self):
     source = hr.RemoteButtonSource(self.cmd, clock=self.clock)

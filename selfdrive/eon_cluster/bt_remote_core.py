@@ -14,7 +14,7 @@ WAKE_IGNORE_S = 1.0
 SLEEP_IDLE_S = 60.0
 # 음성 호출은 손을 뗄 때까지 기다리지 않고 누르는 순간 보낸다(2026-11-07). 같은 버튼에
 # 길게·두 번 누르기가 배정돼 있으면 구분해야 하므로 예전처럼 뗄 때 판정한다.
-FIRE_ON_PRESS = ("voice", "nav_voice")
+FIRE_ON_PRESS = ("voice",)
 
 
 def learning_allowed(offroad, alive=False, valid=False, can_valid=False, standstill=False, parked=False):
