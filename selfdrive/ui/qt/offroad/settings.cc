@@ -1885,22 +1885,22 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamControl("LateralTorqueCustom",
       "CUSTOM TORQUE CONTROL",
-      "켜짐: 아래 aPilot 수동값 적용 / 꺼짐: LiveTorque 자동 학습값 사용.\n"
-      "GENESIS 2015-2016 차량 기준값: FACTOR 1.847 / FRICTION 0.098.",
+      "켜짐: 아래 G-MCAN 수동값 적용 / 꺼짐: LiveTorque 자동 학습값 사용.\n"
+      "GENESIS 2015-2016 G-MCAN 기준값: FACTOR 2.747 / FRICTION 0.098.",
       "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "LAT ACCEL FACTOR",
       "횡가속도 대비 토크 계수입니다. 값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐.\n"
-      "범위: 1.00 ~ 4.00  /  aPilot 수동 기본값: 2.500",
-      "../assets/offroad/icon_openpilot.png", 1.0, 4.0, 0.001, 3, 2.500, this));
+      "범위: 1.00 ~ 4.00  /  Genesis G-MCAN 기본값: 2.747",
+      "../assets/offroad/icon_openpilot.png", 1.0, 4.0, 0.001, 3, 2.747, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
       "FRICTION",
       "정지마찰 보상값입니다. 값 증가(+): 중앙 부근 조향 반응이 빨라짐 / 값 감소(-): 반응이 부드럽고 느려짐.\n"
       "너무 크면 직진에서 좌우로 흔들리고, MDPS 부하가 커집니다.\n"
-      "범위: 0.000 ~ 1.000  /  aPilot 수동 기본값: 0.100",
-      "../assets/offroad/icon_openpilot.png", 0.0, 1.0, 0.001, 3, 0.100, this));
+      "범위: 0.000 ~ 1.000  /  Genesis G-MCAN 기본값: 0.098",
+      "../assets/offroad/icon_openpilot.png", 0.0, 1.0, 0.001, 3, 0.098, this));
 
   list->addItem(horizontal_line());
 
