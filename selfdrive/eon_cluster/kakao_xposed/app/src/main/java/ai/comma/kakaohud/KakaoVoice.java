@@ -175,7 +175,6 @@ final class KakaoVoice {
             KakaoHudLog.line("voice: press ignored (just clicked)");
             return;
         }
-        lastClickMs = now;
         Activity act = resumed;
         View root = act == null || act.getWindow() == null ? null : act.getWindow().getDecorView();
         if (root == null) {
@@ -184,7 +183,7 @@ final class KakaoVoice {
         }
         List<View> hosts = new ArrayList<>();
         collectProviders(root, hosts);
-        Candidate best = null;
+        List<Candidate> candidates = new ArrayList<>();
         List<String> all = new ArrayList<>();
         for (View host : hosts) {
             AccessibilityNodeProvider provider = host.getAccessibilityNodeProvider();
@@ -201,15 +200,22 @@ final class KakaoVoice {
                 if (label.isEmpty()) continue;
                 if (all.size() < 80) all.add(label + (info.isClickable() ? "*" : "") + "#" + id);
                 int score = score(label, info);
-                if (score > 0 && (best == null || score > best.score)) best = new Candidate(provider, id, label, score);
+                if (score > 0) candidates.add(new Candidate(provider, id, label, score));
             }
         }
-        if (best == null) {
-            KakaoHudLog.line("voice: no voice button on the current Kakao screen; labels(*=clickable)=" + all);
-            return;
+        candidates.sort((left, right) -> Integer.compare(right.score, left.score));
+        for (Candidate candidate : candidates) {
+            try {
+                if (candidate.provider.performAction(candidate.id, AccessibilityNodeInfo.ACTION_CLICK, null)) {
+                    lastClickMs = now;
+                    KakaoHudLog.line("voice: clicked \"" + candidate.label + "\" ok=true");
+                    return;
+                }
+            } catch (RuntimeException error) {
+                KakaoHudLog.ex("voice click", error);
+            }
         }
-        boolean ok = best.provider.performAction(best.id, AccessibilityNodeInfo.ACTION_CLICK, null);
-        KakaoHudLog.line("voice: clicked \"" + best.label + "\" ok=" + ok);
+        KakaoHudLog.line("voice: no clickable voice action succeeded; labels(*=clickable)=" + all);
     }
 
     private static final class Candidate {
@@ -244,8 +250,10 @@ final class KakaoVoice {
         return sb.toString().trim();
     }
 
-    /** 0: 음성 버튼 아님. 클릭 가능 + 우선 단어가 있으면 점수가 높다. */
+    /** Accept only enabled, visible nodes that advertise a click action. */
     static int score(String label, AccessibilityNodeInfo info) {
+        if (info == null || !info.isEnabled() || !info.isVisibleToUser()
+                || (!info.isClickable() && (info.getActions() & AccessibilityNodeInfo.ACTION_CLICK) == 0)) return 0;
         String l = label.toLowerCase(Locale.ROOT);
         boolean voice = false;
         for (String w : VOICE_DESC_WORDS) if (l.contains(w)) voice = true;
@@ -253,8 +261,6 @@ final class KakaoVoice {
         for (String w : VOICE_DESC_EXCLUDE) if (l.contains(w)) return 0;
         int s = 1;
         for (String w : VOICE_DESC_PREFERRED) if (l.contains(w)) s += 2;
-        if (info != null && info.isClickable()) s += 1;
-        if (info != null && info.isVisibleToUser()) s += 1;
         return s;
     }
 }
