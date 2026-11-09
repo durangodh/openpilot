@@ -33,6 +33,7 @@ class MdpsFaultLog:
     self.log_dir = log_dir
     self.ring = collections.deque(maxlen=PRE_FRAMES)
     self.block = None      # rows of the fault being recorded
+    self.trigger = None
     self.post_left = 0
     self.prev_fault = False
     self.count = 0
@@ -52,6 +53,7 @@ class MdpsFaultLog:
     elif fault and not self.prev_fault:
       self.count += 1
       self.block = list(self.ring) + [full]
+      self.trigger = full
       self.post_left = POST_FRAMES
     self.ring.append(full)
     self.prev_fault = fault
@@ -59,23 +61,23 @@ class MdpsFaultLog:
   def _flush(self):
     block, self.block = self.block, None
     try:
-      self.out.put_nowait((self.count, block))
+      self.out.put_nowait((self.count, block, self.trigger))
     except queue.Full:
       pass
 
-  def text(self, count, block):
-    first = next((r for r in block if any(r[-1])), block[-1])
-    lines = ["== MDPS fault #%d at %s" % (count, format_row(first).split()[0]), HEADER]
+  def text(self, count, block, trigger):
+    # The frame whose fault bit turned on (rows before it can hold earlier, shorter faults).
+    lines = ["== MDPS fault #%d at %s" % (count, format_row(trigger).split()[0]), HEADER]
     lines += [format_row(r) for r in block]
     return "\n".join(lines) + "\n"
 
   def _writer(self):
     while True:
-      count, block = self.out.get()
+      count, block, trigger = self.out.get()
       try:
         os.makedirs(self.log_dir, exist_ok=True)
         path = os.path.join(self.log_dir, "mdps_fault_%s.log" % time.strftime("%m%d"))
         with open(path, "a") as f:
-          f.write(self.text(count, block))
+          f.write(self.text(count, block, trigger))
       except OSError:
         pass
