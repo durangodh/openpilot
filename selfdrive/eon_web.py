@@ -20,6 +20,10 @@ from selfdrive.eon_web_media import RoadPreview, VIDEO_FILE, media_range, replay
 from selfdrive.loggerd.config import ROOT
 
 PORT = 7000
+RECORDING_FLAGS = {
+  "routeLogging": Path("/persist/comma/enable-eon-route-logging"),
+  "webVideo": Path("/persist/comma/enable-eon-web-video"),
+}
 PASSWORD_FILE = "/persist/comma/eon-web-password"
 SEGMENT = re.compile(r"\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-\d{2}--\d+")
 LOG_FILES = ("rlog.bz2", "qlog.bz2", VIDEO_FILE)
@@ -56,7 +60,14 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <section id="drive"><h2>주행</h2><button id="driveRefresh">장치 상태 새로고침</button>
 <pre id="driveStatus"></pre><button id="vision">주행 비전 시작</button>
 <p id="visionStatus" aria-live="polite"></p><img id="roadImage" alt="실시간 전방 카메라" hidden><p>저장된 주행 기록은 로그 탭에서 확인할 수 있습니다.</p></section>
-<section id="settings" hidden><h2>설정</h2><input id="filter" type="search" placeholder="파람 이름 검색" aria-label="파람 이름 검색">
+<section id="settings" hidden><h2>설정</h2>
+<fieldset><legend>주행 기록</legend>
+<p><label><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label></p>
+<p><label><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label></p>
+<p>스위치는 저장된 설정입니다. 변경 사항은 EON 재부팅 후 적용됩니다.</p>
+<p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
+</fieldset>
+<input id="filter" type="search" placeholder="파람 이름 검색" aria-label="파람 이름 검색">
 <a href="/api/params.json" download="g_web-params.json">JSON 백업</a><ul id="params"></ul></section>
 <section id="tools" hidden><h2>도구</h2>
 <details open><summary>Git Commands</summary><p id="gitInfo"></p>
@@ -155,9 +166,52 @@ async function loadLogs() {
     }
   } catch (_) { row(logsList, '로그 목록을 불러오지 못했습니다.'); }
 }
+const recordingInputs = [...document.querySelectorAll('[data-recording]')];
+const recordingHint = document.querySelector('#recordingHint');
+const recordingStatus = document.querySelector('#recordingStatus');
+let recording = null;
+let savingRecording = false;
+function renderRecording() {
+  for (const input of recordingInputs) {
+    input.checked = recording?.[input.dataset.recording] === true;
+    input.disabled = !recording || savingRecording;
+  }
+  recordingHint.textContent = recording && !recording.routeLogging
+    ? '영상 녹화는 주행 로거를 켰을 때만 작동합니다.' : '';
+}
+for (const input of recordingInputs) {
+  input.addEventListener('change', async () => {
+    if (!recording || savingRecording) return;
+    const key = input.dataset.recording;
+    const enabled = input.checked;
+    savingRecording = true;
+    for (const control of recordingInputs) control.disabled = true;
+    recordingStatus.textContent = '저장 중…';
+    try {
+      const response = await fetch('/api/recording', {method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-EON-Action': 'set-recording'},
+        body: JSON.stringify({key, enabled})});
+      const result = await response.json();
+      if (!response.ok) throw Error(result.output);
+      recording = result.recording;
+      recordingStatus.textContent = result.output;
+    } catch (error) {
+      recordingStatus.textContent = error.message;
+      try { recording = await read('/api/recording'); }
+      catch (_) { recording = null; }
+    } finally {
+      savingRecording = false;
+      renderRecording();
+    }
+  });
+}
 async function loadSettings() {
   try { ({params, editable} = await read('/api/params.json')); renderParams(); }
   catch (_) { paramsList.textContent = '설정을 불러오지 못했습니다.'; }
+  if (savingRecording) return;
+  try { recording = await read('/api/recording'); }
+  catch (_) { recording = null; recordingStatus.textContent = '녹화 설정을 불러오지 못했습니다.'; }
+  renderRecording();
 }
 async function loadStatus() {
   const target = document.querySelector('#driveStatus');
@@ -387,6 +441,28 @@ def param_rules():
           and type(row.get("min")) is int and type(row.get("max")) is int}
 
 
+def recording_settings():
+  return {key: path.is_file() for key, path in RECORDING_FLAGS.items()}
+
+
+def set_recording(key, enabled):
+  path = RECORDING_FLAGS.get(key) if isinstance(key, str) else None
+  if path is None or type(enabled) is not bool:
+    return 400, {"output": "잘못된 녹화 설정입니다."}
+  if path.is_file() != enabled:
+    state = read_device_state(check_ignition=True)
+    if state["started"] or not state["ignitionOff"] or not Params().get_bool("IsOffroad"):
+      return 409, {"output": "시동을 끄고 오프로드 상태에서 다시 시도하세요."}
+    if enabled:
+      path.touch()
+    else:
+      try:
+        path.unlink()
+      except FileNotFoundError:
+        pass
+  return 200, {"output": "저장했습니다. EON 재부팅 후 적용됩니다.", "recording": recording_settings()}
+
+
 def set_param(key, value):
   rule = param_rules().get(key) if isinstance(key, str) else None
   if rule is None or type(value) is not int or not rule["min"] <= value <= rule["max"]:
@@ -558,7 +634,8 @@ class Handler(BaseHTTPRequestHandler):
   def do_POST(self):
     if not self.authorized():
       return
-    action = {"/api/git/pull": "git-pull", "/api/params": "set-param"}.get(self.path)
+    action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
+              "/api/recording": "set-recording"}.get(self.path)
     if action is None:
       self.send_error(404)
       return
@@ -566,7 +643,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action == "set-param":
+      if action in ("set-param", "set-recording"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -578,8 +655,12 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
           self.send_json({"output": "잘못된 요청입니다."}, 400)
           return
-        status, output = set_param(payload.get("key"), payload.get("value"))
-        self.send_json({"output": output}, status)
+        if action == "set-recording":
+          status, result = set_recording(payload.get("key"), payload.get("enabled"))
+        else:
+          status, output = set_param(payload.get("key"), payload.get("value"))
+          result = {"output": output}
+        self.send_json(result, status)
         return
       ok, output = git_pull()
       self.send_json({"output": output}, 200 if ok else 409)
@@ -606,6 +687,8 @@ class Handler(BaseHTTPRequestHandler):
     elif path == "/api/tmux.json":
       status, output = command(["tmux", "capture-pane", "-p", "-S", "-300"])
       self.send_json({"output": output}, 503 if status else 200)
+    elif path == "/api/recording":
+      self.send_json(recording_settings())
     elif path == "/api/params.json":
       self.send_json(settings_snapshot())
     elif path == "/api/logs.json":
