@@ -1,5 +1,8 @@
 plugins { id "com.android.application" version "8.7.3" }
 
+def eonWebVersionCode = (System.getenv("EON_WEB_VERSION_CODE") ?: "1").toInteger()
+def eonWebVersionName = System.getenv("EON_WEB_VERSION_NAME") ?: "1.0"
+
 android {
   namespace "ai.comma.eonweb"
   compileSdk 35
@@ -7,8 +10,8 @@ android {
     applicationId "ai.comma.eonweb"
     minSdk 29
     targetSdk 34
-    versionCode (System.getenv("EON_WEB_VERSION_CODE") ?: "1").toInteger()
-    versionName System.getenv("EON_WEB_VERSION_NAME") ?: "1.0"
+    versionCode eonWebVersionCode
+    versionName eonWebVersionName
   }
   signingConfigs {
     stable {
