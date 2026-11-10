@@ -3,6 +3,7 @@ import datetime
 import os
 import signal
 import sys
+import time
 import traceback
 from multiprocessing import Process
 from typing import List, Tuple, Union
@@ -366,6 +367,8 @@ def manager_thread() -> None:
   ensure_running(managed_processes.values(), started=False, not_run=ignore)
 
   started_prev = False
+  logger_video = False
+  logger_restart_after = 0.0
   sm = messaging.SubMaster(['deviceState'])
   pm = messaging.PubMaster(['managerState'])
 
@@ -374,11 +377,25 @@ def manager_thread() -> None:
     not_run = ignore[:]
 
     started = sm['deviceState'].started
-    if EON and (not started or not started_prev):
-      # Apply saved recording choices before the next onroad logger starts.
+    if EON:
       route_logging = os.path.isfile(EON_ROUTE_LOGGING_FLAG)
-      managed_processes["loggerd"].enabled = route_logging
+      video = route_logging and os.path.isfile("/persist/comma/enable-eon-web-video")
+      logger = managed_processes["loggerd"]
+      logger.enabled = route_logging
       managed_processes["deleter"].enabled = route_logging
+
+      if logger.shutting_down and logger.proc.exitcode is not None:
+        logger.stop(block=False)
+        # Route names have second resolution. Never reuse the stopped route.
+        logger_restart_after = time.monotonic() + 1.0
+
+      if logger.shutting_down or time.monotonic() < logger_restart_after:
+        not_run.append("loggerd")
+      elif logger.proc is not None and video != logger_video:
+        # Send SIGINT through the manager and wait without blocking other services.
+        not_run.append("loggerd")
+      elif logger.proc is None:
+        logger_video = video
     driverview = params.get_bool("IsDriverViewEnabled")
     ensure_running(managed_processes.values(), started, driverview, not_run)
 

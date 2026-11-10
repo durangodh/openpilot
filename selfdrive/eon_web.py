@@ -64,7 +64,7 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <fieldset><legend>주행 기록</legend>
 <p><label><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label></p>
 <p><label><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label></p>
-<p>스위치는 저장된 설정입니다. 변경 사항은 다음 주행부터 적용됩니다.</p>
+<p>주행 중에도 기록을 시작하거나 종료할 수 있습니다. 영상 옵션 변경 시 현재 파일을 닫고 새 구간을 시작합니다.</p>
 <p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
 </fieldset>
 <input id="filter" type="search" placeholder="파람 이름 검색" aria-label="파람 이름 검색">
@@ -450,9 +450,6 @@ def set_recording(key, enabled):
   if path is None or type(enabled) is not bool:
     return 400, {"output": "잘못된 녹화 설정입니다."}
   if path.is_file() != enabled:
-    state = read_device_state(check_ignition=True)
-    if state["started"] or not state["ignitionOff"] or not Params().get_bool("IsOffroad"):
-      return 409, {"output": "시동을 끄고 오프로드 상태에서 다시 시도하세요."}
     if enabled:
       path.touch()
     else:
@@ -460,7 +457,7 @@ def set_recording(key, enabled):
         path.unlink()
       except FileNotFoundError:
         pass
-  return 200, {"output": "저장했습니다. 다음 주행부터 적용됩니다.", "recording": recording_settings()}
+  return 200, {"output": "저장했습니다. 주행 중에는 파일 마무리 후 반영됩니다.", "recording": recording_settings()}
 
 
 def set_param(key, value):
