@@ -124,7 +124,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <section id="settings" hidden><h2>설정</h2>
 <div class="settings-bar"><input id="filter" type="search" placeholder="설정 이름·설명 검색" aria-label="설정 이름·설명 검색">
 <a href="/api/params.json" download="g_web-params.json">JSON 백업</a></div>
-<p class="hint">‘인게이지 중 적용’ 표시가 있는 HUD 표시 항목은 인게이지 상태와 관계없이 저장됩니다. 다른 설정은 정차하고 인게이지를 해제한 뒤 저장하세요.</p>
+<p class="hint">설정은 차량 상태와 관계없이 저장됩니다. 실행 중 읽는 값은 다음 갱신 때, 시작 시 읽는 값은 재시작 후 반영됩니다.</p>
 <p id="paramSaveStatus" class="hint" role="status" hidden></p>
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
@@ -230,7 +230,6 @@ function renderParams() {
     meta.textContent = info
       ? key + ' · 범위 ' + info.min + ' ~ ' + info.max + (info.default == null ? '' : ' · 기본값 ' + info.default)
       : key;
-    if (info?.liveDisplay) meta.textContent += ' · 인게이지 중 적용';
     item.append(head, meta, description);
     groups.get(entry.group).append(item);
     if (!info) continue;
@@ -736,8 +735,7 @@ def settings_snapshot():
       continue
     catalog[key] = {"title": entry.get("title") or key, "group": entry.get("group") or "기타",
                     "description": entry.get("descr") or ""}
-  editable = {key: dict(rule, liveDisplay=key in LIVE_HUD_DISPLAY_PARAMS)
-              for key, rule in param_rules(rows).items() if key in values}
+  editable = {key: rule for key, rule in param_rules(rows).items() if key in values}
   return {"branch": "g_web", "params": values, "catalog": catalog, "editable": editable}
 
 
@@ -768,22 +766,10 @@ def set_recording(key, enabled):
   return 200, {"output": "저장했습니다. 주행 중에는 파일 마무리 후 반영됩니다.", "recording": recording_settings()}
 
 
-# These settings are read by the HUD display packet builder, outside vehicle control.
-LIVE_HUD_DISPLAY_PARAMS = frozenset((
-  "EonClusterHudBrightness", "EonClusterHudDayBrightness", "EonClusterHudNightBrightness",
-  "EonClusterHudInfoBox", "EonClusterHudTheme", "EonClusterHudLanguage",
-  "EonClusterHudGuardrail", "EonClusterHudHaze",
-))
-
-
 def set_param(key, value):
   rule = param_rules().get(key) if isinstance(key, str) else None
   if rule is None or type(value) is not int or not rule["min"] <= value <= rule["max"]:
     return 400, "허용된 설정과 값 범위를 확인하세요."
-  if key not in LIVE_HUD_DISPLAY_PARAMS:
-    reason = maintenance_block_reason(require_standstill=True)
-    if reason:
-      return 409, reason
   try:
     Params().put(key, str(value))
   except UnknownKeyName:
