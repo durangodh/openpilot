@@ -51,48 +51,73 @@ PAGE = r"""<!doctype html>
 <link rel="apple-touch-icon" sizes="192x192" href="/eon-web-icon-192.png">
 <link rel="manifest" href="/eon-web.webmanifest">
 <style>
-body{font:16px system-ui,sans-serif;background:#111923;color:#eef4fa;max-width:760px;margin:auto;padding:16px}
-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#17212e;padding:6px;gap:4px}
-nav button{flex:1;min-width:0;border:0;color:#eef4fa;background:none;border-radius:8px}
-nav button[aria-selected=true]{background:#a84b12;color:white}
-main{padding-bottom:62px}
-img,video,input[type=range]{display:block;width:100%;max-width:480px;margin:10px 0}
+:root{color-scheme:dark;--bg:#10161e;--panel:#141d26;--card:#18212b;--border:#35414d;--text:#eff3f7;--muted:#bec9d3;--accent:#f0ac73;--active:#402e23}
+*{box-sizing:border-box}
+body{font:16px system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:1060px;margin:auto;padding:clamp(10px,2.3vw,22px)}
+main{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+main>section{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:clamp(10px,2vw,18px);margin:10px 0}
+h1,h2,h3{margin:0 0 12px} h1{font-size:1.4rem} h2{font-size:1.2rem} h3{font-size:1.05rem}
+p{margin:8px 0} a{color:var(--accent)}
+button,input,select{font:inherit;color:inherit;max-width:100%;min-height:42px;padding:8px 11px;border:1px solid var(--border);border-radius:9px;background:var(--card)}
+button{cursor:pointer} button:disabled{cursor:default;opacity:.5}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:2;display:flex;justify-content:center;background:var(--panel);border-top:1px solid var(--border);padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:4px}
+nav button{flex:1;max-width:200px;min-width:0;padding-inline:3px;border-color:transparent;background:none;font-size:.9rem}
+button[aria-selected=true],button[aria-pressed=true],.param-editor button[type=submit]{background:var(--active);color:var(--accent);border-color:var(--accent)}
 [hidden]{display:none!important}
-pre{white-space:pre-wrap;overflow-wrap:anywhere}
-details{padding:10px 0;border-bottom:1px solid #374352}
-.param-editor{margin-top:8px;font-size:.9em}
-.param-editor p{margin:8px 0;color:#c8d5e1}
-.param-description{white-space:pre-line}
-.param-editor-controls{display:flex;flex-wrap:wrap;gap:8px}
-.param-editor-controls input{width:9ch}
-section{background:#1d2835;border-radius:12px;padding:16px;margin:16px 0}
-h1,h2{margin:0 0 12px} a{color:#91ddff} input,button{font:inherit;padding:8px;max-width:100%}
-ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;overflow-wrap:anywhere}
-.log a{display:inline-block;margin:6px 16px 0 0}
+pre{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+details,.card,.param-row,.log{padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--card);margin:8px 0;min-width:0}
+summary{cursor:pointer;font-weight:650}
+.actions,.settings-bar,.param-editor-controls,.param-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.settings-bar{margin-bottom:12px} #filter{flex:1;min-width:130px}
+.settings-layout{display:grid;grid-template-columns:minmax(110px,155px) minmax(0,1fr);gap:12px}
+#paramGroups{display:flex;flex-direction:column;gap:6px;min-width:0}
+#paramGroups button{text-align:left}
+.param-head{justify-content:space-between}
+.param-head>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.param-value{color:var(--accent);font-variant-numeric:tabular-nums}
+.param-editor,.param-description,.hint{font-size:.9rem;color:var(--muted)}
+.param-description{white-space:pre-line;margin:6px 0 0}
+.param-editor-controls input{width:8ch}
+ul{padding:0;list-style:none;margin:0}
+img,video,input[type=range]{display:block;width:100%;margin:8px 0}
+#roadImage,#replayVideo{max-height:65vh;object-fit:contain;background:#080c10;border-radius:8px}
+#replay{scroll-margin-top:12px}
+.log a{display:inline-block;margin:6px 12px 0 0}
+fieldset{min-inline-size:0}
+input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:20px;vertical-align:middle;margin:0 7px 0 0}
+.record-option{display:flex;align-items:center;min-height:42px}
+@media (max-width:560px) and (orientation:portrait){
+  .settings-layout{grid-template-columns:minmax(0,1fr)}
+  #paramGroups{flex-direction:row;overflow-x:auto;padding:3px 3px 6px}
+  #paramGroups button{flex:none;white-space:nowrap}
+}
 </style>
 <main><h1>EON 웹</h1>
-<section id="drive"><h2>주행</h2><button id="driveRefresh">장치 상태 새로고침</button>
-<pre id="driveStatus"></pre><button id="vision">주행 비전 시작</button>
-<p id="visionStatus" aria-live="polite"></p><img id="roadImage" alt="실시간 전방 카메라" hidden><p>저장된 주행 기록은 로그 탭에서 확인할 수 있습니다.</p>
-<fieldset><legend>주행 기록</legend>
-<p><label><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label></p>
-<p><label><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label></p>
+<section id="drive"><h2>주행</h2>
+<div class="card"><h3>전방 화면</h3><img id="roadImage" alt="실시간 전방 카메라" hidden>
+<button id="vision">주행 비전 시작</button><p id="visionStatus" aria-live="polite"></p></div>
+<div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
+<fieldset class="card"><legend>주행 기록</legend>
+<label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
+<label class="record-option"><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label>
 <p>주행 중에도 기록을 시작하거나 종료할 수 있습니다. 영상 옵션 변경 시 현재 파일을 닫고 새 구간을 시작합니다.</p>
 <p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
-</fieldset></section>
+</fieldset><p class="hint">저장된 주행 기록은 로그 탭에서 확인할 수 있습니다.</p></section>
 <section id="settings" hidden><h2>설정</h2>
-<input id="filter" type="search" placeholder="파람 이름·설명 검색" aria-label="파람 이름·설명 검색">
-<a href="/api/params.json" download="g_web-params.json">JSON 백업</a><div id="params"></div></section>
+<div class="settings-bar"><input id="filter" type="search" placeholder="설정 이름·설명 검색" aria-label="설정 이름·설명 검색">
+<a href="/api/params.json" download="g_web-params.json">JSON 백업</a></div>
+<div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
-<details open><summary>Git Commands</summary><p id="gitInfo"></p>
-<button id="gitPull">git pull</button> <button id="gitLog">git log</button>
-<p><label>전환할 브랜치 <select id="gitBranch" disabled></select></label>
+<div class="card"><h3>Git Commands</h3><p id="gitInfo"></p>
+<div class="actions"><button id="gitPull">git pull</button><button id="gitLog">git log</button></div>
+<p class="actions"><label>전환할 브랜치 <select id="gitBranch" disabled></select></label>
 <button id="gitSwitch" disabled>브랜치 변경</button></p>
-<p><button data-tmux>capture tmux</button>
-<button id="eonReboot">재부팅</button> <button id="eonRebuild">재부팅하여 전체 재빌드</button></p>
-<p id="systemOutput" role="status"></p>
-<pre id="gitOutput" aria-live="polite"></pre></details></section>
-<section id="records" hidden><h2>로그 · 대시캠</h2><button id="refresh">새로고침</button><div id="replay" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
+<pre id="gitOutput" aria-live="polite"></pre></div>
+<div class="card"><h3>장치 관리</h3><div class="actions"><button data-tmux>capture tmux</button>
+<button id="eonReboot">재부팅</button><button id="eonRebuild">재부팅하여 전체 재빌드</button></div>
+<p id="systemOutput" role="status"></p></div></section>
+<section id="records" hidden><h2>로그 · 대시캠</h2><button id="refresh">새로고침</button><div id="replay" class="card" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
 <video id="replayVideo" controls playsinline hidden></video>
 <button id="replayPlay">재생</button><input id="replaySeek" aria-label="재생 위치" type="range" min="0" step="0.1" value="0">
 <pre id="replayValues"></pre></div><p id="logActionStatus" role="status"></p><div id="logs"></div></section>
@@ -110,6 +135,8 @@ const filter = document.querySelector('#filter');
 let params = {};
 let editable = {};
 let catalog = {};
+let selectedParamGroup = '';
+const paramGroups = document.querySelector('#paramGroups');
 function row(list, label) {
   const item = document.createElement('li');
   item.textContent = label;
@@ -122,26 +149,55 @@ async function read(path) {
   return response.json();
 }
 function renderParams() {
-  const expanded = new Set([...paramsList.querySelectorAll('details[open]')].map(group => group.dataset.group));
   paramsList.replaceChildren();
+  paramGroups.replaceChildren();
   const query = filter.value.toLowerCase().trim();
-  const groups = new Map();
-  for (const [key, value] of Object.entries(params)) {
+  const entries = Object.entries(params).filter(([key]) => {
     const entry = catalog[key];
-    if (entry.group === '기본' || entry.group === '화면') continue;
-    if (![key, entry.title, entry.description, entry.group].join(' ').toLowerCase().includes(query)) continue;
+    return entry && entry.group !== '기본' && entry.group !== '화면';
+  });
+  const categories = [...new Set(entries.map(([key]) => catalog[key].group))];
+  if (!categories.includes(selectedParamGroup)) selectedParamGroup = categories[0] || '';
+  for (const category of categories) {
+    const button = document.createElement('button');
+    button.textContent = category;
+    button.setAttribute('aria-pressed', String(!query && category === selectedParamGroup));
+    button.addEventListener('click', () => {
+      selectedParamGroup = category;
+      filter.value = '';
+      renderParams();
+      [...paramGroups.children].find(item => item.textContent === category)?.focus();
+    });
+    paramGroups.append(button);
+  }
+  const groups = new Map();
+  for (const [key, value] of entries) {
+    const entry = catalog[key];
+    if (query ? ![key, entry.title, entry.description, entry.group].join(' ').toLowerCase().includes(query)
+              : entry.group !== selectedParamGroup) continue;
     if (!groups.has(entry.group)) {
-      const group = document.createElement('details');
-      group.dataset.group = entry.group;
-      group.open = Boolean(query) || expanded.has(entry.group);
-      const title = document.createElement('summary');
+      const title = document.createElement('h3');
       title.textContent = entry.group;
       const list = document.createElement('ul');
-      group.append(title, list);
-      paramsList.append(group);
+      paramsList.append(title, list);
       groups.set(entry.group, list);
     }
-    const item = row(groups.get(entry.group), entry.title + ' = ' + (value ?? '미설정'));
+    const item = document.createElement('li');
+    item.className = 'param-row';
+    const head = document.createElement('div');
+    head.className = 'param-head';
+    const title = document.createElement('span');
+    title.textContent = entry.title;
+    const currentValue = document.createElement('strong');
+    currentValue.className = 'param-value';
+    currentValue.textContent = value ?? '미설정';
+    head.append(title, currentValue);
+    const description = document.createElement('p');
+    description.className = 'param-description';
+    description.textContent = entry.description;
+    description.hidden = !entry.description;
+    item.append(head, description);
+    groups.get(entry.group).append(item);
     const info = editable[key];
     if (!info) continue;
     const edit = document.createElement('button');
@@ -150,10 +206,6 @@ function renderParams() {
     const form = document.createElement('form');
     form.className = 'param-editor';
     form.hidden = true;
-    const description = document.createElement('p');
-    description.className = 'param-description';
-    description.textContent = entry.description;
-    description.hidden = !entry.description;
     const range = document.createElement('p');
     range.textContent = '허용 범위 ' + info.min + ' ~ ' + info.max;
     const controls = document.createElement('div');
@@ -196,7 +248,7 @@ function renderParams() {
     status.setAttribute('role', 'status');
     status.hidden = true;
     controls.append(minus, input, plus, save, cancel);
-    form.append(description, range, controls, status);
+    form.append(range, controls, status);
     function closeEditor() {
       form.hidden = true;
       edit.setAttribute('aria-expanded', 'false');
@@ -233,7 +285,8 @@ function renderParams() {
         updateStepButtons();
       }
     });
-    item.append(' ', edit, form);
+    head.append(edit);
+    item.append(form);
   }
   if (!groups.size) paramsList.textContent = '일치하는 설정이 없습니다.';
 }
@@ -274,6 +327,7 @@ async function loadLogs() {
         const remove = document.createElement('button');
         remove.textContent = '이 주행 삭제';
         remove.addEventListener('click', () => removeRoute(route, remove));
+        group.open = routes.size === 0;
         group.append(summary, remove);
         logsList.append(group);
         routes.set(route, group);
