@@ -129,7 +129,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
 <details><summary>블루투스 리모컨</summary>
-<p class="hint">이온에 학습된 버튼의 기능을 바꿉니다. 시동을 끄거나 P단에서 정차하고 인게이지를 해제하세요.</p>
+<p class="hint">이온에 학습된 버튼의 기능을 바꿉니다. 인게이지를 해제한 뒤 버튼 배정을 변경하세요.</p>
 <button id="btRefresh">리모컨 상태 새로고침</button>
 <p id="btStatus" role="status"></p><p id="btSaveStatus" role="status"></p><div id="btMappings"></div></details>
 <div class="card"><h3>Git Commands</h3><p id="gitInfo"></p>
@@ -1025,7 +1025,7 @@ def read_device_state(check_ignition=False, allow_no_panda=False):
   raise RuntimeError("EON 또는 판다 상태를 확인하지 못했습니다.")
 
 
-def maintenance_block_reason(require_standstill=False, require_park=False):
+def maintenance_block_reason(require_standstill=False):
   state = read_device_state(check_ignition=True, allow_no_panda=True)
   if not state["started"] and state["ignitionOff"] and Params().get_bool("IsOffroad"):
     return None
@@ -1049,8 +1049,6 @@ def maintenance_block_reason(require_standstill=False, require_park=False):
           car = subscriber["carState"]
           if not car.standstill or not abs(car.vEgoRaw) < 0.1:
             return "차량을 완전히 정차한 뒤 다시 시도하세요."
-          if require_park and (not car.canValid or car.gearShifter != "park"):
-            return "기어를 P단에 놓은 뒤 다시 시도하세요."
         return None
   return ("인게이지 또는 차량 정차 상태를 확인할 수 없습니다." if require_standstill
           else "openpilot 인게이지 상태를 확인할 수 없습니다.")
@@ -1073,7 +1071,7 @@ def set_bt_mapping(payload):
   slot, action = payload.get("slot"), payload.get("command")
   if not isinstance(slot, str) or not TOKEN.fullmatch(slot) or action not in ("", *ALL_COMMANDS):
     return 400, "버튼과 기능을 확인하세요."
-  reason = maintenance_block_reason(require_standstill=True, require_park=True)
+  reason = maintenance_block_reason()
   if reason:
     return 409, reason
   params = Params()
