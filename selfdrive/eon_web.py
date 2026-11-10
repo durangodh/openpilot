@@ -64,10 +64,10 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <button id="gitPull">git pull</button> <button id="gitLog">git log</button>
 <p><label>전환할 브랜치 <select id="gitBranch" disabled></select></label>
 <button id="gitSwitch" disabled>브랜치 변경</button></p>
-<pre id="gitOutput" aria-live="polite"></pre></details>
-<details><summary>User / System</summary><button data-tmux>capture tmux</button>
-<button id="eonReboot">재부팅</button> <button id="eonRebuild">재부팅하여 전체 재빌드</button>
-<p id="systemOutput" role="status"></p></details></section>
+<p><button data-tmux>capture tmux</button>
+<button id="eonReboot">재부팅</button> <button id="eonRebuild">재부팅하여 전체 재빌드</button></p>
+<p id="systemOutput" role="status"></p>
+<pre id="gitOutput" aria-live="polite"></pre></details></section>
 <section id="records" hidden><h2>로그 · 대시캠</h2><button id="refresh">새로고침</button><div id="replay" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
 <video id="replayVideo" controls playsinline hidden></video>
 <button id="replayPlay">재생</button><input id="replaySeek" aria-label="재생 위치" type="range" min="0" step="0.1" value="0">
