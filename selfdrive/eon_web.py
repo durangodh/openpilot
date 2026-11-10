@@ -802,9 +802,6 @@ def segments():
 def delete_route(route):
   if not isinstance(route, str) or not SEGMENT.fullmatch(route + "--0"):
     return 400, "삭제할 주행을 목록에서 선택하세요."
-  state = read_device_state(check_ignition=True, allow_no_panda=True)
-  if state["started"] or not state["ignitionOff"] or not Params().get_bool("IsOffroad"):
-    return 409, "시동을 끈 오프로드 상태에서 삭제하세요."
   try:
     with os.scandir(ROOT) as entries:
       paths = [entry.path for entry in entries if SEGMENT.fullmatch(entry.name)
