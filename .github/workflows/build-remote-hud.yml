@@ -10,7 +10,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_abcd, g_hud, g_remote, g_mcan]
+    branches: [g_abcd, g_hud, g_remote, g_mcan, g_web]
     paths:
       - "selfdrive/carrot_navi_server.py"
       - "selfdrive/eon_cluster/remote_hud.py"
@@ -129,6 +129,7 @@ jobs:
           name: eon-remote-hud-s9-debug
           path: selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk
       - name: Publish in-app updater APK
+        if: github.ref != 'refs/heads/g_web'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

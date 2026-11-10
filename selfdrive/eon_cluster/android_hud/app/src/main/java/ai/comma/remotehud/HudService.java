@@ -734,6 +734,14 @@ public final class HudService extends Service {
     // EON 이 텔레메트리를 보내는 소켓 포트. 음성 비서 설정 요청(HUDPRM1)을 여기로 보낸다.
     private volatile int lastEonPort;
     private volatile VoiceAssistant voice;
+
+    static boolean pressVoiceButton() {
+        HudService service = activeInstance;
+        VoiceAssistant assistant = service == null ? null : service.voice;
+        if (!serviceRunning || assistant == null) return false;
+        assistant.onButton();
+        return true;
+    }
     private final Object assetLock = new Object();
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {

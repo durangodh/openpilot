@@ -159,10 +159,6 @@ public final class VoiceAssistant {
             return;
         }
         pending = null;
-        if (AppPrefs.getClaudeApiKey(context).isEmpty()) {
-            show(State.ERROR, "AI 키 없음", "HUD 앱 설정에서 Claude API 키를 입력하세요", ERROR_MS);
-            return;
-        }
         session++;
         // 마이크가 실제로 열리기 전(투명 창 실행·인식기 준비)에는 "준비 중"으로 둔다.
         show(State.LISTENING, "준비 중", "잠시만요", LISTEN_TIMEOUT_MS);
@@ -326,7 +322,60 @@ public final class VoiceAssistant {
         final String said = text.trim();
         final int mySession = session;
         show(State.THINKING, "확인 중", "\"" + said + "\"", 0);
-        new Thread(() -> converse(said, mySession), "hud-voice-ai").start();
+        new Thread(() -> handleSpeech(said, mySession), "hud-voice-command").start();
+    }
+
+    private void handleSpeech(String said, int mySession) {
+        try {
+            JSONObject reply = askEon(new JSONObject().put("op", "direct").put("text", said));
+            if (mySession != session) return;
+            if (reply.optBoolean("handled")) {
+                if (!reply.optBoolean("ok")) {
+                    finish(State.ERROR, "직접 명령", reply.optString("error"));
+                    return;
+                }
+                JSONObject proposal = reply.optJSONObject("proposal");
+                if (proposal != null) {
+                    String name = proposal.optString("name");
+                    int target = reply.getInt("target");
+                    synchronized (this) {
+                        if (mySession != session) return;
+                        pending = new JSONObject().put("kind", "direct-setting").put("name", name)
+                                .put("title", proposal.optString("title", name)).put("value", target);
+                        pendingAt = SystemClock.elapsedRealtime();
+                        finish(State.CONFIRM, "설정 변경 확인", proposal.optString("title", name)
+                                + " " + target + "로 저장하려면 음성 버튼을 다시 누르세요.");
+                    }
+                    return;
+                }
+                JSONObject setting = reply.optJSONObject("setting");
+                if (setting != null) {
+                    String detail = setting.optString("value");
+                    if (reply.optBoolean("explain")) detail += ". " + setting.optString("descr");
+                    finish(State.RESULT, setting.optString("title"), detail);
+                    return;
+                }
+                JSONArray results = reply.optJSONArray("results");
+                StringBuilder result = new StringBuilder();
+                for (int i = 0; results != null && i < Math.min(results.length(), 3); i++) {
+                    JSONObject item = results.optJSONObject(i);
+                    if (item == null) continue;
+                    if (result.length() > 0) result.append(", ");
+                    result.append(item.optString("title")).append(" ").append(item.optString("value"));
+                }
+                finish(State.RESULT, "설정 검색", result.length() == 0 ? "일치하는 설정이 없습니다." : result.toString());
+                return;
+            }
+            if (!AppPrefs.getClaudeApiKey(context).isEmpty()) {
+                converse(said, mySession);
+            } else if (!reply.has("handled")) {
+                finish(State.ERROR, "직접 명령 연결 확인", reply.optString("error"));
+            } else {
+                finish(State.ERROR, "직접 명령 예시", "최저 크루즈 속도 얼마야? 또는 조향비 설정 찾아줘");
+            }
+        } catch (JSONException e) {
+            if (mySession == session) finish(State.ERROR, "직접 명령 실패", e.getMessage());
+        }
     }
 
     void onSpeechError(String message) {
@@ -470,7 +519,8 @@ public final class VoiceAssistant {
                 applySystem(p, mySession);
                 return;
             }
-            JSONObject r = askEon(new JSONObject().put("op", "set")
+            String op = "direct-setting".equals(p.optString("kind")) ? "direct_set" : "set";
+            JSONObject r = askEon(new JSONObject().put("op", op)
                     .put("name", p.optString("name")).put("value", p.optInt("value")));
             if (mySession != session) return;
             if (r.optBoolean("ok")) {

@@ -826,7 +826,14 @@ public final class MainActivity extends Activity {
     /** 리모컨 음성 비서: Claude API 키, 마이크 권한, 답변 읽기. */
     private LinearLayout buildVoiceCard() {
         LinearLayout voiceCard = card();
-        voiceCard.addView(text("AI 음성 비서", 18.0f, Color.WHITE, Typeface.BOLD));
+        voiceCard.addView(text("음성 비서", 18.0f, Color.WHITE, Typeface.BOLD));
+        Button voiceButton = button("음성 명령 / 확인", Color.rgb(40, 92, 132));
+        voiceButton.setOnClickListener(v -> {
+            if (!HudService.pressVoiceButton()) {
+                android.widget.Toast.makeText(this, "먼저 HUD 연결을 시작하세요.", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        voiceCard.addView(voiceButton);
         TextView voiceStatus = text("", 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         voiceStatus.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
@@ -836,9 +843,10 @@ public final class MainActivity extends Activity {
         Runnable refresh = () -> {
             boolean hasKey = !AppPrefs.getClaudeApiKey(this).isEmpty();
             boolean mic = checkSelfPermission("android.permission.RECORD_AUDIO") == PackageManager.PERMISSION_GRANTED;
-            voiceStatus.setText("API 키: " + (hasKey ? "저장됨" : "없음") + "   마이크: " + (mic ? "허용" : "미허용")
+            voiceStatus.setText("Claude API 키(선택): " + (hasKey ? "저장됨" : "없음") + "   마이크: " + (mic ? "허용" : "미허용")
                     + "\nEON 리모컨 버튼 설정에서 '음성 비서 (AI)'를 버튼에 배정하세요."
-                    + "\nAI: 한 번 누르면 듣기, 듣는 중 다시 누르면 취소, 제안 카드가 뜬 뒤 누르면 적용.");
+                    + "\n직접 명령 예: 최저 크루즈 속도 얼마야? / 조향비 설정 찾아줘"
+                    + "\n설정값 변경은 시동을 끄고 요청한 뒤 음성 버튼을 다시 눌러 확인하세요.");
         };
         refresh.run();
         EditText keyInput = new EditText(this);
