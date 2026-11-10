@@ -27,7 +27,7 @@ RECORDING_FLAGS = {
 PASSWORD_FILE = "/persist/comma/eon-web-password"
 SEGMENT = re.compile(r"\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-\d{2}--\d+")
 LOG_FILES = ("rlog.bz2", "qlog.bz2", VIDEO_FILE)
-PARAM_KEYS = (
+EDITABLE_PARAM_KEYS = (
   "CruiseSpeedMin", "TFollowSpeedRatio", "TFollowGap1", "TFollowGap2",
   "TFollowGap3", "TFollowGap4", "NoLeadCruiseAccelFactor", "LeadCruiseAccelFactor",
   "LongTuningKpV", "LongTuningKiV", "LongTuningKf", "LongitudinalActuatorDelayLowerBound",
@@ -67,8 +67,8 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <p>주행 중에도 기록을 시작하거나 종료할 수 있습니다. 영상 옵션 변경 시 현재 파일을 닫고 새 구간을 시작합니다.</p>
 <p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
 </fieldset>
-<input id="filter" type="search" placeholder="파람 이름 검색" aria-label="파람 이름 검색">
-<a href="/api/params.json" download="g_web-params.json">JSON 백업</a><ul id="params"></ul></section>
+<input id="filter" type="search" placeholder="파람 이름·설명 검색" aria-label="파람 이름·설명 검색">
+<a href="/api/params.json" download="g_web-params.json">JSON 백업</a><div id="params"></div></section>
 <section id="tools" hidden><h2>도구</h2>
 <details open><summary>Git Commands</summary><p id="gitInfo"></p>
 <button id="gitPull">git pull</button> <button id="gitLog">git log</button>
@@ -91,6 +91,7 @@ const logsList = document.querySelector('#logs');
 const filter = document.querySelector('#filter');
 let params = {};
 let editable = {};
+let catalog = {};
 function row(list, label) {
   const item = document.createElement('li');
   item.textContent = label;
@@ -103,12 +104,26 @@ async function read(path) {
   return response.json();
 }
 function renderParams() {
+  const expanded = new Set([...paramsList.querySelectorAll('details[open]')].map(group => group.dataset.group));
   paramsList.replaceChildren();
   const query = filter.value.toLowerCase().trim();
+  const groups = new Map();
   for (const [key, value] of Object.entries(params)) {
+    const entry = catalog[key];
+    if (![key, entry.title, entry.description, entry.group].join(' ').toLowerCase().includes(query)) continue;
+    if (!groups.has(entry.group)) {
+      const group = document.createElement('details');
+      group.dataset.group = entry.group;
+      group.open = Boolean(query) || expanded.has(entry.group);
+      const title = document.createElement('summary');
+      title.textContent = entry.group;
+      const list = document.createElement('ul');
+      group.append(title, list);
+      paramsList.append(group);
+      groups.set(entry.group, list);
+    }
+    const item = row(groups.get(entry.group), entry.title + ' = ' + (value ?? '미설정'));
     const info = editable[key];
-    if (!(key + ' ' + (info?.title || '')).toLowerCase().includes(query)) continue;
-    const item = row(paramsList, (info?.title || key) + ' = ' + (value ?? '미설정'));
     if (!info) continue;
     const edit = document.createElement('button');
     edit.textContent = '변경';
@@ -131,6 +146,7 @@ function renderParams() {
     });
     item.append(' ', edit);
   }
+  if (!groups.size) paramsList.textContent = '일치하는 설정이 없습니다.';
 }
 async function loadLogs() {
   logsList.replaceChildren();
@@ -206,7 +222,7 @@ for (const input of recordingInputs) {
   });
 }
 async function loadSettings() {
-  try { ({params, editable} = await read('/api/params.json')); renderParams(); }
+  try { ({params, editable, catalog} = await read('/api/params.json')); renderParams(); }
   catch (_) { paramsList.textContent = '설정을 불러오지 못했습니다.'; }
   if (savingRecording) return;
   try { recording = await read('/api/recording'); }
@@ -421,23 +437,33 @@ def password():
   return value
 
 
+def settings_catalog():
+  with open(os.path.join(BASEDIR, "selfdrive", "apilot.json"), encoding="utf-8") as source:
+    return json.load(source)["params"]
+
+
 def settings_snapshot():
   params = Params()
   values = {}
-  for key in PARAM_KEYS:
+  catalog = {}
+  rows = settings_catalog()
+  for entry in rows:
+    key = entry["name"]
     try:
       values[key] = params.get(key, encoding="utf-8")
     except (UnknownKeyName, UnicodeDecodeError):
       continue
-  editable = {key: value for key, value in param_rules().items() if key in values}
-  return {"branch": "g_web", "params": values, "editable": editable}
+    catalog[key] = {"title": entry.get("title") or key, "group": entry.get("group") or "기타",
+                    "description": entry.get("descr") or ""}
+  editable = {key: rule for key, rule in param_rules(rows).items() if key in values}
+  return {"branch": "g_web", "params": values, "catalog": catalog, "editable": editable}
 
 
-def param_rules():
-  with open(os.path.join(BASEDIR, "selfdrive", "apilot.json"), encoding="utf-8") as source:
-    catalog = json.load(source)["params"]
+def param_rules(rows=None):
+  if rows is None:
+    rows = settings_catalog()
   return {row["name"]: {key: row[key] for key in ("title", "min", "max")}
-          for row in catalog if row["name"] in PARAM_KEYS
+          for row in rows if row["name"] in EDITABLE_PARAM_KEYS
           and type(row.get("min")) is int and type(row.get("max")) is int}
 
 
