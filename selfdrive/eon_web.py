@@ -128,6 +128,7 @@ function renderParams() {
   const groups = new Map();
   for (const [key, value] of Object.entries(params)) {
     const entry = catalog[key];
+    if (entry.group === '기본' || entry.group === '화면') continue;
     if (![key, entry.title, entry.description, entry.group].join(' ').toLowerCase().includes(query)) continue;
     if (!groups.has(entry.group)) {
       const group = document.createElement('details');
