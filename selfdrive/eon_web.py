@@ -164,6 +164,27 @@ function renderParams() {
     input.step = 1;
     input.required = true;
     input.setAttribute('aria-label', entry.title + ' 새 값');
+    const step = Number.isSafeInteger(info.unit) && info.unit > 0 ? info.unit : 1;
+    const minus = document.createElement('button');
+    const plus = document.createElement('button');
+    minus.type = plus.type = 'button';
+    minus.textContent = '−';
+    plus.textContent = '+';
+    minus.setAttribute('aria-label', entry.title + ' ' + step + ' 감소');
+    plus.setAttribute('aria-label', entry.title + ' ' + step + ' 증가');
+    function updateStepButtons() {
+      minus.disabled = input.disabled || input.valueAsNumber === info.min;
+      plus.disabled = input.disabled || input.valueAsNumber === info.max;
+    }
+    function changeBy(delta) {
+      const current = input.valueAsNumber;
+      const base = Number.isSafeInteger(current) ? current : (info.default ?? info.min);
+      input.value = Math.min(info.max, Math.max(info.min, base + delta));
+      updateStepButtons();
+    }
+    minus.addEventListener('click', () => changeBy(-step));
+    plus.addEventListener('click', () => changeBy(step));
+    input.addEventListener('input', updateStepButtons);
     const save = document.createElement('button');
     save.type = 'submit';
     save.textContent = '저장';
@@ -173,7 +194,7 @@ function renderParams() {
     const status = document.createElement('p');
     status.setAttribute('role', 'status');
     status.hidden = true;
-    controls.append(input, save, cancel);
+    controls.append(minus, input, plus, save, cancel);
     form.append(description, range, controls, status);
     function closeEditor() {
       form.hidden = true;
@@ -183,10 +204,10 @@ function renderParams() {
     edit.addEventListener('click', () => {
       if (!form.hidden) return closeEditor();
       input.value = value ?? '';
+      updateStepButtons();
       status.hidden = true;
       form.hidden = false;
       edit.setAttribute('aria-expanded', 'true');
-      input.focus();
     });
     cancel.addEventListener('click', closeEditor);
     form.addEventListener('submit', async event => {
@@ -194,6 +215,7 @@ function renderParams() {
       const next = input.valueAsNumber;
       if (!Number.isSafeInteger(next) || next < info.min || next > info.max || save.disabled) return;
       edit.disabled = input.disabled = save.disabled = cancel.disabled = true;
+      updateStepButtons();
       status.textContent = '저장 중…';
       status.hidden = false;
       try {
@@ -205,7 +227,10 @@ function renderParams() {
         params[key] = String(next);
         renderParams();
       } catch (error) { status.textContent = error.message; }
-      finally { edit.disabled = input.disabled = save.disabled = cancel.disabled = false; }
+      finally {
+        edit.disabled = input.disabled = save.disabled = cancel.disabled = false;
+        updateStepButtons();
+      }
     });
     item.append(' ', edit, form);
   }
@@ -601,7 +626,7 @@ def settings_snapshot():
 def param_rules(rows=None):
   if rows is None:
     rows = settings_catalog()
-  return {row["name"]: {key: row[key] for key in ("title", "min", "max")}
+  return {row["name"]: {key: row[key] for key in ("title", "min", "max", "unit", "default")}
           for row in rows if type(row.get("min")) is int and type(row.get("max")) is int
           and row["min"] <= row["max"]}
 
