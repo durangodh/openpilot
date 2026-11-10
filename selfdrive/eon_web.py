@@ -28,17 +28,6 @@ RECORDING_FLAGS = {
 PASSWORD_FILE = "/persist/comma/eon-web-password"
 SEGMENT = re.compile(r"\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-\d{2}--\d+")
 LOG_FILES = ("rlog.bz2", "qlog.bz2", VIDEO_FILE)
-EDITABLE_PARAM_KEYS = (
-  "CruiseSpeedMin", "TFollowSpeedRatio", "TFollowGap1", "TFollowGap2",
-  "TFollowGap3", "TFollowGap4", "NoLeadCruiseAccelFactor", "LeadCruiseAccelFactor",
-  "LongTuningKpV", "LongTuningKiV", "LongTuningKf", "LongitudinalActuatorDelayLowerBound",
-  "SteeringRateCost", "SteerActuatorDelay", "SteerRatioApply", "LiveSteerRatioApply",
-  "LateralTorqueCustom", "LateralTorqueAccelFactor", "LateralTorqueFriction",
-  "EonClusterHudFps", "EonClusterHudMapFps", "EonClusterHudJpegQuality",
-  "EonClusterHudNavApp", "EonClusterHudNaviLayout", "EonClusterHudMapScaleTmap",
-  "EonClusterHudMapScaleNaver", "EonClusterHudMapScaleKakao",
-)
-
 PAGE = r"""<!doctype html>
 <html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EON 웹</title>
@@ -520,8 +509,8 @@ def param_rules(rows=None):
   if rows is None:
     rows = settings_catalog()
   return {row["name"]: {key: row[key] for key in ("title", "min", "max")}
-          for row in rows if row["name"] in EDITABLE_PARAM_KEYS
-          and type(row.get("min")) is int and type(row.get("max")) is int}
+          for row in rows if type(row.get("min")) is int and type(row.get("max")) is int
+          and row["min"] <= row["max"]}
 
 
 def recording_settings():
