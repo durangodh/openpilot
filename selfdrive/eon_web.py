@@ -71,7 +71,7 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <section id="records" hidden><h2>로그 · 대시캠</h2><button id="refresh">새로고침</button><div id="replay" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
 <video id="replayVideo" controls playsinline hidden></video>
 <button id="replayPlay">재생</button><input id="replaySeek" aria-label="재생 위치" type="range" min="0" step="0.1" value="0">
-<pre id="replayValues"></pre></div><div id="logs"></div></section>
+<pre id="replayValues"></pre></div><p id="logActionStatus" role="status"></p><div id="logs"></div></section>
 <section id="terminal" hidden><h2>터미널 로그</h2><button data-tmux>capture tmux</button>
 <pre id="tmuxOutput" aria-live="polite"></pre></section>
 </main>
@@ -142,6 +142,27 @@ function renderParams() {
   }
   if (!groups.size) paramsList.textContent = '일치하는 설정이 없습니다.';
 }
+async function removeRoute(route, button) {
+  const label = route.replace('--', ' ');
+  if (!confirm(label + ' 주행의 모든 구간과 영상을 삭제할까요? 삭제 후 복구할 수 없습니다.')) return;
+  const status = document.querySelector('#logActionStatus');
+  button.disabled = true;
+  status.textContent = '삭제 중…';
+  try {
+    const response = await fetch('/api/logs/delete', {method:'POST',
+      headers:{'Content-Type':'application/json', 'X-EON-Action':'delete-route'},
+      body:JSON.stringify({route})});
+    const result = await response.json();
+    status.textContent = result.output;
+    if (response.ok && document.querySelector('#replayTitle').textContent.startsWith(route + '--')) {
+      replayRun++;
+      stopReplay();
+      replay.hidden = true;
+    }
+    await loadLogs();
+  } catch (_) { status.textContent = '삭제 결과를 확인하지 못했습니다. 로그 목록을 새로고침하세요.'; }
+  finally { button.disabled = false; }
+}
 async function loadLogs() {
   logsList.replaceChildren();
   try {
@@ -155,7 +176,10 @@ async function loadLogs() {
         const group = document.createElement('details');
         const summary = document.createElement('summary');
         summary.textContent = route.replace('--', ' ');
-        group.append(summary);
+        const remove = document.createElement('button');
+        remove.textContent = '이 주행 삭제';
+        remove.addEventListener('click', () => removeRoute(route, remove));
+        group.append(summary, remove);
         logsList.append(group);
         routes.set(route, group);
       }
@@ -569,6 +593,37 @@ def segments():
   return result
 
 
+def delete_route(route):
+  if not isinstance(route, str) or not SEGMENT.fullmatch(route + "--0"):
+    return 400, "삭제할 주행을 목록에서 선택하세요."
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
+  if state["started"] or not state["ignitionOff"] or not Params().get_bool("IsOffroad"):
+    return 409, "시동을 끈 오프로드 상태에서 삭제하세요."
+  try:
+    with os.scandir(ROOT) as entries:
+      paths = [entry.path for entry in entries if SEGMENT.fullmatch(entry.name)
+               and entry.name.rsplit("--", 1)[0] == route and entry.is_dir(follow_symlinks=False)]
+  except FileNotFoundError:
+    paths = []
+  finished = []
+  for path in paths:
+    try:
+      if any(name.endswith(".lock") for name in os.listdir(path)):
+        return 409, "기록 파일이 아직 잠겨 있어 삭제하지 않았습니다."
+    except FileNotFoundError:
+      continue
+    finished.append(path)
+
+  deleted = 0
+  for path in finished:
+    try:
+      shutil.rmtree(path)
+      deleted += 1
+    except FileNotFoundError:
+      continue
+  return 200, "주행 구간 {}개를 삭제했습니다.".format(deleted)
+
+
 def open_log(segment, filename):
   if not SEGMENT.fullmatch(segment) or filename not in LOG_FILES:
     raise FileNotFoundError
@@ -778,6 +833,7 @@ class Handler(BaseHTTPRequestHandler):
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
+              "/api/logs/delete": "delete-route",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
       self.send_error(404)
@@ -791,7 +847,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -805,6 +861,9 @@ class Handler(BaseHTTPRequestHandler):
           return
         if action == "set-recording":
           status, result = set_recording(payload.get("key"), payload.get("enabled"))
+        elif action == "delete-route":
+          status, output = delete_route(payload.get("route"))
+          result = {"output": output}
         elif action == "git-switch":
           status, output = git_switch(payload.get("branch"))
           result = {"output": output}
