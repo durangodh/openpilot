@@ -73,14 +73,14 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <main><h1>EON 웹</h1>
 <section id="drive"><h2>주행</h2><button id="driveRefresh">장치 상태 새로고침</button>
 <pre id="driveStatus"></pre><button id="vision">주행 비전 시작</button>
-<p id="visionStatus" aria-live="polite"></p><img id="roadImage" alt="실시간 전방 카메라" hidden><p>저장된 주행 기록은 로그 탭에서 확인할 수 있습니다.</p></section>
-<section id="settings" hidden><h2>설정</h2>
+<p id="visionStatus" aria-live="polite"></p><img id="roadImage" alt="실시간 전방 카메라" hidden><p>저장된 주행 기록은 로그 탭에서 확인할 수 있습니다.</p>
 <fieldset><legend>주행 기록</legend>
 <p><label><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label></p>
 <p><label><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label></p>
 <p>주행 중에도 기록을 시작하거나 종료할 수 있습니다. 영상 옵션 변경 시 현재 파일을 닫고 새 구간을 시작합니다.</p>
 <p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
-</fieldset>
+</fieldset></section>
+<section id="settings" hidden><h2>설정</h2>
 <input id="filter" type="search" placeholder="파람 이름·설명 검색" aria-label="파람 이름·설명 검색">
 <a href="/api/params.json" download="g_web-params.json">JSON 백업</a><div id="params"></div></section>
 <section id="tools" hidden><h2>도구</h2>
@@ -337,6 +337,8 @@ for (const input of recordingInputs) {
 async function loadSettings() {
   try { ({params, editable, catalog} = await read('/api/params.json')); renderParams(); }
   catch (_) { paramsList.textContent = '설정을 불러오지 못했습니다.'; }
+}
+async function loadRecording() {
   if (savingRecording) return;
   try { recording = await read('/api/recording'); }
   catch (_) { recording = null; recordingStatus.textContent = '녹화 설정을 불러오지 못했습니다.'; }
@@ -375,7 +377,11 @@ async function loadGit() {
     updateBranchButton();
   } catch (_) { gitInfo.textContent = 'Git 정보를 읽지 못했습니다.'; }
 }
-const loaders = {drive: loadStatus, settings: loadSettings, tools: loadGit, records: loadLogs};
+function loadDrive() {
+  loadStatus();
+  loadRecording();
+}
+const loaders = {drive: loadDrive, settings: loadSettings, tools: loadGit, records: loadLogs};
 const roadImage = document.querySelector('#roadImage');
 const visionButton = document.querySelector('#vision');
 const visionStatus = document.querySelector('#visionStatus');
@@ -584,7 +590,7 @@ for (const [id, action, message] of [
   });
 }
 filter.addEventListener('input', renderParams);
-document.querySelector('#driveRefresh').addEventListener('click', loadStatus);
+document.querySelector('#driveRefresh').addEventListener('click', loadDrive);
 document.querySelector('#refresh').addEventListener('click', loadLogs);
 openPage('drive');
 </script></html>
