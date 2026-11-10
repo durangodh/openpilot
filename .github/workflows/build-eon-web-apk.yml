@@ -1,0 +1,72 @@
+name: Build EON Web Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_web]
+    paths:
+      - "tools/eon_web_android/**"
+      - ".github/workflows/build-eon-web-apk.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: eon-web-android
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/g_web'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build signed EON Web APK
+        working-directory: tools/eon_web_android
+        shell: bash
+        env:
+          REMOTE_HUD_KEYSTORE_BASE64: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          REMOTE_HUD_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          REMOTE_HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for required in REMOTE_HUD_KEYSTORE_BASE64 REMOTE_HUD_KEYSTORE_PASSWORD REMOTE_HUD_KEY_ALIAS REMOTE_HUD_KEY_PASSWORD; do
+            if [[ -z "${!required}" ]]; then
+              echo "$required secret is missing" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          export REMOTE_HUD_KEYSTORE_PATH="$RUNNER_TEMP/eon-web-signing.p12"
+          trap 'rm -f "$REMOTE_HUD_KEYSTORE_PATH"' EXIT
+          printf '%s' "$REMOTE_HUD_KEYSTORE_BASE64" | base64 --decode > "$REMOTE_HUD_KEYSTORE_PATH"
+          export EON_WEB_VERSION_CODE="$GITHUB_RUN_NUMBER"
+          export EON_WEB_VERSION_NAME="1.0.$GITHUB_RUN_NUMBER"
+          gradle :app:assembleRelease --stacktrace
+      - name: Verify signature and publish to Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/EON-Web.apk"
+          cp tools/eon_web_android/app/build/outputs/apk/release/app-release.apk "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" |
+            grep -F 'certificate SHA-256 digest: 8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06'
+          if gh release view eon-web-android >/dev/null 2>&1; then
+            gh release upload eon-web-android "$apk" --clobber
+          else
+            gh release create eon-web-android "$apk" --target "$GITHUB_SHA" \
+              --title "EON 웹 Android APK" --notes "노란 W 아이콘의 이온 웹 전용 Android 앱입니다. 이온과 같은 네트워크에서 이온 IP를 입력하세요."
+          fi

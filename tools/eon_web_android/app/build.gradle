@@ -1,0 +1,33 @@
+plugins { id "com.android.application" version "8.7.3" }
+
+android {
+  namespace "ai.comma.eonweb"
+  compileSdk 35
+  defaultConfig {
+    applicationId "ai.comma.eonweb"
+    minSdk 29
+    targetSdk 34
+    versionCode (System.getenv("EON_WEB_VERSION_CODE") ?: "1").toInteger()
+    versionName System.getenv("EON_WEB_VERSION_NAME") ?: "1.0"
+  }
+  signingConfigs {
+    stable {
+      if (System.getenv("REMOTE_HUD_KEYSTORE_PATH")) {
+        storeFile file(System.getenv("REMOTE_HUD_KEYSTORE_PATH"))
+        storePassword System.getenv("REMOTE_HUD_KEYSTORE_PASSWORD")
+        keyAlias System.getenv("REMOTE_HUD_KEY_ALIAS")
+        keyPassword System.getenv("REMOTE_HUD_KEY_PASSWORD")
+        storeType "PKCS12"
+      }
+    }
+  }
+  buildTypes {
+    release {
+      if (System.getenv("REMOTE_HUD_KEYSTORE_PATH")) signingConfig signingConfigs.stable
+    }
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_11
+    targetCompatibility JavaVersion.VERSION_11
+  }
+}
