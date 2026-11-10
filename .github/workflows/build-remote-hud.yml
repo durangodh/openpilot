@@ -133,7 +133,7 @@ jobs:
       - name: Publish in-app updater APK
         if: >-
           github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && github.event.head_commit.message == 'Publish g_web voice settings HUD APK')
+          (github.event_name == 'push' && github.event.head_commit.message == 'Hide reverse gear notice in HUD navigation mode')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

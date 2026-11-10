@@ -3429,6 +3429,9 @@ public final class HudService extends Service {
         // 일반은 게이지처럼 주야간을 따른다: 낮 밝은 상자 + 검은 글자, 밤 어두운 상자 + 흰 글자.
         boolean critical = status.contains("critical");
         boolean caution = !critical && (status.contains("prompt") || status.contains("warning"));
+        if (caution && ("Reverse Gear".equalsIgnoreCase(text1) || "Reverse Gear".equalsIgnoreCase(text2))) {
+            return;
+        }
         int boxColor = critical ? Color.argb(230, 210, 40, 50)
                 : caution ? Color.argb(225, 230, 120, 20)
                 : frameDark ? Color.argb(200, 20, 24, 28) : Color.argb(210, 240, 242, 245);
