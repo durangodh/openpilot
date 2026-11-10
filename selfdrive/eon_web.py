@@ -610,7 +610,7 @@ def set_param(key, value):
   rule = param_rules().get(key) if isinstance(key, str) else None
   if rule is None or type(value) is not int or not rule["min"] <= value <= rule["max"]:
     return 400, "허용된 설정과 값 범위를 확인하세요."
-  state = read_device_state(check_ignition=True)
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
   params = Params()
   if state["started"] or not state["ignitionOff"] or not params.get_bool("IsOffroad"):
     return 409, "시동을 끄고 오프로드 상태에서 다시 시도하세요."
