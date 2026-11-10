@@ -86,9 +86,9 @@ class VoiceParamsTest(unittest.TestCase):
     self.assertIsNone(self.vp.handle(b"HUDPRM1 not-json", False))
 
   def test_direct_setting_proposal_and_offroad_write(self):
-    def request(op, offroad=False, **fields):
+    def request(op, offroad=False, onroad=False, **fields):
       raw = b"HUDPRM1 " + json.dumps(dict(op=op, **fields)).encode()
-      return json.loads(self.vp.handle(raw, False, offroad=offroad)[len(REPLY_PREFIX):])
+      return json.loads(self.vp.handle(raw, False, offroad=offroad, onroad=onroad)[len(REPLY_PREFIX):])
 
     self.assertEqual(request("direct", text="조향 반응 지연 얼마야?")["setting"]["value"], 50)
     self.assertEqual(request("direct", text="조향 반응 지연 60으로 변경")["target"], 60)
@@ -96,6 +96,11 @@ class VoiceParamsTest(unittest.TestCase):
     self.assertFalse(request("direct_set", name="SteerActuatorDelay", value=60)["ok"])
     self.assertTrue(request("direct_set", offroad=True, name="SteerActuatorDelay", value=60)["ok"])
     self.assertFalse(request("direct", text="오늘 날씨 알려줘")["handled"])
+    self.assertTrue(request("direct_set", onroad=True, name="TFollowGap2", value=130)["ok"])
+    self.assertFalse(request("direct_set", onroad=True, name="SteerActuatorDelay", value=70)["ok"])
+    self.assertFalse(request("direct_set", onroad=True, name="TFollowGap2", value=201)["ok"])
+    self.assertEqual(self.vp.get("TFollowGap2")["setting"]["value"], 130)
+    self.assertEqual(self.vp.get("SteerActuatorDelay")["setting"]["value"], 60)
 
   def test_real_apilot_json_loads(self):
     defs = load_definitions()

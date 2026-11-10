@@ -197,7 +197,7 @@ class VoiceParams:
     result = self.search([phrase] + phrase.split())
     return dict(result, handled=True) if result.get("results") or "설정" in text else {"ok": False, "handled": False}
 
-  def handle(self, data, moving, press=None, system=None, system_state=None, offroad=False):
+  def handle(self, data, moving, press=None, system=None, system_state=None, offroad=False, onroad=False):
     """Raw HUDPRM1 datagram -> reply bytes, or None when it is not ours or malformed."""
     if not data.startswith(PREFIX):
       return None
@@ -210,12 +210,12 @@ class VoiceParams:
     if op == "direct":
       out = self.direct(req.get("text"))
     elif op == "direct_set":
-      if not offroad or moving:
-        out = {"ok": False, "error": "시동을 끈 오프로드 상태에서 다시 요청하세요."}
+      if not onroad and (not offroad or moving):
+        out = {"ok": False, "error": "차량 상태를 확인할 수 없습니다. 연결 상태를 확인하세요."}
       elif type(req.get("value")) is not int or not isinstance(req.get("name"), str):
         out = {"ok": False, "error": "정수 값을 지정하세요."}
       else:
-        out = self.set(req.get("name"), req.get("value"), moving)
+        out = self.set(req.get("name"), req.get("value"), moving or onroad)
     elif op == "search":
       out = self.search(req.get("keywords"))
     elif op == "get":

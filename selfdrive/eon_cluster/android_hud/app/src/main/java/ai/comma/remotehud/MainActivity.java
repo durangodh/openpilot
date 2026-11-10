@@ -846,7 +846,7 @@ public final class MainActivity extends Activity {
             voiceStatus.setText("Claude API 키(선택): " + (hasKey ? "저장됨" : "없음") + "   마이크: " + (mic ? "허용" : "미허용")
                     + "\nEON 리모컨 버튼 설정에서 '음성 비서 (AI)'를 버튼에 배정하세요."
                     + "\n직접 명령 예: 최저 크루즈 속도 얼마야? / 조향비 설정 찾아줘"
-                    + "\n설정값 변경은 시동을 끄고 요청한 뒤 음성 버튼을 다시 눌러 확인하세요.");
+                    + "\n설정값 변경은 음성 버튼을 다시 눌러 확인하세요. 주행 중에는 크루즈·종방향 설정만 변경됩니다.");
         };
         refresh.run();
         EditText keyInput = new EditText(this);

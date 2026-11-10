@@ -1370,10 +1370,11 @@ def main():
             car_valid = sm.alive["carState"] and sm.valid["carState"] and car.canValid
             allowed = allowed_commands(started, car_valid, car.gearShifter == "drive",
                                        car.brakePressed, car.gasPressed)
-            offroad = (sm.alive["deviceState"] and sm.valid["deviceState"] and not started
-                       and params.get_bool("IsOffroad"))
+            device_valid = sm.alive["deviceState"] and sm.valid["deviceState"]
+            offroad = device_valid and not started and params.get_bool("IsOffroad")
+            onroad = device_valid and started and car_valid
             answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed),
-                                         system_jobs, lambda: voice_system.allowed(sm), offroad=offroad)
+                                         system_jobs, lambda: voice_system.allowed(sm), offroad=offroad, onroad=onroad)
             if answer is not None:
               sock.sendto(answer, address)
           elif nav_selection.receive(reply, address):
