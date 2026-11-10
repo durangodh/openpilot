@@ -85,6 +85,18 @@ class VoiceParamsTest(unittest.TestCase):
     self.assertIsNone(self.vp.handle(b"HUD1", False))
     self.assertIsNone(self.vp.handle(b"HUDPRM1 not-json", False))
 
+  def test_direct_setting_proposal_and_offroad_write(self):
+    def request(op, offroad=False, **fields):
+      raw = b"HUDPRM1 " + json.dumps(dict(op=op, **fields)).encode()
+      return json.loads(self.vp.handle(raw, False, offroad=offroad)[len(REPLY_PREFIX):])
+
+    self.assertEqual(request("direct", text="조향 반응 지연 얼마야?")["setting"]["value"], 50)
+    self.assertEqual(request("direct", text="조향 반응 지연 60으로 변경")["target"], 60)
+    self.assertEqual(self.vp.get("SteerActuatorDelay")["setting"]["value"], 50)
+    self.assertFalse(request("direct_set", name="SteerActuatorDelay", value=60)["ok"])
+    self.assertTrue(request("direct_set", offroad=True, name="SteerActuatorDelay", value=60)["ok"])
+    self.assertFalse(request("direct", text="오늘 날씨 알려줘")["handled"])
+
   def test_real_apilot_json_loads(self):
     defs = load_definitions()
     self.assertGreater(len(defs), 100)
@@ -106,8 +118,8 @@ class VoiceRequestTest(unittest.TestCase):
         self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (1, "ai"))
         self.assertEqual(sync.apply("voice", allowed), "accepted")
         self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (2, "ai"))
-        self.assertEqual(sync.apply("nav_voice", allowed), "accepted")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (3, "nav"))
+        self.assertEqual(sync.apply("nav_voice", allowed), "blocked")
+        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (2, "ai"))
         self.assertIsNone(hud_remote.voice_request(path, clock=lambda: 20.0))
       finally:
         hud_remote.VOICE_FILE = old
