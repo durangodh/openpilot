@@ -539,7 +539,7 @@ for (const button of document.querySelectorAll('[data-tmux]')) {
   });
 }
 document.querySelector('#gitPull').addEventListener('click', async event => {
-  if (!confirm('시동을 끈 상태에서 g_web 업데이트를 가져올까요?')) return;
+  if (!confirm('openpilot 인게이지를 해제한 상태에서 g_web 업데이트를 가져올까요?')) return;
   const button = event.currentTarget;
   button.disabled = true;
   gitOutput.textContent = '업데이트 확인 중…';
@@ -824,25 +824,46 @@ def read_device_state(check_ignition=False, allow_no_panda=False):
   raise RuntimeError("EON 또는 판다 상태를 확인하지 못했습니다.")
 
 
+def git_pull_block_reason():
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
+  if not state["started"] and state["ignitionOff"] and Params().get_bool("IsOffroad"):
+    return None
+
+  from cereal import messaging
+
+  subscriber = messaging.SubMaster(["controlsState"], poll=["controlsState"])
+  deadline = time.monotonic() + 1
+  while time.monotonic() < deadline:
+    subscriber.update(100)
+    if subscriber.updated["controlsState"] and subscriber.valid["controlsState"]:
+      age = messaging.sec_since_boot() - subscriber.logMonoTime["controlsState"] / 1e9
+      if 0 <= age < 0.5:
+        controls = subscriber["controlsState"]
+        if controls.enabled or controls.active:
+          return "openpilot 인게이지를 해제한 뒤 다시 시도하세요."
+        return None
+  return "openpilot 인게이지 상태를 확인할 수 없습니다."
+
+
 def git_pull():
   if git_info()["branch"] != "g_web":
     return False, "g_web 브랜치에서만 업데이트할 수 있습니다."
   status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
   if status or changes:
     return False, "로컬 추적 파일에 변경이 있습니다. SSH에서 git status를 확인하세요."
-  state = read_device_state(check_ignition=True, allow_no_panda=True)
-  if state["started"] or not state["ignitionOff"]:
-    return False, "시동을 끈 뒤 다시 시도하세요."
+  reason = git_pull_block_reason()
+  if reason:
+    return False, reason
   status, output = command(["git", "fetch", "--no-recurse-submodules", "origin", "g_web"], timeout=35)
   if status:
     return False, output or "원격 브랜치를 가져오지 못했습니다."
   status, target = command(["git", "rev-parse", "--verify", "FETCH_HEAD"])
   if status:
     return False, target or "가져온 커밋을 확인하지 못했습니다."
-  state = read_device_state(check_ignition=True, allow_no_panda=True)
-  if state["started"] or not state["ignitionOff"]:
-    return False, "시동 상태가 바뀌어 업데이트를 중단했습니다."
   before = git_info()["commit"]
+  reason = git_pull_block_reason()
+  if reason:
+    return False, reason
   status, output = command(["git", "-c", "core.hooksPath=/dev/null", "merge", "--ff-only", target])
   if status:
     return False, output or "Git Pull에 실패했습니다."
