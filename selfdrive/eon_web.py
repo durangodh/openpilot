@@ -124,6 +124,8 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <section id="settings" hidden><h2>설정</h2>
 <div class="settings-bar"><input id="filter" type="search" placeholder="설정 이름·설명 검색" aria-label="설정 이름·설명 검색">
 <a href="/api/params.json" download="g_web-params.json">JSON 백업</a></div>
+<p class="hint">시동이 켜져 있어도 완전히 정차하고 인게이지를 해제하면 설정을 저장할 수 있습니다. 실행 중 다시 읽는 설정은 다음 갱신 때 반영되며, 시작할 때만 읽는 설정은 재시작 후 반영됩니다.</p>
+<p id="paramSaveStatus" class="hint" role="status" hidden></p>
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
 <div class="card"><h3>Git Commands</h3><p id="gitInfo"></p>
@@ -157,6 +159,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 const paramsList = document.querySelector('#params');
 const logsList = document.querySelector('#logs');
 const filter = document.querySelector('#filter');
+const paramSaveStatus = document.querySelector('#paramSaveStatus');
 let params = {};
 let editable = {};
 let catalog = {};
@@ -306,6 +309,8 @@ function renderParams() {
         const result = await response.json();
         if (!response.ok) throw Error(result.output);
         params[key] = String(next);
+        paramSaveStatus.textContent = entry.title + ' · ' + next + ' · ' + result.output;
+        paramSaveStatus.hidden = false;
         renderParams();
       } catch (error) { status.textContent = error.message; }
       finally {
@@ -765,12 +770,11 @@ def set_param(key, value):
   rule = param_rules().get(key) if isinstance(key, str) else None
   if rule is None or type(value) is not int or not rule["min"] <= value <= rule["max"]:
     return 400, "허용된 설정과 값 범위를 확인하세요."
-  state = read_device_state(check_ignition=True, allow_no_panda=True)
-  params = Params()
-  if state["started"] or not state["ignitionOff"] or not params.get_bool("IsOffroad"):
-    return 409, "시동을 끄고 오프로드 상태에서 다시 시도하세요."
+  reason = maintenance_block_reason(require_standstill=True)
+  if reason:
+    return 409, reason
   try:
-    params.put(key, str(value))
+    Params().put(key, str(value))
   except UnknownKeyName:
     return 400, "이 기기에 등록되지 않은 설정입니다."
   return 200, "저장했습니다."
