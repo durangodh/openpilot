@@ -41,6 +41,11 @@ img,video,input[type=range]{display:block;width:100%;max-width:480px;margin:10px
 [hidden]{display:none!important}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}
 details{padding:10px 0;border-bottom:1px solid #374352}
+.param-editor{margin-top:8px;font-size:.9em}
+.param-editor p{margin:8px 0;color:#c8d5e1}
+.param-description{white-space:pre-line}
+.param-editor-controls{display:flex;flex-wrap:wrap;gap:8px}
+.param-editor-controls input{width:9ch}
 section{background:#1d2835;border-radius:12px;padding:16px;margin:16px 0}
 h1,h2{margin:0 0 12px} a{color:#91ddff} input,button{font:inherit;padding:8px;max-width:100%}
 ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;overflow-wrap:anywhere}
@@ -121,24 +126,69 @@ function renderParams() {
     if (!info) continue;
     const edit = document.createElement('button');
     edit.textContent = '변경';
-    edit.addEventListener('click', async () => {
-      const entered = prompt(key + ' · ' + info.min + ' ~ ' + info.max, value ?? '');
-      if (entered === null || !/^-?[0-9]+$/.test(entered.trim())) return;
-      const next = Number(entered);
-      if (!Number.isSafeInteger(next) || next < info.min || next > info.max) return alert('허용 범위를 확인하세요.');
-      if (!confirm(key + ' 값을 ' + next + '(으)로 저장할까요?')) return;
-      edit.disabled = true;
+    edit.setAttribute('aria-expanded', 'false');
+    const form = document.createElement('form');
+    form.className = 'param-editor';
+    form.hidden = true;
+    const description = document.createElement('p');
+    description.className = 'param-description';
+    description.textContent = entry.description;
+    description.hidden = !entry.description;
+    const range = document.createElement('p');
+    range.textContent = '허용 범위 ' + info.min + ' ~ ' + info.max;
+    const controls = document.createElement('div');
+    controls.className = 'param-editor-controls';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = info.min;
+    input.max = info.max;
+    input.step = 1;
+    input.required = true;
+    input.setAttribute('aria-label', entry.title + ' 새 값');
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = '저장';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = '취소';
+    const status = document.createElement('p');
+    status.setAttribute('role', 'status');
+    status.hidden = true;
+    controls.append(input, save, cancel);
+    form.append(description, range, controls, status);
+    function closeEditor() {
+      form.hidden = true;
+      edit.setAttribute('aria-expanded', 'false');
+      edit.focus();
+    }
+    edit.addEventListener('click', () => {
+      if (!form.hidden) return closeEditor();
+      input.value = value ?? '';
+      status.hidden = true;
+      form.hidden = false;
+      edit.setAttribute('aria-expanded', 'true');
+      input.focus();
+    });
+    cancel.addEventListener('click', closeEditor);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const next = input.valueAsNumber;
+      if (!Number.isSafeInteger(next) || next < info.min || next > info.max || save.disabled) return;
+      edit.disabled = input.disabled = save.disabled = cancel.disabled = true;
+      status.textContent = '저장 중…';
+      status.hidden = false;
       try {
         const response = await fetch('/api/params', {method:'POST',
           headers:{'Content-Type':'application/json','X-EON-Action':'set-param'},
           body:JSON.stringify({key, value:next})});
         const result = await response.json();
         if (!response.ok) throw Error(result.output);
-        await loadSettings();
-      } catch (error) { alert(error.message); }
-      finally { edit.disabled = false; }
+        params[key] = String(next);
+        renderParams();
+      } catch (error) { status.textContent = error.message; }
+      finally { edit.disabled = input.disabled = save.disabled = cancel.disabled = false; }
     });
-    item.append(' ', edit);
+    item.append(' ', edit, form);
   }
   if (!groups.size) paramsList.textContent = '일치하는 설정이 없습니다.';
 }
