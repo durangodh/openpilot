@@ -21,6 +21,7 @@ CACHE_DIR = Path("/data/scons_cache" if TICI else "/tmp/scons_cache")
 TOTAL_SCONS_NODES = 2405
 MAX_BUILD_PROGRESS = 100
 PREBUILT = is_prebuilt()
+REBUILD_FLAG = Path("/persist/comma/eon-web-rebuild")
 
 
 def build(spinner: Spinner, dirty: bool = False) -> None:
@@ -97,9 +98,13 @@ def build(spinner: Spinner, dirty: bool = False) -> None:
     f.unlink()
 
 
-if __name__ == "__main__" and not PREBUILT:
+if __name__ == "__main__" and (not PREBUILT or (EON and REBUILD_FLAG.is_file())):
   spinner = Spinner()
   spinner.update_progress(0, 100)
+  if EON and REBUILD_FLAG.is_file():
+    spinner.update("Cleaning openpilot build")
+    subprocess.check_call(["scons", "-c"], cwd=BASEDIR)
+    # Keep the request until the new build succeeds.
   build(spinner, is_dirty())
 
   if EON:
@@ -114,3 +119,6 @@ if __name__ == "__main__" and not PREBUILT:
   if commit:
     with open(os.path.join(BASEDIR, 'prebuilt'), 'w') as f:
       f.write(commit)
+
+  if EON and REBUILD_FLAG.is_file():
+    REBUILD_FLAG.unlink()

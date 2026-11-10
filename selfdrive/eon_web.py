@@ -20,6 +20,7 @@ from selfdrive.eon_web_media import RoadPreview, VIDEO_FILE, media_range, replay
 from selfdrive.loggerd.config import ROOT
 
 PORT = 7000
+REBUILD_FLAG = Path("/persist/comma/eon-web-rebuild")
 RECORDING_FLAGS = {
   "routeLogging": Path("/persist/comma/enable-eon-route-logging"),
   "webVideo": Path("/persist/comma/enable-eon-web-video"),
@@ -72,8 +73,12 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <section id="tools" hidden><h2>도구</h2>
 <details open><summary>Git Commands</summary><p id="gitInfo"></p>
 <button id="gitPull">git pull</button> <button id="gitLog">git log</button>
+<p><label>전환할 브랜치 <select id="gitBranch" disabled></select></label>
+<button id="gitSwitch" disabled>브랜치 변경</button></p>
 <pre id="gitOutput" aria-live="polite"></pre></details>
-<details><summary>User / System</summary><button data-tmux>capture tmux</button></details></section>
+<details><summary>User / System</summary><button data-tmux>capture tmux</button>
+<button id="eonReboot">재부팅</button> <button id="eonRebuild">재부팅하여 전체 재빌드</button>
+<p id="systemOutput" role="status"></p></details></section>
 <section id="records" hidden><h2>로그 · 대시캠</h2><button id="refresh">새로고침</button><div id="replay" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
 <video id="replayVideo" controls playsinline hidden></video>
 <button id="replayPlay">재생</button><input id="replaySeek" aria-label="재생 위치" type="range" min="0" step="0.1" value="0">
@@ -238,11 +243,28 @@ async function loadStatus() {
   } catch (_) { target.textContent = 'EON 상태를 확인할 수 없습니다.'; }
 }
 const gitInfo = document.querySelector('#gitInfo');
+const gitBranch = document.querySelector('#gitBranch');
+const gitSwitch = document.querySelector('#gitSwitch');
+let currentBranch = '';
+function updateBranchButton() {
+  gitSwitch.disabled = !gitBranch.value || gitBranch.value === currentBranch;
+}
+gitBranch.addEventListener('change', updateBranchButton);
 const gitOutput = document.querySelector('#gitOutput');
 async function loadGit() {
   try {
     const state = await read('/api/git.json');
+    currentBranch = state.branch;
     gitInfo.textContent = state.branch + ' · ' + state.commit;
+    gitBranch.replaceChildren();
+    for (const name of state.branches) {
+      const option = document.createElement('option');
+      option.value = option.textContent = name;
+      gitBranch.append(option);
+    }
+    gitBranch.value = currentBranch;
+    gitBranch.disabled = !state.branches.length;
+    updateBranchButton();
   } catch (_) { gitInfo.textContent = 'Git 정보를 읽지 못했습니다.'; }
 }
 const loaders = {drive: loadStatus, settings: loadSettings, tools: loadGit, records: loadLogs};
@@ -418,6 +440,41 @@ document.querySelector('#gitLog').addEventListener('click', async () => {
   try { gitOutput.textContent = (await read('/api/git.json')).history; }
   catch (_) { gitOutput.textContent = '커밋 목록을 읽지 못했습니다.'; }
 });
+gitSwitch.addEventListener('click', async () => {
+  const branch = gitBranch.value;
+  if (!branch || branch === currentBranch) return;
+  if (!confirm(branch + ' 브랜치로 전환할까요? 재부팅 후 대상 브랜치에 EON 웹이 없으면 SSH로 접속해야 합니다.')) return;
+  gitBranch.disabled = gitSwitch.disabled = true;
+  gitOutput.textContent = '브랜치 전환 중…';
+  try {
+    const response = await fetch('/api/git/switch', {method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-EON-Action': 'git-switch'},
+      body: JSON.stringify({branch})});
+    gitOutput.textContent = (await response.json()).output;
+  } catch (_) { gitOutput.textContent = '응답을 읽지 못했습니다. 현재 브랜치를 확인하세요.'; }
+  finally { await loadGit(); }
+});
+const systemOutput = document.querySelector('#systemOutput');
+for (const [id, action, message] of [
+  ['eonReboot', 'reboot', 'EON을 재부팅할까요?'],
+  ['eonRebuild', 'rebuild', '재부팅하여 전체 재빌드를 시작할까요? 빌드 중에는 EON 웹 연결이 끊깁니다.']
+]) {
+  const button = document.getElementById(id);
+  button.addEventListener('click', async () => {
+    if (!confirm(message)) return;
+    button.disabled = true;
+    systemOutput.textContent = '요청 중…';
+    try {
+      const response = await fetch('/api/system/' + action, {method: 'POST',
+        headers: {'X-EON-Action': action}});
+      systemOutput.textContent = (await response.json()).output;
+      if (!response.ok) button.disabled = false;
+    } catch (_) {
+      systemOutput.textContent = 'EON 응답을 받지 못했습니다. 장치 화면에서 상태를 확인하세요.';
+      button.disabled = false;
+    }
+  });
+}
 filter.addEventListener('input', renderParams);
 document.querySelector('#driveRefresh').addEventListener('click', loadStatus);
 document.querySelector('#refresh').addEventListener('click', loadLogs);
@@ -547,13 +604,32 @@ def command(args, timeout=5):
   return result.returncode, result.stdout.decode("utf-8", "replace").strip()
 
 
+def git_branches():
+  status, output = command(["git", "for-each-ref", "--format=%(refname) %(symref)",
+                            "refs/heads", "refs/remotes/origin"])
+  if status:
+    raise RuntimeError("브랜치 목록을 읽지 못했습니다.")
+  branches = {}
+  for line in output.splitlines():
+    ref, _, target = line.partition(" ")
+    if not target and ref.startswith("refs/remotes/origin/"):
+      name = ref[len("refs/remotes/origin/"):]
+      if not name.startswith("-") and name != "HEAD":
+        branches.setdefault(name, ref)
+    elif not target and ref.startswith("refs/heads/"):
+      name = ref[len("refs/heads/"):]
+      if not name.startswith("-"):
+        branches[name] = ref
+  return branches
+
+
 def git_info():
   branch_status, branch = command(["git", "symbolic-ref", "--quiet", "--short", "HEAD"])
   commit_status, commit = command(["git", "rev-parse", "--short", "HEAD"])
   history_status, history = command(["git", "log", "-10", "--oneline", "--no-color"])
   if branch_status or commit_status or history_status:
     raise RuntimeError("Git 정보를 읽지 못했습니다.")
-  return {"branch": branch, "commit": commit, "history": history}
+  return {"branch": branch, "commit": commit, "history": history, "branches": sorted(git_branches())}
 
 
 def read_device_state(check_ignition=False):
@@ -607,6 +683,37 @@ def git_pull():
   return True, "{} → {}\n{}\n{}".format(before, after, detail, output)
 
 
+def git_switch(branch):
+  ref = git_branches().get(branch) if isinstance(branch, str) else None
+  if ref is None:
+    return 400, "목록에서 전환할 브랜치를 선택하세요."
+  status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
+  if status or changes:
+    return 409, "로컬 추적 파일에 변경이 있습니다.\n" + changes
+  state = read_device_state(check_ignition=True)
+  if state["started"] or not state["ignitionOff"]:
+    return 409, "시동을 끈 뒤 다시 시도하세요."
+  args = ["git", "-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore"]
+  args += ["-b", branch, "--track", ref] if ref.startswith("refs/remotes/") else [branch]
+  status, output = command(args, timeout=25)
+  if status:
+    return 409, output or "브랜치 전환에 실패했습니다."
+  return 200, branch + " 전환 완료. 재부팅하면 적용됩니다.\n" + output
+
+
+def request_reboot(rebuild=False):
+  if rebuild and git_info()["branch"] != "g_web":
+    return 409, "전체 재빌드는 g_web 브랜치에서 실행하세요."
+  state = read_device_state(check_ignition=True)
+  params = Params()
+  if state["started"] or not state["ignitionOff"] or not params.get_bool("IsOffroad"):
+    return 409, "시동을 끈 오프로드 상태에서 다시 시도하세요."
+  if rebuild:
+    REBUILD_FLAG.touch()
+  params.put_bool("DoReboot", True)
+  return 200, "재부팅을 요청했습니다. 전체 재빌드는 부팅 중 진행됩니다." if rebuild else "재부팅을 요청했습니다."
+
+
 class WebServer(HTTPServer):
   def __init__(self, *args):
     self.road_preview = RoadPreview()
@@ -658,7 +765,8 @@ class Handler(BaseHTTPRequestHandler):
     if not self.authorized():
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
-              "/api/recording": "set-recording"}.get(self.path)
+              "/api/recording": "set-recording", "/api/git/switch": "git-switch",
+              "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
       self.send_error(404)
       return
@@ -671,7 +779,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording"):
+      if action in ("set-param", "set-recording", "git-switch"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -685,10 +793,17 @@ class Handler(BaseHTTPRequestHandler):
           return
         if action == "set-recording":
           status, result = set_recording(payload.get("key"), payload.get("enabled"))
+        elif action == "git-switch":
+          status, output = git_switch(payload.get("branch"))
+          result = {"output": output}
         else:
           status, output = set_param(payload.get("key"), payload.get("value"))
           result = {"output": output}
         self.send_json(result, status)
+        return
+      if action in ("reboot", "rebuild"):
+        status, output = request_reboot(rebuild=action == "rebuild")
+        self.send_json({"output": output}, status)
         return
       ok, output = git_pull()
       self.send_json({"output": output}, 200 if ok else 409)
