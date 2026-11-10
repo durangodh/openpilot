@@ -64,7 +64,7 @@ ul{padding:0;list-style:none} li{padding:9px 0;border-bottom:1px solid #374352;o
 <fieldset><legend>주행 기록</legend>
 <p><label><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label></p>
 <p><label><input type="checkbox" data-recording="webVideo" disabled> 리플레이용 전방 영상 녹화</label></p>
-<p>스위치는 저장된 설정입니다. 변경 사항은 EON 재부팅 후 적용됩니다.</p>
+<p>스위치는 저장된 설정입니다. 변경 사항은 다음 주행부터 적용됩니다.</p>
 <p id="recordingHint"></p><p id="recordingStatus" role="status"></p>
 </fieldset>
 <input id="filter" type="search" placeholder="파람 이름 검색" aria-label="파람 이름 검색">
@@ -460,7 +460,7 @@ def set_recording(key, enabled):
         path.unlink()
       except FileNotFoundError:
         pass
-  return 200, {"output": "저장했습니다. EON 재부팅 후 적용됩니다.", "recording": recording_settings()}
+  return 200, {"output": "저장했습니다. 다음 주행부터 적용됩니다.", "recording": recording_settings()}
 
 
 def set_param(key, value):

@@ -4,7 +4,8 @@ from selfdrive.hardware import EON, TICI, PC
 from selfdrive.manager.process import PythonProcess, NativeProcess
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
-EON_ROUTE_LOGGING = EON and os.path.isfile("/persist/comma/enable-eon-route-logging")
+EON_ROUTE_LOGGING_FLAG = "/persist/comma/enable-eon-route-logging"
+EON_ROUTE_LOGGING = EON and os.path.isfile(EON_ROUTE_LOGGING_FLAG)
 
 procs = [
   # due to qualcomm kernel bugs SIGKILLing camerad sometimes causes page table corruption
