@@ -632,27 +632,50 @@ def git_info():
   return {"branch": branch, "commit": commit, "history": history, "branches": sorted(git_branches())}
 
 
-def read_device_state(check_ignition=False):
+def panda_usb_present():
+  import usb1
+
+  try:
+    with usb1.USBContext() as context:
+      return any(device.getVendorID() == 0xbbaa for device in context.getDeviceList(skip_on_error=False))
+  except usb1.USBError as error:
+    raise RuntimeError("USB 장치 목록을 읽지 못했습니다.") from error
+
+
+def read_device_state(check_ignition=False, allow_no_panda=False):
   from cereal import messaging
 
   services = ["deviceState", "pandaStates"] if check_ignition else ["deviceState"]
   subscriber = messaging.SubMaster(services)
   seen = set()
+  usb_checked = False
   deadline = time.monotonic() + 3
   while time.monotonic() < deadline:
     subscriber.update(200)
     for service in services:
       if subscriber.updated[service] and subscriber.valid[service]:
         seen.add(service)
-    if len(seen) == len(services):
-      device = subscriber["deviceState"]
-      temperatures = list(device.cpuTempC)
-      state = {"started": device.started, "freeSpace": round(device.freeSpacePercent),
-               "cpuTemp": round(max(temperatures)) if temperatures else None}
-      if check_ignition:
-        pandas = [panda for panda in subscriber["pandaStates"] if str(panda.pandaType) != "unknown"]
-        state["ignitionOff"] = bool(pandas) and not any(p.ignitionLine or p.ignitionCan for p in pandas)
+    if "deviceState" not in seen or not subscriber.valid["deviceState"]:
+      continue
+    device = subscriber["deviceState"]
+    temperatures = list(device.cpuTempC)
+    state = {"started": device.started, "freeSpace": round(device.freeSpacePercent),
+             "cpuTemp": round(max(temperatures)) if temperatures else None}
+    if not check_ignition:
       return state
+    if "pandaStates" in seen and subscriber.valid["pandaStates"]:
+      pandas = list(subscriber["pandaStates"])
+      if any(p.ignitionLine or p.ignitionCan for p in pandas):
+        return dict(state, ignitionOff=False)
+      if pandas and all(str(p.pandaType) != "unknown" for p in pandas):
+        return dict(state, ignitionOff=True)
+    if allow_no_panda and not usb_checked and not device.started and Params().get_bool("IsOffroad"):
+      usb_checked = True
+      try:
+        if not panda_usb_present():
+          return dict(state, ignitionOff=True)
+      except (ImportError, OSError, RuntimeError) as error:
+        raise RuntimeError("판다 USB 연결 상태를 확인하지 못했습니다.") from error
   raise RuntimeError("EON 또는 판다 상태를 확인하지 못했습니다.")
 
 
@@ -662,7 +685,7 @@ def git_pull():
   status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
   if status or changes:
     return False, "로컬 추적 파일에 변경이 있습니다. SSH에서 git status를 확인하세요."
-  state = read_device_state(check_ignition=True)
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
   if state["started"] or not state["ignitionOff"]:
     return False, "시동을 끈 뒤 다시 시도하세요."
   status, output = command(["git", "fetch", "--no-recurse-submodules", "origin", "g_web"], timeout=35)
@@ -671,7 +694,7 @@ def git_pull():
   status, target = command(["git", "rev-parse", "--verify", "FETCH_HEAD"])
   if status:
     return False, target or "가져온 커밋을 확인하지 못했습니다."
-  state = read_device_state(check_ignition=True)
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
   if state["started"] or not state["ignitionOff"]:
     return False, "시동 상태가 바뀌어 업데이트를 중단했습니다."
   before = git_info()["commit"]
@@ -690,7 +713,7 @@ def git_switch(branch):
   status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
   if status or changes:
     return 409, "로컬 추적 파일에 변경이 있습니다.\n" + changes
-  state = read_device_state(check_ignition=True)
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
   if state["started"] or not state["ignitionOff"]:
     return 409, "시동을 끈 뒤 다시 시도하세요."
   args = ["git", "-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore"]
@@ -704,7 +727,7 @@ def git_switch(branch):
 def request_reboot(rebuild=False):
   if rebuild and git_info()["branch"] != "g_web":
     return 409, "전체 재빌드는 g_web 브랜치에서 실행하세요."
-  state = read_device_state(check_ignition=True)
+  state = read_device_state(check_ignition=True, allow_no_panda=True)
   params = Params()
   if state["started"] or not state["ignitionOff"] or not params.get_bool("IsOffroad"):
     return 409, "시동을 끈 오프로드 상태에서 다시 시도하세요."
