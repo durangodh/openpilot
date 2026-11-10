@@ -54,7 +54,14 @@ PAGE = r"""<!doctype html>
 :root{color-scheme:dark;--bg:#10161e;--panel:#141d26;--card:#18212b;--border:#35414d;--text:#eff3f7;--muted:#bec9d3;--accent:#f0ac73;--active:#402e23}
 *{box-sizing:border-box}
 body{font:16px system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:1060px;margin:auto;padding:clamp(10px,2.3vw,22px)}
-main{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+main{min-width:0;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+.page-header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.page-header h1{margin:0}
+#webSettings{width:min(440px,calc(100% - 24px));color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
+#webSettings::backdrop{background:#070a10b8}
+#webSettings select{display:block;width:100%;margin-top:8px}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.dialog-actions button[type=submit]{background:var(--active);border-color:var(--accent);color:var(--accent)}
 main>section{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:clamp(10px,2vw,18px);margin:10px 0}
 h1,h2,h3{margin:0 0 12px} h1{font-size:1.4rem} h2{font-size:1.2rem} h3{font-size:1.05rem}
 p{margin:8px 0} a{color:var(--accent)}
@@ -77,7 +84,9 @@ summary{cursor:pointer;font-weight:650}
 .param-head>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .param-value{color:var(--accent);font-variant-numeric:tabular-nums}
 .param-editor,.param-description,.hint{font-size:.9rem;color:var(--muted)}
-.param-description{white-space:pre-line;margin:6px 0 0}
+.param-description{white-space:pre-line;margin:6px 0 0;overflow-wrap:anywhere}
+.param-meta{margin:5px 0 0;color:var(--muted);font-size:.8rem;overflow-wrap:anywhere}
+.param-editor-controls{justify-content:flex-end}
 .param-editor-controls input{width:8ch}
 ul{padding:0;list-style:none;margin:0}
 img,video,input[type=range]{display:block;width:100%;margin:8px 0}
@@ -87,13 +96,21 @@ img,video,input[type=range]{display:block;width:100%;margin:8px 0}
 fieldset{min-inline-size:0}
 input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:20px;vertical-align:middle;margin:0 7px 0 0}
 .record-option{display:flex;align-items:center;min-height:42px}
-@media (max-width:560px) and (orientation:portrait){
+@media (min-width:840px), (min-width:600px) and (orientation:landscape){
+  body{display:grid;grid-template-columns:82px minmax(0,1fr);gap:14px;max-width:1320px}
+  main{grid-column:2;grid-row:1;padding-bottom:0}
+  nav{grid-column:1;grid-row:1;position:sticky;top:10px;align-self:start;flex-direction:column;justify-content:flex-start;border:1px solid var(--border);border-radius:10px}
+  nav button{flex:none;width:100%}
+  .settings-layout{grid-template-columns:minmax(115px,175px) minmax(0,1fr);gap:14px}
+  #paramGroups{align-self:start}
+}
+@media (max-width:839px) and (orientation:portrait), (max-width:599px){
   .settings-layout{grid-template-columns:minmax(0,1fr)}
   #paramGroups{flex-direction:row;overflow-x:auto;padding:3px 3px 6px}
   #paramGroups button{flex:none;white-space:nowrap}
 }
 </style>
-<main><h1>EON 웹</h1>
+<main><header class="page-header"><h1>EON 웹</h1><button id="openWebSettings" aria-haspopup="dialog">웹 설정</button></header>
 <section id="drive"><h2>주행</h2>
 <div class="card"><h3>전방 화면</h3><img id="roadImage" alt="실시간 전방 카메라" hidden>
 <button id="vision">주행 비전 시작</button><p id="visionStatus" aria-live="polite"></p></div>
@@ -128,6 +145,14 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <button data-page="drive" aria-selected="true">주행</button><button data-page="settings">설정</button>
 <button data-page="tools">도구</button><button data-page="records">로그</button><button data-page="terminal">터미널</button>
 </nav>
+<dialog id="webSettings" aria-labelledby="webSettingsTitle">
+<form id="webSettingsForm" method="dialog">
+<h2 id="webSettingsTitle">웹 설정</h2>
+<div class="card"><label for="startPage">시작 메뉴</label>
+<p class="hint">접속할 때 처음 열 메뉴를 이 브라우저에 저장합니다.</p>
+<select id="startPage"></select></div>
+<div class="dialog-actions"><button id="cancelWebSettings" type="button">취소</button><button type="submit">확인</button></div>
+</form></dialog>
 <script>
 const paramsList = document.querySelector('#params');
 const logsList = document.querySelector('#logs');
@@ -196,9 +221,14 @@ function renderParams() {
     description.className = 'param-description';
     description.textContent = entry.description;
     description.hidden = !entry.description;
-    item.append(head, description);
-    groups.get(entry.group).append(item);
     const info = editable[key];
+    const meta = document.createElement('p');
+    meta.className = 'param-meta';
+    meta.textContent = info
+      ? key + ' · 범위 ' + info.min + ' ~ ' + info.max + (info.default == null ? '' : ' · 기본값 ' + info.default)
+      : key;
+    item.append(head, meta, description);
+    groups.get(entry.group).append(item);
     if (!info) continue;
     const edit = document.createElement('button');
     edit.textContent = '변경';
@@ -206,8 +236,6 @@ function renderParams() {
     const form = document.createElement('form');
     form.className = 'param-editor';
     form.hidden = true;
-    const range = document.createElement('p');
-    range.textContent = '허용 범위 ' + info.min + ' ~ ' + info.max;
     const controls = document.createElement('div');
     controls.className = 'param-editor-controls';
     const input = document.createElement('input');
@@ -248,7 +276,7 @@ function renderParams() {
     status.setAttribute('role', 'status');
     status.hidden = true;
     controls.append(minus, input, plus, save, cancel);
-    form.append(range, controls, status);
+    form.append(controls, status);
     function closeEditor() {
       form.hidden = true;
       edit.setAttribute('aria-expanded', 'false');
@@ -646,7 +674,29 @@ for (const [id, action, message] of [
 filter.addEventListener('input', renderParams);
 document.querySelector('#driveRefresh').addEventListener('click', loadDrive);
 document.querySelector('#refresh').addEventListener('click', loadLogs);
-openPage('drive');
+const webSettings = document.querySelector('#webSettings');
+const startPage = document.querySelector('#startPage');
+const startPageKey = 'eon-web-start-page';
+for (const button of document.querySelectorAll('[data-page]')) {
+  const option = document.createElement('option');
+  option.value = button.dataset.page;
+  option.textContent = button.textContent;
+  startPage.append(option);
+}
+let initialPage = 'drive';
+const stored = document.cookie.split('; ').find(cookie => cookie.startsWith(startPageKey + '='));
+const savedPage = stored?.slice(startPageKey.length + 1);
+if ([...startPage.options].some(option => option.value === savedPage)) initialPage = savedPage;
+document.querySelector('#openWebSettings').addEventListener('click', () => {
+  startPage.value = initialPage;
+  webSettings.showModal();
+});
+document.querySelector('#cancelWebSettings').addEventListener('click', () => webSettings.close());
+document.querySelector('#webSettingsForm').addEventListener('submit', () => {
+  initialPage = startPage.value;
+  document.cookie = startPageKey + '=' + initialPage + '; Path=/; Max-Age=31536000; SameSite=Strict';
+});
+openPage(initialPage);
 </script></html>
 """.encode("utf-8")
 
