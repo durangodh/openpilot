@@ -639,7 +639,12 @@ class Handler(BaseHTTPRequestHandler):
     if action is None:
       self.send_error(404)
       return
-    if self.headers.get("X-EON-Action") != action or self.headers.get("Sec-Fetch-Site") != "same-origin":
+    # LAN HTTP browsers can omit Fetch Metadata, but send Origin for these POSTs.
+    host = self.headers.get("Host")
+    origin = self.headers.get("Origin")
+    fetch_site = self.headers.get("Sec-Fetch-Site")
+    if (not host or origin != "http://" + host or fetch_site not in (None, "same-origin")
+        or self.headers.get("X-EON-Action") != action):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
