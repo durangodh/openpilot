@@ -128,6 +128,10 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <p id="paramSaveStatus" class="hint" role="status" hidden></p>
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
+<details><summary>블루투스 리모컨</summary>
+<p class="hint">이온에 학습된 버튼의 기능을 바꿉니다. 시동을 끄거나 P단에서 정차하고 인게이지를 해제하세요.</p>
+<button id="btRefresh">리모컨 상태 새로고침</button>
+<p id="btStatus" role="status"></p><p id="btSaveStatus" role="status"></p><div id="btMappings"></div></details>
 <div class="card"><h3>Git Commands</h3><p id="gitInfo"></p>
 <div class="actions"><button id="gitPull">git pull</button><button id="gitLog">git log</button></div>
 <p class="actions"><label>전환할 브랜치 <select id="gitBranch" disabled></select></label>
@@ -469,7 +473,68 @@ function loadDrive() {
   loadStatus();
   loadRecording();
 }
-const loaders = {drive: loadDrive, settings: loadSettings, tools: loadGit, records: loadLogs};
+const btStatus = document.querySelector('#btStatus');
+const btSaveStatus = document.querySelector('#btSaveStatus');
+const btMappings = document.querySelector('#btMappings');
+const btGestures = {short:'짧게 누르기', double:'더블클릭', long:'길게 누르기'};
+const btLabels = {res:'크루즈 RES', set:'크루즈 SET', gap:'크루즈 갭', cancel:'크루즈 취소',
+  res_long:'크루즈 RES 길게', set_long:'크루즈 SET 길게', nav_toggle:'내비 전환',
+  nav_tmap:'티맵', nav_naver:'네이버지도', hud_box:'HUD 정보창', voice:'AI 음성',
+  lane_left:'왼쪽 차로변경 요청', lane_right:'오른쪽 차로변경 요청'};
+let btSaving = false;
+async function loadBtRemote() {
+  if (btSaving) return;
+  btMappings.replaceChildren();
+  try {
+    const data = await read('/api/bt-remote');
+    btStatus.textContent = (data.enabled ? '리모컨 켜짐' : '리모컨 꺼짐') +
+      (data.device ? ' · ' + data.device : '') + (data.status ? ' · ' + data.status : '');
+    const buttons = [...new Set(Object.keys(data.mapping).map(slot => slot.split('@')[0]))].sort();
+    if (!buttons.length) btMappings.textContent = '학습된 버튼이 없습니다. 이온 본체의 리모컨 버튼 설정에서 먼저 학습하세요.';
+    for (const button of buttons) {
+      const card = document.createElement('fieldset');
+      card.className = 'card';
+      const title = document.createElement('legend');
+      title.textContent = button;
+      card.append(title);
+      for (const [gesture, label] of Object.entries(btGestures)) {
+        const slot = button + '@' + gesture;
+        const line = document.createElement('label');
+        line.className = 'actions';
+        line.append(label);
+        const select = document.createElement('select');
+        for (const action of ['', ...data.commands]) {
+          const option = document.createElement('option');
+          option.value = action;
+          option.textContent = btLabels[action] || action || '사용 안 함';
+          select.append(option);
+        }
+        select.value = data.mapping[slot] || '';
+        select.addEventListener('change', async () => {
+          if (btSaving) return;
+          btSaving = true;
+          for (const input of btMappings.querySelectorAll('select')) input.disabled = true;
+          btSaveStatus.textContent = '저장 중…';
+          try {
+            const response = await fetch('/api/bt-remote', {method:'POST',
+              headers:{'Content-Type':'application/json','X-EON-Action':'set-bt-mapping'},
+              body:JSON.stringify({slot, command:select.value, device:data.device, previous:data.mapping[slot] || ''})});
+            btSaveStatus.textContent = (await response.json()).output;
+          } catch (_) { btSaveStatus.textContent = '저장 결과를 확인하지 못했습니다.'; }
+          finally {
+            btSaving = false;
+            await loadBtRemote();
+          }
+        });
+        line.append(select);
+        card.append(line);
+      }
+      btMappings.append(card);
+    }
+  } catch (_) { btStatus.textContent = '리모컨 상태를 읽지 못했습니다.'; }
+}
+document.querySelector('#btRefresh').addEventListener('click', loadBtRemote);
+const loaders = {drive: loadDrive, settings: loadSettings, tools: () => { loadGit(); loadBtRemote(); }, records: loadLogs};
 const roadImage = document.querySelector('#roadImage');
 const visionButton = document.querySelector('#vision');
 const visionStatus = document.querySelector('#visionStatus');
@@ -960,7 +1025,7 @@ def read_device_state(check_ignition=False, allow_no_panda=False):
   raise RuntimeError("EON 또는 판다 상태를 확인하지 못했습니다.")
 
 
-def maintenance_block_reason(require_standstill=False):
+def maintenance_block_reason(require_standstill=False, require_park=False):
   state = read_device_state(check_ignition=True, allow_no_panda=True)
   if not state["started"] and state["ignitionOff"] and Params().get_bool("IsOffroad"):
     return None
@@ -984,9 +1049,49 @@ def maintenance_block_reason(require_standstill=False):
           car = subscriber["carState"]
           if not car.standstill or not abs(car.vEgoRaw) < 0.1:
             return "차량을 완전히 정차한 뒤 다시 시도하세요."
+          if require_park and (not car.canValid or car.gearShifter != "park"):
+            return "기어를 P단에 놓은 뒤 다시 시도하세요."
         return None
   return ("인게이지 또는 차량 정차 상태를 확인할 수 없습니다." if require_standstill
           else "openpilot 인게이지 상태를 확인할 수 없습니다.")
+
+
+def bt_remote_snapshot():
+  from selfdrive.eon_cluster.bt_remote import ALL_COMMANDS, mappings, value
+
+  params = Params()
+  return {"enabled": params.get_bool("BtRemoteEnabled"),
+          "device": value(params, "BtRemoteDevice"),
+          "status": value(params, "BtRemoteStatus"),
+          "mapping": mappings(value(params, "BtRemoteMapping")),
+          "commands": ALL_COMMANDS}
+
+
+def set_bt_mapping(payload):
+  from selfdrive.eon_cluster.bt_remote import ALL_COMMANDS, TOKEN, mappings, value
+
+  slot, action = payload.get("slot"), payload.get("command")
+  if not isinstance(slot, str) or not TOKEN.fullmatch(slot) or action not in ("", *ALL_COMMANDS):
+    return 400, "버튼과 기능을 확인하세요."
+  reason = maintenance_block_reason(require_standstill=True, require_park=True)
+  if reason:
+    return 409, reason
+  params = Params()
+  device = value(params, "BtRemoteDevice")
+  mapping = mappings(value(params, "BtRemoteMapping"))
+  button = slot.split("@", 1)[0]
+  if (not device or device != payload.get("device") or value(params, "BtRemoteLearn")
+      or mapping.get(slot, "") != payload.get("previous")
+      or not any(key.startswith(button + "@") for key in mapping)):
+    return 409, "리모컨 설정이 바뀌었거나 학습 중입니다. 상태를 새로고침하세요."
+  if action:
+    if slot not in mapping and len(mapping) >= 96:
+      return 400, "저장할 수 있는 버튼 배정 수를 초과했습니다."
+    mapping[slot] = action
+  else:
+    mapping.pop(slot, None)
+  params.put("BtRemoteMapping", json.dumps(mapping, separators=(",", ":")))
+  return 200, "리모컨 버튼 설정을 저장했습니다."
 
 
 def git_pull():
@@ -1103,6 +1208,7 @@ class Handler(BaseHTTPRequestHandler):
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
+              "/api/bt-remote": "set-bt-mapping",
               "/api/logs/delete": "delete-route", "/api/logs/delete-all": "delete-all-routes",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
@@ -1117,7 +1223,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -1139,6 +1245,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"output": "잘못된 요청입니다."}, 400)
             return
           status, output = delete_all_routes()
+          result = {"output": output}
+        elif action == "set-bt-mapping":
+          status, output = set_bt_mapping(payload)
           result = {"output": output}
         elif action == "git-switch":
           status, output = git_switch(payload.get("branch"))
@@ -1183,6 +1292,8 @@ class Handler(BaseHTTPRequestHandler):
     path = urlsplit(self.path).path
     if path == "/":
       self.send_data(PAGE, "text/html; charset=utf-8")
+    elif path == "/api/bt-remote":
+      self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":
       self.send_json(git_info())
     elif path == "/api/device.json":
