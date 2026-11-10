@@ -20,6 +20,22 @@ from selfdrive.eon_web_media import RoadPreview, VIDEO_FILE, media_range, replay
 from selfdrive.loggerd.config import ROOT
 
 PORT = 7000
+ICON_FILES = {
+  "/eon-web-icon-192.png": "eon-web-icon-192.png",
+  "/eon-web-icon-512.png": "eon-web-icon-512.png",
+}
+WEB_MANIFEST = {
+  "name": "EON 웹",
+  "short_name": "EON 웹",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {"src": "/eon-web-icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/eon-web-icon-512.png", "sizes": "512x512", "type": "image/png"},
+  ],
+}
 REBUILD_FLAG = Path("/persist/comma/eon-web-rebuild")
 RECORDING_FLAGS = {
   "routeLogging": Path("/persist/comma/enable-eon-route-logging"),
@@ -31,6 +47,9 @@ LOG_FILES = ("rlog.bz2", "qlog.bz2", VIDEO_FILE)
 PAGE = r"""<!doctype html>
 <html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EON 웹</title>
+<link rel="icon" type="image/png" sizes="192x192" href="/eon-web-icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/eon-web-icon-192.png">
+<link rel="manifest" href="/eon-web.webmanifest">
 <style>
 body{font:16px system-ui,sans-serif;background:#111923;color:#eef4fa;max-width:760px;margin:auto;padding:16px}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#17212e;padding:6px;gap:4px}
@@ -932,6 +951,19 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": str(error)}, 503)
 
   def do_GET(self):
+    path = urlsplit(self.path).path
+    if path == "/eon-web.webmanifest":
+      self.send_data(json.dumps(WEB_MANIFEST).encode("utf-8"), "application/manifest+json")
+      return
+    icon = ICON_FILES.get(path)
+    if icon:
+      try:
+        data = (Path(BASEDIR) / "selfdrive" / "assets" / icon).read_bytes()
+      except OSError:
+        self.send_error(404)
+        return
+      self.send_data(data, "image/png")
+      return
     if not self.authorized():
       return
     try:
