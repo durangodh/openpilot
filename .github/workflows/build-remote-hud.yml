@@ -131,7 +131,9 @@ jobs:
           name: eon-remote-hud-s9-debug
           path: selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk
       - name: Publish in-app updater APK
-        if: github.ref != 'refs/heads/g_web'
+        if: >-
+          github.ref != 'refs/heads/g_web' ||
+          (github.event_name == 'push' && github.event.head_commit.message == 'Publish g_web voice settings HUD APK')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
