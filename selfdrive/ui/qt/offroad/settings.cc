@@ -226,7 +226,20 @@ ParamValueControlF::ParamValueControlF(const QString &param, const QString &titl
   connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
   connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
   qobject_cast<QVBoxLayout*>(layout())->addWidget(stepper.container);
+  refresh_timer_.setInterval(1000);
+  connect(&refresh_timer_, &QTimer::timeout, this, &ParamValueControlF::refresh);
   refresh();
+}
+
+void ParamValueControlF::showEvent(QShowEvent *event) {
+  AbstractControl::showEvent(event);
+  refresh();
+  refresh_timer_.start();
+}
+
+void ParamValueControlF::hideEvent(QHideEvent *event) {
+  refresh_timer_.stop();
+  AbstractControl::hideEvent(event);
 }
 
 void ParamValueControlF::changeValue(int delta) {

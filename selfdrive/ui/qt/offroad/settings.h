@@ -10,6 +10,7 @@
 #include <QWidget>
 #include <QStackedLayout>
 #include <QStringList>
+#include <QTimer>
 
 #include "selfdrive/ui/qt/widgets/controls.h"
 #include "selfdrive/ui/qt/widgets/input.h"
@@ -197,11 +198,17 @@ public:
                      const QString &icon, int vmin, int vmax, int step, int decimals,
                      int vdefault, QWidget *parent = nullptr);
   void refresh();
+
+protected:
+  void showEvent(QShowEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
+
 private:
   void changeValue(int delta);
   QString param_;
   int vmin_, vmax_, step_, decimals_, vdefault_;
   QPushButton *minus_btn, *plus_btn;
   QLabel *value_label;
+  QTimer refresh_timer_;
   Params params;
 };
