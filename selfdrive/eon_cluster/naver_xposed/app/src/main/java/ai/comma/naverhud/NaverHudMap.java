@@ -76,6 +76,10 @@ final class NaverHudMap {
     private static volatile boolean overlayHooked;
 
     private final Handler imageHandler;
+    private final NaverCarMarker carMarker = new NaverCarMarker();
+    private Object appliedCarIcon;
+    private Object markerSource;
+    private boolean markerFailureLogged;
     private final AtomicReference<Bitmap> latest = new AtomicReference<>();
     private Object surface;          // MapSurface
     private Object hudMap;           // NaverMap
@@ -361,10 +365,50 @@ final class NaverHudMap {
         copyProp(src, dst, "Visible", 1f, src);
         copyProp(src, dst, "Position", 1f, src);
         copyProp(src, dst, "Bearing", 1f, src);
+        copyProp(src, dst, "Anchor", 1f, src);
+        if (markerSource != src) {
+            markerSource = src;
+            appliedCarIcon = null;
+            copied.remove(src);
+        }
+        Bitmap car = builtWide ? carMarker.current() : null;
+        if (car != null && applyCarIcon(src, dst, car)) return;
+        if (appliedCarIcon != null) {
+            appliedCarIcon = null;
+            copied.remove(src);
+        }
         copyProp(src, dst, "Icon", 1f, src);
         copyProp(src, dst, "IconWidth", ratio, src);
         copyProp(src, dst, "IconHeight", ratio, src);
-        copyProp(src, dst, "Anchor", 1f, src);
+    }
+
+    private boolean applyCarIcon(Object src, Object dst, Bitmap car) {
+        try {
+            Method original = getter(src.getClass(), "Icon");
+            if (original == null) return false;
+            Class<?> type = original.getReturnType();
+            Object icon = carMarker.overlay(type, car);
+            if (icon == null) return false;
+            if (icon == appliedCarIcon) return true;
+            Method setIcon = setter(dst.getClass(), "Icon", type);
+            Method setWidth = setter(dst.getClass(), "IconWidth", int.class);
+            Method setHeight = setter(dst.getClass(), "IconHeight", int.class);
+            if (setIcon == null || setWidth == null || setHeight == null) return false;
+            boolean first = appliedCarIcon == null;
+            appliedCarIcon = icon;
+            int width = 54;
+            setWidth.invoke(dst, width);
+            setHeight.invoke(dst, Math.max(1, Math.round(width * car.getHeight() / (float) car.getWidth())));
+            setIcon.invoke(dst, icon);
+            if (first) NaverHudLog.line("HUD car marker: vehicle icon active");
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            if (!markerFailureLogged) {
+                markerFailureLogged = true;
+                NaverHudLog.ex("HUD car marker unavailable", error);
+            }
+            return false;
+        }
     }
 
     private void copyPaths(Object guided) throws Exception {
@@ -489,6 +533,8 @@ final class NaverHudMap {
         }
         try { if (reader != null) reader.close(); } catch (Throwable ignored) { }
         surface = hudMap = hudNative = null;
+        appliedCarIcon = null;
+        markerSource = null;
         reader = null;
         mirrors.clear();
         copied.clear();

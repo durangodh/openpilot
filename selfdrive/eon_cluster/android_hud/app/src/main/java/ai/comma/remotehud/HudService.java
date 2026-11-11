@@ -46,6 +46,7 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.InputStreamReader;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -623,7 +624,7 @@ public final class HudService extends Service {
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
     private int configuredLayoutMode = 1;
     /** EON 이 정한 실제 배치: true 면 네비모드(지도 8 : 주행 2). */
-    private boolean naviLayout;
+    private volatile boolean naviLayout;
     private volatile boolean roadPreviewRequested;
     private boolean configuredNaviLayout;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
@@ -2098,6 +2099,10 @@ public final class HudService extends Service {
             long lastDecodeElapsed = 0L;
             while (running.get()) {
                 in.readFully(tag);
+                if (tagEquals(tag, "CAR1")) {
+                    serveNaverCarIcon(client, in);
+                    return;
+                }
                 if (!tagEquals(tag, "MAPL")) throw new Exception("bad local map tag");
                 int app = in.readUnsignedByte();
                 int length = in.readInt();
@@ -2146,6 +2151,68 @@ public final class HudService extends Service {
     }
 
     /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
+    /** Read-only loopback feed for the car marker in Naver's HUD map. */
+    private void serveNaverCarIcon(Socket client, DataInputStream in) throws java.io.IOException {
+        client.setSoTimeout(2000);
+        DataOutputStream out = new DataOutputStream(client.getOutputStream());
+        byte[] tag = new byte[4];
+        byte[][] variants = new byte[32][];
+        do {
+            int previous = in.readInt();
+            JSONObject current = state.get();
+            int flags = -1;
+            if (naviLayout && current.optInt("hudNavApp", 2) == 2) {
+                flags = 0;
+            }
+            if (flags == 0 && !eonStale() && current.optBoolean("drivingValid", true)) {
+                boolean pulse = ((SystemClock.elapsedRealtime() / TURN_SIGNAL_BLINK_MS) & 1L) == 0L;
+                flags = (current.optBoolean("brakeLights") ? 1 : 0)
+                        | (pulse && current.optBoolean("leftBlinker") ? 2 : 0)
+                        | (pulse && current.optBoolean("rightBlinker") ? 4 : 0)
+                        | (current.optBoolean("leftBsd") ? 8 : 0)
+                        | (current.optBoolean("rightBsd") ? 16 : 0);
+            }
+            byte[] image = null;
+            if (flags >= 0 && flags != previous) {
+                image = variants[flags];
+                if (image == null) image = variants[flags] = makeNaverCarIcon(flags, current);
+                if (image == null) flags = -1;
+            }
+            out.writeInt(flags);
+            out.writeInt(image == null ? 0 : image.length);
+            if (image != null) out.write(image);
+            out.flush();
+            in.readFully(tag);
+        } while (running.get() && tagEquals(tag, "CAR1"));
+    }
+
+    private byte[] makeNaverCarIcon(int flags, JSONObject current) {
+        Bitmap icon;
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        synchronized (assetLock) {
+            if (egoCar == null || egoCar.isRecycled()) return null;
+            final int width = 88;
+            int height = Math.max(1, Math.round(width * egoCar.getHeight() / (float) egoCar.getWidth()));
+            icon = Bitmap.createBitmap(width + 24, height, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(icon);
+            RectF bounds = new RectF(12f, 0f, width + 12f, height);
+            canvas.drawBitmap(egoCar, null, bounds, paint);
+            if ((flags & 1) != 0) drawEgoBrakeLamps(canvas, paint, bounds, current);
+            if ((flags & 2) != 0) drawEgoTurnLamp(canvas, paint, bounds, true);
+            if ((flags & 4) != 0) drawEgoTurnLamp(canvas, paint, bounds, false);
+            paint.setColor(0xffffbd46);
+            if ((flags & 8) != 0) canvas.drawRoundRect(1f, height * .24f, 8f, height * .84f, 3f, 3f, paint);
+            if ((flags & 16) != 0) canvas.drawRoundRect(width + 16f, height * .24f,
+                    width + 23f, height * .84f, 3f, 3f, paint);
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try {
+            return icon.compress(Bitmap.CompressFormat.PNG, 100, bytes) ? bytes.toByteArray() : null;
+        } finally {
+            icon.recycle();
+        }
+    }
+
     private void renderLoop() {
         long fpsStart = SystemClock.elapsedRealtime();
         long nextFrame = 0L;

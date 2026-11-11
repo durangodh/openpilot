@@ -3,7 +3,7 @@ name: Build Naver HUD Xposed module
 on:
   workflow_dispatch:
   push:
-    branches: [g_remote, g_mcan]
+    branches: [g_remote, g_mcan, g_web]
     paths:
       - "selfdrive/eon_cluster/naver_xposed/**"
       - "selfdrive/eon_cluster/android_common/**"
@@ -80,6 +80,9 @@ jobs:
             ${{ runner.temp }}/NaverHud-6.10.0.16-latest.apk
             ${{ runner.temp }}/NaverHud-6.10.0.16-latest.apk.sha256
       - name: Publish to release
+        if: >-
+          github.ref != 'refs/heads/g_web' ||
+          (github.event_name == 'push' && github.event.head_commit.message == 'Show the vehicle marker and lamps on the Naver HUD map')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
