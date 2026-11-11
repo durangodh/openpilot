@@ -396,7 +396,9 @@ final class NaverHudMap {
             if (setIcon == null || setWidth == null || setHeight == null) return false;
             boolean first = appliedCarIcon == null;
             appliedCarIcon = icon;
-            int width = 54;
+            // Target roughly 80 map pixels for the car body; the source bitmap
+            // also includes symmetric padding for the BSD warning artwork.
+            int width = Math.round(car.getWidth() * 80f / 88f);
             setWidth.invoke(dst, width);
             setHeight.invoke(dst, Math.max(1, Math.round(width * car.getHeight() / (float) car.getWidth())));
             setIcon.invoke(dst, icon);

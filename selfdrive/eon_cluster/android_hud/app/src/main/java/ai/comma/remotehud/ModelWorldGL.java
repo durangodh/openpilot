@@ -5,6 +5,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
@@ -1271,6 +1273,45 @@ final class ModelWorldGL {
         if (scene.optBoolean("rightBsd", false)) {
             bsdWarning(-1);
         }
+    }
+
+    /** The same BSD waves and warning triangle, scaled to fit a map marker. */
+    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left) {
+        int save = canvas.save();
+        canvas.translate(left ? car.left : car.right, car.bottom - 7f);
+        // Leave vertical clearance below the arcs. The car occupies its own
+        // part of the bitmap and the warning stays on the detected side.
+        canvas.scale(left ? 0.26f : -0.26f, 0.26f);
+        paint.setShader(null);
+        paint.setColor(BSD_COLOR);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setAlpha(Math.round(255f * BSD_CORE_ALPHA));
+        for (int i = 0; i < BSD_ARC_RADII.length; i++) {
+            float radius = BSD_ARC_RADII[i];
+            float ry = radius * BSD_ARC_SQUASH;
+            paint.setStrokeWidth(7f - i);
+            canvas.drawArc(-radius, -BSD_CORNER_DY - ry, radius, -BSD_CORNER_DY + ry,
+                    BSD_ARC_A0, BSD_ARC_A1 - BSD_ARC_A0, false, paint);
+        }
+
+        float x = -BSD_TRI_DX;
+        float y = -BSD_TRI_DY;
+        float half = BSD_TRI_SIZE * 0.5f;
+        float h = BSD_TRI_SIZE * 0.88f;
+        Path triangle = new Path();
+        triangle.moveTo(x, y - h * 0.5f);
+        triangle.lineTo(x - half, y + h * 0.5f);
+        triangle.lineTo(x + half, y + h * 0.5f);
+        triangle.close();
+        paint.setStrokeWidth(BSD_TRI_STROKE);
+        paint.setAlpha(Math.round(255f * BSD_TRI_ALPHA));
+        canvas.drawPath(triangle, paint);
+        canvas.drawLine(x, y - h * 0.16f, x, y + h * 0.12f, paint);
+        float dot = BSD_TRI_STROKE * 0.6f;
+        float dotY = y + h * 0.26f;
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRect(x - dot, dotY - dot, x + dot, dotY + dot, paint);
+        canvas.restoreToCount(save);
     }
 
     /** side 1 = 좌측, -1 = 우측(세로축 대칭). */

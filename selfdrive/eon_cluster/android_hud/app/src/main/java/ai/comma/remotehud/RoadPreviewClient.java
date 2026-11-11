@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 import javax.crypto.Cipher;
@@ -162,7 +163,7 @@ final class RoadPreviewClient {
         return frame.bitmap;
     }
 
-    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, int pathEnd) {
+    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, IntSupplier pathEnd) {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         try {
             while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
@@ -176,7 +177,7 @@ final class RoadPreviewClient {
                 long start = SystemClock.elapsedRealtime();
                 long interval = FRAME_INTERVAL_MS;
                 try {
-                    Bitmap bitmap = fetch(target, start, pathEnd);
+                    Bitmap bitmap = fetch(target, start, pathEnd.getAsInt());
                     if (bitmap != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
                         latest = new Frame(target, bitmap, start);

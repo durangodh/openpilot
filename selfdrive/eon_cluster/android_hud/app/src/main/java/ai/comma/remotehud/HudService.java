@@ -1057,7 +1057,8 @@ public final class HudService extends Service {
                 * (NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() - NAVI_ROAD_PREVIEW_TOP)
                 / (HEIGHT - NAVI_ROAD_PREVIEW_TOP)));
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
-                () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress, pathEnd), "hud-road-preview");
+                () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress,
+                () -> naverMapOwnsEgo(state.get()) ? 1000 : pathEnd), "hud-road-preview");
         roadPreviewThread.start();
         receiverThread.start();
         mapThread.start();
@@ -2192,18 +2193,17 @@ public final class HudService extends Service {
         synchronized (assetLock) {
             if (egoCar == null || egoCar.isRecycled()) return null;
             final int width = 88;
+            final int bsdPadding = 48;
             int height = Math.max(1, Math.round(width * egoCar.getHeight() / (float) egoCar.getWidth()));
-            icon = Bitmap.createBitmap(width + 24, height, Bitmap.Config.ARGB_8888);
+            icon = Bitmap.createBitmap(width + 2 * bsdPadding, height, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(icon);
-            RectF bounds = new RectF(12f, 0f, width + 12f, height);
+            RectF bounds = new RectF(bsdPadding, 0f, bsdPadding + width, height);
             canvas.drawBitmap(egoCar, null, bounds, paint);
             if ((flags & 1) != 0) drawEgoBrakeLamps(canvas, paint, bounds, current);
             if ((flags & 2) != 0) drawEgoTurnLamp(canvas, paint, bounds, true);
             if ((flags & 4) != 0) drawEgoTurnLamp(canvas, paint, bounds, false);
-            paint.setColor(0xffffbd46);
-            if ((flags & 8) != 0) canvas.drawRoundRect(1f, height * .24f, 8f, height * .84f, 3f, 3f, paint);
-            if ((flags & 16) != 0) canvas.drawRoundRect(width + 16f, height * .24f,
-                    width + 23f, height * .84f, 3f, 3f, paint);
+            if ((flags & 8) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, true);
+            if ((flags & 16) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, false);
         }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try {
@@ -3237,6 +3237,10 @@ public final class HudService extends Service {
         text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
+    private boolean naverMapOwnsEgo(JSONObject s) {
+        return naviLayout && s.optInt("hudNavApp", 0) == 2;
+    }
+
     private float roadPreviewCarHeight() {
         return egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
     }
@@ -3255,7 +3259,7 @@ public final class HudService extends Service {
 
         p.setShader(null);
         p.setColorFilter(null);
-        if (egoCar != null && !egoCar.isRecycled()) {
+        if (!naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled()) {
             float bottom = NAVI_PREVIEW_CAR_BOTTOM;
             float carHeight = roadPreviewCarHeight();
             scratchRect.set(NAVI_DRIVE_CX - EGO_CAR_WIDTH / 2f, bottom - carHeight,
@@ -3318,7 +3322,7 @@ public final class HudService extends Service {
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
-            if (glDrawn && egoCar != null && !egoCar.isRecycled() && frameDark
+            if (glDrawn && !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled() && frameDark
                     && s.optInt("hudHeadlights", 1) != 0) {
                 // 야간에는 자차 전조등 불빛을 도로 위에 깐다. 앞차·자차 그림이 위에 덮인다.
                 float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
@@ -3347,7 +3351,7 @@ public final class HudService extends Service {
                     }
                 }
             }
-            if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
+            if (glDrawn && !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled()) {
                 // Preserve the approved ego-car artwork in the GL preview.
                 float carWidth = EGO_CAR_WIDTH;
                 float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
