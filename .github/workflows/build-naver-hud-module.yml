@@ -82,7 +82,7 @@ jobs:
       - name: Publish to release
         if: >-
           github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && github.event.head_commit.message == 'Enlarge the Naver vehicle marker and restore BSD warnings')
+          (github.event_name == 'push' && github.event.head_commit.message == 'Align EON tools with disengagement and adjust Naver marker proportions')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

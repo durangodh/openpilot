@@ -711,7 +711,7 @@ document.querySelector('#gitLog').addEventListener('click', async () => {
 gitSwitch.addEventListener('click', async () => {
   const branch = gitBranch.value;
   if (!branch || branch === currentBranch) return;
-  if (!confirm(branch + ' 브랜치로 전환할까요? 재부팅 후 대상 브랜치에 EON 웹이 없으면 SSH로 접속해야 합니다.')) return;
+  if (!confirm('인게이지가 해제된 상태에서 ' + branch + ' 브랜치로 전환할까요? 재부팅 후 대상 브랜치에 EON 웹이 없으면 SSH로 접속해야 합니다.')) return;
   gitBranch.disabled = gitSwitch.disabled = true;
   gitOutput.textContent = '브랜치 전환 중…';
   try {
@@ -725,7 +725,7 @@ gitSwitch.addEventListener('click', async () => {
 const systemOutput = document.querySelector('#systemOutput');
 for (const [id, action, message] of [
   ['eonReboot', 'reboot', 'openpilot 인게이지를 해제한 상태에서 EON을 재부팅할까요?'],
-  ['eonRebuild', 'rebuild', '재부팅하여 전체 재빌드를 시작할까요? 빌드 중에는 EON 웹 연결이 끊깁니다.']
+  ['eonRebuild', 'rebuild', '인게이지가 해제된 상태에서 재부팅하여 전체 재빌드를 시작할까요? 빌드 중에는 EON 웹 연결이 끊깁니다.']
 ]) {
   const button = document.getElementById(id);
   button.addEventListener('click', async () => {
@@ -1144,9 +1144,9 @@ def git_switch(branch):
   status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
   if status or changes:
     return 409, "로컬 추적 파일에 변경이 있습니다.\n" + changes
-  state = read_device_state(check_ignition=True, allow_no_panda=True)
-  if state["started"] or not state["ignitionOff"]:
-    return 409, "시동을 끈 뒤 다시 시도하세요."
+  reason = maintenance_block_reason()
+  if reason:
+    return 409, reason
   args = ["git", "-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore"]
   args += ["-b", branch, "--track", ref] if ref.startswith("refs/remotes/") else [branch]
   status, output = command(args, timeout=25)
@@ -1158,17 +1158,12 @@ def git_switch(branch):
 def request_reboot(rebuild=False):
   if rebuild and git_info()["branch"] != "g_web":
     return 409, "전체 재빌드는 g_web 브랜치에서 실행하세요."
-  params = Params()
+  reason = maintenance_block_reason()
+  if reason:
+    return 409, reason
   if rebuild:
-    state = read_device_state(check_ignition=True, allow_no_panda=True)
-    if state["started"] or not state["ignitionOff"] or not params.get_bool("IsOffroad"):
-      return 409, "시동을 끈 오프로드 상태에서 다시 시도하세요."
     REBUILD_FLAG.touch()
-  else:
-    reason = maintenance_block_reason()
-    if reason:
-      return 409, reason
-  params.put_bool("DoReboot", True)
+  Params().put_bool("DoReboot", True)
   return 200, "재부팅을 요청했습니다. 전체 재빌드는 부팅 중 진행됩니다." if rebuild else "재부팅을 요청했습니다."
 
 

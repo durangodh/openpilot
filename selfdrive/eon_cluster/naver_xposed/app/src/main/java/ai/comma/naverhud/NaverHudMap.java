@@ -396,11 +396,11 @@ final class NaverHudMap {
             if (setIcon == null || setWidth == null || setHeight == null) return false;
             boolean first = appliedCarIcon == null;
             appliedCarIcon = icon;
-            // Target roughly 80 map pixels for the car body; the source bitmap
-            // also includes symmetric padding for the BSD warning artwork.
-            int width = Math.round(car.getWidth() * 80f / 88f);
+            // Scale the body and its lamps together while preserving the map anchor.
+            int width = Math.round(car.getWidth() * 74f / 88f);
+            int height = Math.max(1, Math.round(car.getHeight() * 86f / 88f));
             setWidth.invoke(dst, width);
-            setHeight.invoke(dst, Math.max(1, Math.round(width * car.getHeight() / (float) car.getWidth())));
+            setHeight.invoke(dst, height);
             setIcon.invoke(dst, icon);
             if (first) NaverHudLog.line("HUD car marker: vehicle icon active");
             return true;
