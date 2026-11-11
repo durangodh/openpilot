@@ -724,7 +724,7 @@ gitSwitch.addEventListener('click', async () => {
 });
 const systemOutput = document.querySelector('#systemOutput');
 for (const [id, action, message] of [
-  ['eonReboot', 'reboot', '정차하고 openpilot 인게이지를 해제한 상태에서 EON을 재부팅할까요?'],
+  ['eonReboot', 'reboot', 'openpilot 인게이지를 해제한 상태에서 EON을 재부팅할까요?'],
   ['eonRebuild', 'rebuild', '재부팅하여 전체 재빌드를 시작할까요? 빌드 중에는 EON 웹 연결이 끊깁니다.']
 ]) {
   const button = document.getElementById(id);
@@ -1051,15 +1051,14 @@ def read_device_state(check_ignition=False, allow_no_panda=False):
   raise RuntimeError("EON 또는 판다 상태를 확인하지 못했습니다.")
 
 
-def maintenance_block_reason(require_standstill=False):
+def maintenance_block_reason():
   state = read_device_state(check_ignition=True, allow_no_panda=True)
   if not state["started"] and state["ignitionOff"] and Params().get_bool("IsOffroad"):
     return None
 
   from cereal import messaging
 
-  services = ["controlsState", "carState"] if require_standstill else ["controlsState"]
-  subscriber = messaging.SubMaster(services, poll=["controlsState"])
+  subscriber = messaging.SubMaster(["controlsState"], poll=["controlsState"])
   deadline = time.monotonic() + 1
   while time.monotonic() < deadline:
     subscriber.update(100)
@@ -1069,15 +1068,8 @@ def maintenance_block_reason(require_standstill=False):
         controls = subscriber["controlsState"]
         if controls.enabled or controls.active:
           return "openpilot 인게이지를 해제한 뒤 다시 시도하세요."
-        if require_standstill:
-          if not subscriber.valid["carState"] or not 0 <= now - subscriber.logMonoTime["carState"] / 1e9 < 0.5:
-            continue
-          car = subscriber["carState"]
-          if not car.standstill or not abs(car.vEgoRaw) < 0.1:
-            return "차량을 완전히 정차한 뒤 다시 시도하세요."
         return None
-  return ("인게이지 또는 차량 정차 상태를 확인할 수 없습니다." if require_standstill
-          else "openpilot 인게이지 상태를 확인할 수 없습니다.")
+  return "openpilot 인게이지 상태를 확인할 수 없습니다."
 
 
 def bt_remote_snapshot():
@@ -1173,7 +1165,7 @@ def request_reboot(rebuild=False):
       return 409, "시동을 끈 오프로드 상태에서 다시 시도하세요."
     REBUILD_FLAG.touch()
   else:
-    reason = maintenance_block_reason(require_standstill=True)
+    reason = maintenance_block_reason()
     if reason:
       return 409, reason
   params.put_bool("DoReboot", True)

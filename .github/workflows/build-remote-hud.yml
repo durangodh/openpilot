@@ -133,7 +133,7 @@ jobs:
       - name: Publish in-app updater APK
         if: >-
           github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && github.event.head_commit.message == 'Enlarge the Naver vehicle marker and restore BSD warnings')
+          (github.event_name == 'push' && github.event.head_commit.message == 'Brighten the Naver car marker and align EON reboot with engagement')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

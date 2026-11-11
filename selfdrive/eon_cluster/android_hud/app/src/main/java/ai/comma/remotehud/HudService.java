@@ -2187,6 +2187,14 @@ public final class HudService extends Service {
         } while (running.get() && tagEquals(tag, "CAR1"));
     }
 
+    private static final ColorMatrixColorFilter NAVER_CAR_WHITE = new ColorMatrixColorFilter(
+            new float[] {
+                    1.34f, 0f, 0f, 0f, -12f,
+                    0f, 1.34f, 0f, 0f, -12f,
+                    0f, 0f, 1.34f, 0f, -12f,
+                    0f, 0f, 0f, 1f, 0f,
+            });
+
     private byte[] makeNaverCarIcon(int flags, JSONObject current) {
         Bitmap icon;
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -2198,7 +2206,9 @@ public final class HudService extends Service {
             icon = Bitmap.createBitmap(width + 2 * bsdPadding, height, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(icon);
             RectF bounds = new RectF(bsdPadding, 0f, bsdPadding + width, height);
+            paint.setColorFilter(NAVER_CAR_WHITE);
             canvas.drawBitmap(egoCar, null, bounds, paint);
+            paint.setColorFilter(null);
             if ((flags & 1) != 0) drawEgoBrakeLamps(canvas, paint, bounds, current);
             if ((flags & 2) != 0) drawEgoTurnLamp(canvas, paint, bounds, true);
             if ((flags & 4) != 0) drawEgoTurnLamp(canvas, paint, bounds, false);
