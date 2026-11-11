@@ -143,8 +143,8 @@ def manager_init() -> None:
     ("LeadCruiseAccelFactor", "100"),
     ("LiveSteerRatioApply", "100"),
     ("SteerRatioApply", "0"),
-    ("SteerActuatorDelay", "40"),
-    ("SteeringRateCost", "500"),
+    ("SteerActuatorDelay", "30"),
+    ("SteeringRateCost", "700"),
     ("LateralMotionCost", "11"),
     ("LateralAccelCost", "0"),
     ("LateralJerkCost", "5"),
@@ -248,18 +248,6 @@ def manager_init() -> None:
       ("LateralTorqueFriction", "100", "98")):
     if params.get(key, encoding="utf8") == old_value:
       params.put(key, apilot_value)
-
-  # 2026-11-12: lateral defaults SAD 30 -> 40 and SteeringRateCost 700 -> 500 (on request,
-  # turn entry held the wheel too long). Once per device, and only values still at the old
-  # default; a value the driver changed is kept, and later manual edits are not undone.
-  if params.get("LatDefaults1112Migrated") is None:
-    try:
-      if params.get("SteerActuatorDelay", encoding="utf8") == "30":
-        params.put("SteerActuatorDelay", "40")
-      if params.get("SteeringRateCost", encoding="utf8") == "700":
-        params.put("SteeringRateCost", "500")
-    finally:
-      params.put_bool("LatDefaults1112Migrated", True)
 
   # Preserve the existing 0~40 km/h curve when introducing the 20 km/h point.
   # Devices with custom end points receive their actual midpoint rather than
