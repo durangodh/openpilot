@@ -13,7 +13,20 @@ MAX_LOG_BYTES = 32 * 1024 * 1024
 MAX_REPLAY_SECONDS = 120
 
 
-def draw_road_overlay(image, model, lateral_plan, rpy, camera_size):
+def road_path_color(status_color, lead_detected, accel):
+  # Match NvgWindow::drawLaneLines on the EON display.
+  if not status_color:
+    return (26, 190, 255, 179)  # HSL(197°, 100%, 55%), alpha 70%
+  if not lead_detected:
+    return (0, 153, 0, 120)
+  if not math.isfinite(accel) or abs(accel) < 0.5:
+    return (255, 255, 0, 120)
+  if accel >= 0.5:
+    return (255, 153, 0, 120)
+  return (255, 0, 0, 120)
+
+
+def draw_road_overlay(image, model, lateral_plan, rpy, camera_size, path_color):
   import numpy as np
   from PIL import ImageDraw
   from common.transformations.camera import FULL_FRAME_SIZE, fcam_intrinsics, get_view_frame_from_calib_frame
@@ -40,7 +53,7 @@ def draw_road_overlay(image, model, lateral_plan, rpy, camera_size):
   left = project(path, -1.0, 1.22)
   right = project(path, 1.0, 1.22)
   if len(left) > 1 and len(right) > 1:
-    draw.polygon(left + right[::-1], fill=(34, 212, 83, 125))
+    draw.polygon(left + right[::-1], fill=path_color)
   for line, probability in zip(model.laneLines, model.laneLineProbs):
     if not math.isfinite(probability) or probability < 0.15:
       continue
@@ -59,6 +72,9 @@ class RoadPreview:
     self.updated = 0
     self.requested = 0
     self.hud_requested = 0
+    self.path_status_color = True
+    self.next_path_color_read = 0.0
+    self.params = None
 
   def expire(self):
     now = time.monotonic()
@@ -91,7 +107,8 @@ class RoadPreview:
     from cereal import messaging
 
     if self.subscriber is None:
-      self.subscriber = messaging.SubMaster(["controlsState", "modelV2", "lateralPlan", "liveCalibration"])
+      self.subscriber = messaging.SubMaster(["controlsState", "modelV2", "lateralPlan", "liveCalibration",
+                                             "radarState", "longitudinalPlan"])
     sm = self.subscriber
     sm.update(0)
     now = messaging.sec_since_boot()
@@ -112,8 +129,31 @@ class RoadPreview:
     plan_fresh = 0 <= now - sm.logMonoTime["lateralPlan"] / 1e9 < 0.25
     plan = sm["lateralPlan"] if plan_fresh and sm.valid["lateralPlan"] else None
     image = self.thumbnail.copy()
-    draw_road_overlay(image, sm["modelV2"], plan, rpy, self.camera_size)
+    draw_road_overlay(image, sm["modelV2"], plan, rpy, self.camera_size, self._path_color(sm, now))
     return image
+
+  def _path_color(self, sm, now):
+    if now >= self.next_path_color_read:
+      if self.params is None:
+        from common.params import Params
+        self.params = Params()
+      value = self.params.get("ShowPathStatusColor")
+      try:
+        self.path_status_color = bool(int(value)) if value else True
+      except ValueError:
+        self.path_status_color = False
+      self.next_path_color_read = now + 1.0
+
+    lead_detected = (sm.valid["radarState"]
+                     and 0 <= now - sm.logMonoTime["radarState"] / 1e9 < 0.5
+                     and sm["radarState"].leadOne.status)
+    accel = 0.0
+    if (self.path_status_color and lead_detected and sm.valid["longitudinalPlan"]
+        and 0 <= now - sm.logMonoTime["longitudinalPlan"] / 1e9 < 0.5):
+      accels = sm["longitudinalPlan"].accels
+      if len(accels):
+        accel = accels[0]
+    return road_path_color(self.path_status_color, lead_detected, accel)
 
   def frame(self, hud=False):
     now = time.monotonic()
