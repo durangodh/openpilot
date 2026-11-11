@@ -91,6 +91,9 @@ static bool mcan_gw_recent(bool seen, uint32_t ts) {
   return seen && (get_ts_elapsed(microsecond_timer_get(), ts) < MCAN_GW_SIDE_FRESH_US);
 }
 
+static int mcan_gw_car = 0;
+static int mcan_gw_hud = 1;
+
 static int mcan_gw_car_bus(void) {
   int car = -1;
   const int order[3] = {0, 2, 1};
@@ -133,10 +136,21 @@ static int mcan_gateway_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
     }
   }
 
-  int car = mcan_gw_car_bus();
-  int hud = mcan_gw_hud_bus(car);
+  // Forward from the first frame with the last known sides (car 0 / HUD 1 until learned;
+  // 2026-11-11 22:46 diagnostic log: car frames on bus 0, HUD on bus 1). Waiting for both
+  // NM frames before forwarding dropped the frames the car sends once at wake-up, and the
+  // stock HUD came up at the wrong height after a cold start. A learned pair is kept until
+  // NM frames show a different one.
+  int car_seen = mcan_gw_car_bus();
+  int hud_seen = mcan_gw_hud_bus(car_seen);
+  if ((car_seen >= 0) && (hud_seen >= 0)) {
+    mcan_gw_car = car_seen;
+    mcan_gw_hud = hud_seen;
+  }
+  int car = mcan_gw_car;
+  int hud = mcan_gw_hud;
 
-  if ((car >= 0) && (hud >= 0)) {
+  {
     if (bus_num == hud) {
       if (index >= 0) {
         // the main panda's guidance frame: remember it, keep it on the HUD side
