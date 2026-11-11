@@ -4,13 +4,15 @@
 // destination; on a bus shared with the HUD they make the HUD flicker against the
 // openpilot (main panda) turn-by-turn frames (2026-11-04 14:13 log). This panda sits in
 // series in the MM-CAN wires in front of the HUD, through a low-speed fault-tolerant <->
-// high-speed CAN converter on each side. Both buses are on the harness box's 8-pin
-// power/OBD connector (no car harness needed):
-//   car side (AVN, cluster, ...), pins 6 CAN0-H / 5 CAN0-L
-//   HUD side (HUD + the main panda's bus 1), pins 8 CAN3-H / 7 CAN3-L
-//   (which panda bus each pair lands on depends on the OBD-C cable orientation; the
-//   firmware finds the sides from the NM frames, see mcan_gw_car_bus / mcan_gw_hud_bus)
-//   power pin 1 (12 V), GND pin 4
+// high-speed CAN converter. Wiring on this panda's own harness box (no car harness on it):
+//   car side (AVN, cluster, ...): 26-pin car-harness connector pin 4 CAN0_H / pin 6 CAN0_L
+//     (comma open_pinout; CAN2 would be pins 22/24)
+//   HUD side (HUD + the main panda's bus 1): 8-pin power connector pin 8 CAN3-H / 7 CAN3-L
+//   power: 8-pin pin 1 (12 V), pin 4 GND
+//   The 8-pin's pins 5/6 are NOT CAN0: 0 V with the panda powered, and no frame reached
+//   the panda through them (2026-11-11 diagnostic build: rx 0, ACK errors on CAN0/CAN2).
+//   Which panda bus each pair lands on depends on the OBD-C cable orientation; the
+//   firmware finds the sides from the NM frames, see mcan_gw_car_bus / mcan_gw_hud_bus.
 // Everything is forwarded both ways, except:
 //   - car -> HUD: the AVN's HUD guidance IDs while the main panda's own frame with that ID
 //     was seen on the HUD side within MCAN_GW_FRESH_US (0x4A9 text follows 0x115), so the
