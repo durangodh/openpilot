@@ -52,7 +52,7 @@ def _send(conn, status, ctype, body, extra=""):
   conn.sendall(head.encode("utf-8") + body)
 
 
-def _listing(deleted=None):
+def _listing(deleted=None, *, allow_delete=True):
   parts = ["<!doctype html><meta charset=utf-8>",
            "<meta name=viewport content='width=device-width,initial-scale=1'>",
            "<title>EON 기록 파일</title>",
@@ -63,9 +63,12 @@ def _listing(deleted=None):
            "span{color:#aaa}}button{padding:12px 16px;font-size:100%;border-radius:8px;"
            "border:1px solid #c00;background:#fee;color:#c00}</style>",
            "<h1>EON 기록 파일</h1>",
-           "<p>파일을 누르면 폰의 다운로드 폴더에 저장됩니다.</p>",
-           "<button onclick=\"if(confirm('기록 파일을 모두 지울까요? 지금 기록 중인 파일은 남습니다.'))"
-           "location.href='/trace?delete=all'\">전체 삭제</button>"]
+           "<p>파일을 누르면 폰의 다운로드 폴더에 저장됩니다.</p>"]
+  if allow_delete:
+    parts.append("<button onclick=\"if(confirm('기록 파일을 모두 지울까요? 지금 기록 중인 파일은 남습니다.'))"
+           "location.href='/trace?delete=all'\">전체 삭제</button>")
+  else:
+    parts.append("<a href='/'>EON 웹으로 돌아가기</a>")
   if deleted is not None:
     parts.append("<p>%d개 삭제했습니다.</p>" % deleted)
   for key, (title, directory) in TRACE_DIRS.items():
@@ -167,18 +170,18 @@ def keep_field_lines(directory, app, body):
         f.write("\n".join(new) + "\n")
 
 
-def serve(conn, path):
+def serve(conn, path, *, allow_delete=True):
   """GET /trace, /trace?delete=all 또는 /trace/<종류>/<이름> 에 답한다."""
   query = path.split("?", 1)[1] if "?" in path else ""
   path = unquote(path.split("?", 1)[0]).rstrip("/")
   if path == "/trace":
-    if query == "delete=all":
+    if allow_delete and query == "delete=all":
       deleted = _delete_all()
       # 새로고침으로 다시 지우지 않게 결과만 보여 주고 주소는 /trace 로 되돌린다.
       body = _listing(deleted) + b"<script>history.replaceState(null,'','/trace')</script>"
       _send(conn, "200 OK", "text/html; charset=utf-8", body)
       return
-    _send(conn, "200 OK", "text/html; charset=utf-8", _listing())
+    _send(conn, "200 OK", "text/html; charset=utf-8", _listing(allow_delete=allow_delete))
     return
   parts = path.split("/")   # ['', 'trace', kind, name]
   if len(parts) == 4 and parts[2] in TRACE_DIRS and NAME_RE.match(parts[3]):

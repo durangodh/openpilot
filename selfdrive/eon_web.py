@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from common.basedir import BASEDIR
 from common.params import Params, UnknownKeyName
+from selfdrive import trace_http
 from selfdrive.eon_web_media import RoadPreview, VIDEO_FILE, media_range, replay_data
 from selfdrive.loggerd.config import ROOT
 
@@ -140,7 +141,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <div class="card"><h3>장치 관리</h3><div class="actions"><button data-tmux>capture tmux</button>
 <button id="eonReboot">재부팅</button><button id="eonRebuild">재부팅하여 전체 재빌드</button></div>
 <p id="systemOutput" role="status"></p></div></section>
-<section id="records" hidden><h2>로그 · 대시캠</h2><div class="actions"><button id="refresh">새로고침</button><button id="deleteAllLogs">전체 삭제</button></div><div id="replay" class="card" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
+<section id="records" hidden><h2>로그 · 대시캠</h2><div class="actions"><button id="refresh">새로고침</button><button id="deleteAllLogs">전체 삭제</button><a href="/trace">로그 트레이서</a></div><div id="replay" class="card" hidden><h3 id="replayTitle"></h3><p id="replayStatus"></p>
 <video id="replayVideo" controls playsinline hidden></video>
 <button id="replayPlay">재생</button><input id="replaySeek" aria-label="재생 위치" type="range" min="0" step="0.1" value="0">
 <pre id="replayValues"></pre></div><p id="logActionStatus" role="status"></p><div id="logs"></div></section>
@@ -1316,6 +1317,9 @@ class Handler(BaseHTTPRequestHandler):
     path = target.path
     if path == "/":
       self.send_data(PAGE, "text/html; charset=utf-8")
+    elif trace_http.is_trace_path(path):
+      self.close_connection = True
+      trace_http.serve(self.connection, path, allow_delete=False)
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":
