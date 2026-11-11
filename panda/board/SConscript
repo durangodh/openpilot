@@ -51,11 +51,6 @@ if os.getenv("MCAN_GATEWAY"):
   gw = dict(build_projects["panda"])
   gw["PROJECT_FLAGS"] = build_projects["panda"]["PROJECT_FLAGS"] + ["-DMCAN_GATEWAY"]
   build_projects = {"panda_mcan_gw": gw}
-  # MCAN_GW_DIAG=1 as well -> obj/panda_mcan_gw_diag.bin.signed: the gateway also sends its
-  # per-bus receive counts and CAN error state as 0x7F0/0x7F1 once a second on every bus.
-  if os.getenv("MCAN_GW_DIAG"):
-    gw["PROJECT_FLAGS"] = gw["PROJECT_FLAGS"] + ["-DMCAN_GW_DIAG"]
-    build_projects = {"panda_mcan_gw_diag": gw}
 
 # arm-none-eabi-gcc on comma two has no cortex-m7 support
 if not os.path.exists("/EON") and not os.getenv("MCAN_GATEWAY"):

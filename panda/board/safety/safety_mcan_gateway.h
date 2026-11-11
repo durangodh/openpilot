@@ -24,8 +24,6 @@
 static const int mcan_gw_ids[MCAN_GW_IDS] = {0x115, 0x123, 0x1E5, 0x4A9};
 static uint32_t mcan_gw_seen_ts[MCAN_GW_IDS] = {0U, 0U, 0U, 0U};
 static bool mcan_gw_seen[MCAN_GW_IDS] = {false, false, false, false};
-// frames received per panda bus since the last diagnostic report (MCAN_GW_DIAG)
-static uint32_t mcan_gw_rx_cnt[3] = {0U, 0U, 0U};
 
 static int mcan_gw_index(int addr) {
   int index = -1;
@@ -77,9 +75,6 @@ static int mcan_gateway_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   int bus_fwd = -1;
   int addr = GET_ADDR(to_fwd);
   int index = mcan_gw_index(addr);
-  if ((bus_num >= 0) && (bus_num < 3)) {
-    mcan_gw_rx_cnt[bus_num] += 1U;
-  }
 
   if (bus_num == MCAN_GW_HUD_BUS) {
     if (index >= 0) {
