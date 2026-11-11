@@ -26,7 +26,7 @@ def _get(key, default):
 
 def steer_actuator_delay():
   """조향 반응 지연 보상(초)."""
-  return _get("SteerActuatorDelay", 30.0) * 0.01
+  return _get("SteerActuatorDelay", 40.0) * 0.01
 
 
 def steer_ratio_apply():

@@ -1865,15 +1865,15 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "SAD",
       "조향 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 조향 / 값 감소(-): 조향 시작이 늦어짐.\n"
       "너무 높으면 커브 안쪽으로 치우치고 너무 낮으면 바깥쪽으로 밀릴 수 있습니다.\n"
-      "범위: 0 ~ 100  /  aPilot 기본값: 30 (=0.30초)",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 1, 0, 30, this));
+      "범위: 0 ~ 100  /  기본값: 40 (=0.40초, aPilot 30)",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 1, 0, 40, this));
 
   list->addItem(new ParamValueControlF("SteeringRateCost",
       "MPC STEERING RATE COST",
       "목표 조향의 급격한 변화를 억제하는 MPC 비용값입니다.\n"
       "값 감소(-): 차선·경로 변화에 빠르게 반응 / 값 증가(+): 부드럽지만 반응이 느려짐.\n"
-      "aPilot 기본값: 700  /  범위: 0 ~ 2000",
-      "../assets/offroad/icon_openpilot.png", 0, 2000, 10, 0, 700, this));
+      "기본값: 500 (aPilot 700)  /  범위: 0 ~ 2000",
+      "../assets/offroad/icon_openpilot.png", 0, 2000, 10, 0, 500, this));
 
   list->addItem(new ParamValueControlF("PathCostApply", "PATH COST APPLY",
       "aPilot 경로 추종 비용(×0.01).", "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
