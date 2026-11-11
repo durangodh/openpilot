@@ -48,6 +48,7 @@ class CarInterface(CarInterfaceBase):
     super().__init__(CP, CarController, CarState)
     # EON Bluetooth remote (bt_remote): virtual RES/SET/CANCEL/GAP presses.
     self.hud_remote = RemoteButtonSource()
+    self.mdps_fault_frames = 0
     self.cp2 = self.CS.get_can2_parser(CP)
     # AutoLaneChangeSpeed 실시간 반영용 (VIP 패널에서 10km/h 단위 조절)
 
@@ -384,6 +385,16 @@ class CarInterface(CarInterfaceBase):
     ret.buttonEvents = buttonEvents
 
     events = self.create_common_events(ret)
+
+    # MDPS fault display only: steerFaultTemporary stays False (aPilot c2: latActive is kept
+    # and the MDPS recovers), so show the MDPS12 fault bits as a red warning instead. Two
+    # frames so a single-frame blip does not flash it.
+    if any(getattr(self.CS, "mdps_bits", (0, 0, 0))) and not ret.standstill:
+      self.mdps_fault_frames += 1
+    else:
+      self.mdps_fault_frames = 0
+    if self.mdps_fault_frames >= 2:
+      events.add(EventName.steerTempUnavailableSilent)
 
     # ---- apilot-c2 engagement model (ajouatom/openpilot apilot-c2) ----
     # Engage on the cruise MAIN switch rising edge; disengage only when MAIN

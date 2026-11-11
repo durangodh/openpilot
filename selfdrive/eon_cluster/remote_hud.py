@@ -303,6 +303,13 @@ def _field(obj, name, default=0):
     return default
 
 
+def _mdps_fault_event(car):
+  try:
+    return any(str(e.name) == "steerTempUnavailableSilent" for e in car.events)
+  except Exception:
+    return False
+
+
 def _stream_alive(sm, name, max_updates=10):
   """True if the source was received in the last max_updates loops (~1 s at 10 Hz).
 
@@ -1196,7 +1203,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "oilPressureWarning": bool(_field(car, "oilPressureWarning", False)),
     "absWarning": bool(_field(car, "absWarning", False)),
     "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)),
-    "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)),
+    # Red wheel on the HUD also while the MDPS reports a fault (steerTempUnavailableSilent
+    # from the Hyundai interface; steerFaultTemporary stays False, aPilot c2 behaviour).
+    "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)) or _mdps_fault_event(car),
     "stockFcw": bool(_field(car, "stockFcw", False)),
     "stockAeb": bool(_field(car, "stockAeb", False)),
     "aebSystemFault": bool(_field(car, "aebSystemFault", False)),

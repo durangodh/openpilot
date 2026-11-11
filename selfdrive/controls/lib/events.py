@@ -380,12 +380,14 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
 
   # 현대: steerFaultTemporary 는 MDPS12 폴트(ToiUnavail/ToiFlt/FailStat)일 때만 켜진다.
+  # Hyundai: MDPS12 fault bits while steering stays engaged (aPilot c2 keeps latActive and
+  # lets the MDPS recover). Red, no sound, no cluster steer-required icon, no disengage.
   EventName.steerTempUnavailableSilent: {
     ET.WARNING: Alert(
       "MDPS Fault",
       "",
-      AlertStatus.userPrompt, AlertSize.small,
-      Priority.LOW, VisualAlert.steerRequired, AudibleAlert.none, 1.),
+      AlertStatus.critical, AlertSize.small,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .5),
   },
 
   EventName.preDriverDistracted: {
