@@ -133,7 +133,7 @@ jobs:
       - name: Publish in-app updater APK
         if: >-
           github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && github.event.head_commit.message == 'Start HUD indicators on signal onset and add white BSD badges')
+          (github.event_name == 'push' && github.event.head_commit.message == 'Fix compilation of the white HUD BSD badge')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1280,15 +1280,15 @@ final class ModelWorldGL {
         int save = canvas.save();
         float centerX = left ? car.left - 24f : car.right + 24f;
         float centerY = car.centerY();
-        float radius = Math.min(19f, car.height() * 0.46f);
+        float badgeRadius = Math.min(19f, car.height() * 0.46f);
         canvas.translate(centerX, centerY);
         // Counter the Naver marker's 74:86 horizontal/vertical size multipliers.
         canvas.scale(86f / 74f, 1f);
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.WHITE);
-        canvas.drawCircle(0f, 0f, radius, paint);
-        float scale = radius / 83f;
+        canvas.drawCircle(0f, 0f, badgeRadius, paint);
+        float scale = badgeRadius / 83f;
         canvas.scale(left ? scale : -scale, scale);
         canvas.translate(72f, 16f);
         paint.setColor(BSD_COLOR);
