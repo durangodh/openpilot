@@ -26,7 +26,20 @@ def road_path_color(status_color, lead_detected, accel):
   return (255, 0, 0, 120)
 
 
-def draw_road_overlay(image, model, lateral_plan, rpy, camera_size, path_color):
+def _clip_path_bottom(polygon, bottom):
+  clipped = []
+  previous = polygon[-1]
+  for point in polygon:
+    if (point[1] <= bottom) != (previous[1] <= bottom):
+      fraction = (bottom - previous[1]) / (point[1] - previous[1])
+      clipped.append((previous[0] + fraction * (point[0] - previous[0]), bottom))
+    if point[1] <= bottom:
+      clipped.append(point)
+    previous = point
+  return clipped
+
+
+def draw_road_overlay(image, model, lateral_plan, rpy, camera_size, path_color, path_end):
   import numpy as np
   from PIL import ImageDraw
   from common.transformations.camera import FULL_FRAME_SIZE, fcam_intrinsics, get_view_frame_from_calib_frame
@@ -50,10 +63,15 @@ def draw_road_overlay(image, model, lateral_plan, rpy, camera_size, path_color):
 
   draw = ImageDraw.Draw(image, "RGBA")
   path = final_lateral_path(lateral_plan, model, model.position.t) or xyz(model.position)
-  left = project(path, -1.0, 1.22)
-  right = project(path, 1.0, 1.22)
-  if len(left) > 1 and len(right) > 1:
-    draw.polygon(left + right[::-1], fill=path_color)
+  # Half the old width, split into two bands with the EON's 10% center gap.
+  bottom = (image.height - 1) * path_end / 1000
+  for outer, inner in ((-0.5, -0.05), (0.5, 0.05)):
+    outside = project(path, outer, 1.22)
+    inside = project(path, inner, 1.22)
+    if len(outside) > 1 and len(inside) > 1:
+      band = _clip_path_bottom(outside + inside[::-1], bottom)
+      if len(band) >= 3:
+        draw.polygon(band, fill=path_color)
   for line, probability in zip(model.laneLines, model.laneLineProbs):
     if not math.isfinite(probability) or probability < 0.15:
       continue
@@ -103,7 +121,7 @@ class RoadPreview:
     self.thumbnail = Image.frombytes("RGB", self.camera_size, data.tobytes(), "raw", "BGR", stride)
     self.thumbnail.thumbnail((480, 360))
 
-  def _overlay(self):
+  def _overlay(self, path_end):
     from cereal import messaging
 
     if self.subscriber is None:
@@ -129,7 +147,7 @@ class RoadPreview:
     plan_fresh = 0 <= now - sm.logMonoTime["lateralPlan"] / 1e9 < 0.25
     plan = sm["lateralPlan"] if plan_fresh and sm.valid["lateralPlan"] else None
     image = self.thumbnail.copy()
-    draw_road_overlay(image, sm["modelV2"], plan, rpy, self.camera_size, self._path_color(sm, now))
+    draw_road_overlay(image, sm["modelV2"], plan, rpy, self.camera_size, self._path_color(sm, now), path_end)
     return image
 
   def _path_color(self, sm, now):
@@ -155,7 +173,7 @@ class RoadPreview:
         accel = accels[0]
     return road_path_color(self.path_status_color, lead_detected, accel)
 
-  def frame(self, hud=False):
+  def frame(self, hud=False, path_end=1000):
     now = time.monotonic()
     self.requested = now
     if hud:
@@ -167,12 +185,13 @@ class RoadPreview:
       self._capture()
     if self.thumbnail is None:
       return None
-    if hud not in self.images:
-      image = self._overlay() if hud else self.thumbnail
+    variant = path_end if hud else None
+    if variant not in self.images:
+      image = self._overlay(path_end) if hud else self.thumbnail
       output = io.BytesIO()
       image.save(output, "JPEG", quality=55)
-      self.images[hud] = output.getvalue()
-    return self.images[hud]
+      self.images[variant] = output.getvalue()
+    return self.images[variant]
 
 
 def media_range(header, size):

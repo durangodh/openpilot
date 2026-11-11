@@ -133,7 +133,7 @@ jobs:
       - name: Publish in-app updater APK
         if: >-
           github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && github.event.head_commit.message == 'Remember HUD road preview settings and gate overlays on engagement')
+          (github.event_name == 'push' && github.event.head_commit.message == 'Narrow and split the HUD camera path and lower the ego car')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1337,7 +1337,9 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(segments())
     elif path == "/api/road.jpg":
       try:
-        frame = self.server.road_preview.frame(hud=target.query == "hud=1")
+        path_end = self.headers.get("X-HUD-Path-End", "1000")
+        path_end = min(1000, int(path_end)) if re.fullmatch(r"[0-9]{1,4}", path_end) else 1000
+        frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end)
       except (ImportError, OSError, ValueError):
         frame = None
       if frame is None:

@@ -214,6 +214,7 @@ public final class HudService extends Service {
      * 패널 아래~도로 위 하늘, 지도는 위쪽만. 둘 다 아래로 갈수록 옅어져 사라진다.
      */
     private static final float NAVI_ROAD_PREVIEW_TOP = 185f;
+    private static final float NAVI_PREVIEW_CAR_BOTTOM = HEIGHT - 8f;
     private static final float NAVI_RAIN_DRIVE_TOP = 185f;
     private static final float NAVI_RAIN_DRIVE_BOTTOM = 480f;
     private static final float NAVI_RAIN_MAP_TOP = 0f;
@@ -1049,8 +1050,13 @@ public final class HudService extends Service {
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
         logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
         RoadPreviewClient.restore(this);
+        // The road camera fills this narrow pane by height. Send the sprite's
+        // front edge in thousandths of frame height for server-side clipping.
+        int pathEnd = egoCar == null ? 1000 : Math.max(0, Math.round(1000f
+                * (NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() - NAVI_ROAD_PREVIEW_TOP)
+                / (HEIGHT - NAVI_ROAD_PREVIEW_TOP)));
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
-                () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress), "hud-road-preview");
+                () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress, pathEnd), "hud-road-preview");
         roadPreviewThread.start();
         receiverThread.start();
         mapThread.start();
@@ -3164,6 +3170,10 @@ public final class HudService extends Service {
         text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
+    private float roadPreviewCarHeight() {
+        return egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
+    }
+
     private void drawRoadPreview(Canvas c, Paint p, JSONObject s, Bitmap frame) {
         int save = c.save();
         c.clipRect(NAVI_DRIVE_LEFT, NAVI_ROAD_PREVIEW_TOP, WIDTH, HEIGHT);
@@ -3179,8 +3189,8 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setColorFilter(null);
         if (egoCar != null && !egoCar.isRecycled()) {
-            float bottom = EGO_Y - NAVI_WORLD_LIFT;
-            float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
+            float bottom = NAVI_PREVIEW_CAR_BOTTOM;
+            float carHeight = roadPreviewCarHeight();
             scratchRect.set(NAVI_DRIVE_CX - EGO_CAR_WIDTH / 2f, bottom - carHeight,
                     NAVI_DRIVE_CX + EGO_CAR_WIDTH / 2f, bottom);
             c.drawBitmap(egoCar, null, scratchRect, roadPreviewPaint);

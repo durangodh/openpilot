@@ -162,7 +162,7 @@ final class RoadPreviewClient {
         return frame.bitmap;
     }
 
-    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress) {
+    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, int pathEnd) {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         try {
             while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
@@ -176,7 +176,7 @@ final class RoadPreviewClient {
                 long start = SystemClock.elapsedRealtime();
                 long interval = FRAME_INTERVAL_MS;
                 try {
-                    Bitmap bitmap = fetch(target, start);
+                    Bitmap bitmap = fetch(target, start, pathEnd);
                     if (bitmap != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
                         latest = new Frame(target, bitmap, start);
@@ -195,7 +195,7 @@ final class RoadPreviewClient {
         }
     }
 
-    private Bitmap fetch(Connection target, long start) throws IOException {
+    private Bitmap fetch(Connection target, long start, int pathEnd) throws IOException {
         URL url = new URL("http", target.address, 7000, "/api/road.jpg?hud=1");
         HttpURLConnection request = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
         try {
@@ -204,6 +204,7 @@ final class RoadPreviewClient {
             request.setInstanceFollowRedirects(false);
             request.setUseCaches(false);
             request.setRequestProperty("Authorization", target.authorization);
+            request.setRequestProperty("X-HUD-Path-End", Integer.toString(pathEnd));
             if (request.getResponseCode() != HttpURLConnection.HTTP_OK
                     || !"image/jpeg".equalsIgnoreCase(request.getContentType())
                     || request.getContentLength() > MAX_JPEG_BYTES) return null;
