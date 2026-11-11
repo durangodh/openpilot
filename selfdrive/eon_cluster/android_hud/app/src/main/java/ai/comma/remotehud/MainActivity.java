@@ -825,6 +825,7 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout buildRoadPreviewCard() {
+        RoadPreviewClient.restore(this);
         LinearLayout panel = card();
         Switch toggle = new Switch(this);
         toggle.setText("네비모드 전방 영상");
@@ -834,46 +835,55 @@ public final class MainActivity extends Activity {
         panel.addView(text("오른쪽 주행 칸에 EON 카메라 표시", 14f,
                 Color.rgb(190, 200, 210), Typeface.NORMAL));
         toggle.setOnClickListener(v -> {
-            if (!toggle.isChecked()) {
-                RoadPreviewClient.disable();
-                return;
+            if (!RoadPreviewClient.setEnabled(this, toggle.isChecked())) {
+                toggle.setChecked(false);
+                editRoadPreviewConnection(toggle);
             }
-            toggle.setChecked(false);
-            LinearLayout fields = new LinearLayout(this);
-            fields.setOrientation(LinearLayout.VERTICAL);
-            fields.setPadding(dp(24), 0, dp(24), 0);
-            EditText address = new EditText(this);
-            address.setSingleLine(true);
-            address.setHint("EON 주소 (예: 192.168.0.17)");
-            address.setText(HudService.roadPreviewAddress());
-            fields.addView(address);
-            EditText password = new EditText(this);
-            password.setSingleLine(true);
-            password.setHint("EON 웹 비밀번호");
-            password.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                    | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-            fields.addView(password);
-            AlertDialog dialog = new AlertDialog.Builder(this)
-                    .setTitle("네비모드 전방 영상")
-                    .setView(fields)
-                    .setNegativeButton("취소", null)
-                    .setPositiveButton("켜기", null)
-                    .create();
-            dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(button -> {
-                        if (RoadPreviewClient.enable(address.getText().toString().trim(),
-                                password.getText().toString())) {
-                            toggle.setChecked(true);
-                            dialog.dismiss();
-                        } else if (password.length() == 0) {
-                            password.setError("EON 웹 비밀번호를 입력하세요.");
-                        } else {
-                            address.setError("EON의 내부 IPv4 주소를 입력하세요.");
-                        }
-                    }));
-            dialog.show();
         });
+        Button edit = button("전방 영상 연결 정보 변경", Color.rgb(40, 92, 132));
+        edit.setOnClickListener(v -> editRoadPreviewConnection(toggle));
+        panel.addView(edit);
         return panel;
+    }
+
+    private void editRoadPreviewConnection(Switch toggle) {
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(24), 0, dp(24), 0);
+        EditText address = new EditText(this);
+        address.setSingleLine(true);
+        address.setHint("EON 주소 (예: 192.168.0.17)");
+        String detected = HudService.roadPreviewAddress();
+        address.setText(detected.isEmpty() ? RoadPreviewClient.savedAddress(this) : detected);
+        fields.addView(address);
+        EditText password = new EditText(this);
+        password.setSingleLine(true);
+        password.setHint("EON 웹 비밀번호");
+        password.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        fields.addView(password);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("네비모드 전방 영상")
+                .setMessage("주소와 비밀번호를 저장하고 전방 영상을 켭니다.")
+                .setView(fields)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("저장하고 켜기", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(button -> {
+                    String host = address.getText().toString().trim();
+                    if (!RoadPreviewClient.validAddress(host)) {
+                        address.setError("EON의 내부 IPv4 주소를 입력하세요.");
+                    } else if (password.length() == 0) {
+                        password.setError("EON 웹 비밀번호를 입력하세요.");
+                    } else if (RoadPreviewClient.saveAndEnable(this, host, password.getText().toString())) {
+                        toggle.setChecked(true);
+                        dialog.dismiss();
+                    } else {
+                        password.setError("로그인 정보를 저장하지 못했습니다. 다시 시도하세요.");
+                    }
+                }));
+        dialog.show();
     }
 
     /** 리모컨 음성 비서: Claude API 키, 마이크 권한, 답변 읽기. */

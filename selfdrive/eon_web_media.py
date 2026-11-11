@@ -91,10 +91,14 @@ class RoadPreview:
     from cereal import messaging
 
     if self.subscriber is None:
-      self.subscriber = messaging.SubMaster(["modelV2", "lateralPlan", "liveCalibration"])
+      self.subscriber = messaging.SubMaster(["controlsState", "modelV2", "lateralPlan", "liveCalibration"])
     sm = self.subscriber
     sm.update(0)
     now = messaging.sec_since_boot()
+    if (not sm.valid["controlsState"]
+        or not 0 <= now - sm.logMonoTime["controlsState"] / 1e9 < 0.25
+        or not sm["controlsState"].enabled):
+      return self.thumbnail
     if not sm.valid["modelV2"] or not 0 <= now - sm.logMonoTime["modelV2"] / 1e9 < 0.25:
       return self.thumbnail
     calibration = sm["liveCalibration"]

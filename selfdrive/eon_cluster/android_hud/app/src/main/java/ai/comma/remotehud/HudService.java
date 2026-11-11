@@ -1048,6 +1048,7 @@ public final class HudService extends Service {
         }, "hud-stats");
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
         logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
+        RoadPreviewClient.restore(this);
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
                 () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress), "hud-road-preview");
         roadPreviewThread.start();
