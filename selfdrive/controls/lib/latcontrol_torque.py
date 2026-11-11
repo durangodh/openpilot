@@ -2,10 +2,15 @@ import math
 
 from cereal import log
 from common.numpy_fast import interp
-from selfdrive.controls.lib.latcontrol import LatControl
+from common.realtime import DT_CTRL
+from selfdrive.controls.lib import live_tune
+from selfdrive.controls.lib.latcontrol import LatControl, MIN_STEER_SPEED
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
+from selfdrive.modeld.constants import T_IDXS
 from common.params import Params
+
+import numpy as np
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -14,12 +19,101 @@ from common.params import Params
 
 # This controller applies torque to achieve desired lateral
 # accelerations. To compensate for the low speed effects we
-# use a LOW_SPEED_FACTOR in the error. Additionally, there is
+# use a LOW_SPEED_FACTOR in the error. Additionally there is
 # friction in the steering wheel that needs to be overcome to
 # move it at all, this is compensated for too.
 
 LOW_SPEED_X = [0, 10, 20, 30]
 LOW_SPEED_Y = [15, 13, 10, 5]
+# 극저속 출발 잔떨림 필터(v3): 1.5 m/s(5 km/h) 이하에서만, 2.5 m/s 에서 완전 해제.
+# 목표 곡률이 LOW_SPEED_FILTER_CURV_MAX(반경 50 m) 보다 크면 = 실제 회전이면 필터를
+# 즉시 우회한다. v2 는 14 km/h 까지 지연이 걸려 교차로 우회전에서 언더스티어를 냈다.
+LOW_SPEED_FILTER_X = [1.5, 2.5]
+LOW_SPEED_FILTER_CURV_MAX = 0.02
+
+# ── carrot 이식 : 예측 횡저크(lateral jerk) 를 friction 입력에 섞는다 ──────────
+# 모델의 acceleration.y 예측을 미분해 앞으로의 저크를 구하고, 부호가 유지되는
+# 구간에서 가장 작은 값을 골라 쓴다. 커브 진입 시 friction 을 미리 실어
+# 초기 응답을 살리되, S 자처럼 부호가 뒤집히는 구간에서는 개입하지 않는다.
+LAT_PLAN_MIN_IDX = 5
+
+# 차로 중앙 부근의 작은 모델 저크가 friction 을 반복해서 깨우면 직진에서
+# 잔보타가 생길 수 있다. 작은 저크만 속도별로 잘라내고, 실제 커브 진입처럼
+# 횡가속도가 커지면 데드존을 0으로 줄여 조향 응답을 보존한다.
+CENTER_JERK_DEADZONE_SPEED_BP = [0.0, 5.0, 12.0, 25.0]  # m/s
+CENTER_JERK_DEADZONE_SPEED_V = [0.08, 0.12, 0.18, 0.18]  # m/s^3
+CENTER_JERK_DEADZONE_LAT_ACCEL_BP = [0.0, 0.18, 0.35]  # m/s^2
+CENTER_JERK_DEADZONE_LAT_ACCEL_V = [1.0, 1.0, 0.0]
+
+
+def _sign(x):
+  return 1.0 if x > 0.0 else (-1.0 if x < 0.0 else 0.0)
+
+
+def get_predicted_lateral_jerk(lat_accels, t_diffs):
+  return (np.diff(lat_accels) / t_diffs).tolist()
+
+
+def get_lookahead_value(future_vals, current_val):
+  if len(future_vals) == 0:
+    return current_val
+  same_sign = [v for v in future_vals if _sign(v) == _sign(current_val)]
+  if len(same_sign) < len(future_vals):
+    return 0.0
+  return min(same_sign + [current_val], key=lambda x: abs(x))
+
+
+def get_center_jerk_deadzone(v_ego, desired_lateral_accel):
+  speed_deadzone = interp(v_ego, CENTER_JERK_DEADZONE_SPEED_BP,
+                          CENTER_JERK_DEADZONE_SPEED_V)
+  center_weight = interp(abs(desired_lateral_accel),
+                         CENTER_JERK_DEADZONE_LAT_ACCEL_BP,
+                         CENTER_JERK_DEADZONE_LAT_ACCEL_V)
+  return speed_deadzone * center_weight
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 긴 커브 안쪽 파고듦 대응 (적분 와인드업 억제) ────────────────────────────
+# 원인: steerRatio 과대 등으로 생긴 미세 +오차가 긴 커브 내내 적분에 쌓여 토크가
+#       서서히 증가 → 점점 안쪽으로 파고듦. 두 가지로 막는다.
+#  (1) 소오차 적분 동결: 추종이 거의 맞은 뒤(잔차 작을 때) 새 누적 정지.
+#  (2) 적분 누설(leak): 정상 추종 중에도 쌓인 적분을 시간상수로 흘려보냄(pid.py).
+# 둘은 보완적이라 함께 사용한다(freeze=더 안 쌓이게 / leak=쌓인 걸 빼게).
+#
+# ★ 곡률 조건부로 변경 (2026-08-17)
+#   위 두 장치는 '긴 커브'를 위한 것인데, 직진 구간에도 그대로 걸리면 반대 문제를
+#   만든다. 노면 캠버·얼라인먼트로 생기는 완만한 드리프트는 오차가 작아서
+#   데드존 안에 들어가 버리고, 그걸 메워야 할 적분은 동결 + 누설로 계속 빠진다.
+#   교차로처럼 차선이 사라져 횡위치 기준이 없어지는 구간에서는 이 드리프트를
+#   상류(경로)가 잡아주지 못하므로, 차가 차로를 대각선으로 흘러 나가게 된다.
+#   → 요구 곡률의 크기로 커브/직진을 구분해서 강도를 보간한다.
+#      커브에서는 종전과 동일(0.05 / leak 0.999), 직진에서는 거의 원본 동작
+#      (0.005 / leak 0.99975)으로 두어 정상상태 편차를 적분이 메울 수 있게 한다.
+#   ※ 기존 주석의 "0.999 @100Hz → τ≈1.0s" 는 오기다. τ = 1/(rate*(1-leak)) 이므로
+#     0.999 → τ≈10s, 0.99975 → τ≈40s. 즉 누설은 원래 의도보다 훨씬 약하게
+#     걸려 있었고, 실제로 적분을 막고 있던 주범은 데드존 쪽이다.
+CURVE_CURV_BP = [0.0015, 0.0060]   # 1/m. 0.0015≈R667m(완만) / 0.0060≈R167m(뚜렷한 커브)
+# [직진, 커브] 토크 단위(0~1). 커브 값은 LatCurveIDeadzone(x0.001)으로 바꾼다.
+# ★ 2026-10-03 lat_trace: 긴 완만~중간 커브에서 목표보다 10~20% 더 도는데(인코스
+#   파고듦) 그 오차가 토크 0.02~0.05 라 커브 데드존 0.07 안에 들어가 적분이 전혀
+#   바로잡지 못했다(I≈±0.03). 기본을 0.02 로 낮춰 남는 과회전을 적분이 서서히 빼게
+#   한다. 쌓인 적분은 누설(τ≈10s)로 계속 빠지므로 예전 와인드업도 막힌다.
+ERR_FREEZE_DEADZONE_V = [0.005, 0.02]
+CURVE_I_DEADZONE_DEFAULT = 20      # x0.001, 예전 값 70
+I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커브]
+
+# ── 피드포워드는 출력 한계 바로 아래까지만 ─────────────────────────────────
+# 2026-10-03 lat_trace: 급한 커브(목표 3 m/s²)에서 피드포워드만 1.18 로 출력 한계(1.0)를
+# 넘었다. 커브 후반에 차가 목표보다 더 돌아 P 가 -0.1~-0.4 로 빼려 해도 합이 여전히 1 이상이라
+# 출력이 한계에 붙은 채 핸들이 계속 감겨 인코스로 파고들었다(LAT ACCEL FACTOR 3.0 은 진입이
+# 모자라 실차에서 기각). 피드포워드를 한계 바로 아래로 자르면 덜 돌 때는 어차피 한계라 같고,
+# 더 돌 때만 P/I 가 바로 토크를 줄일 수 있다.
+FF_HEADROOM = 0.05
+
+# 커브 판정 필터: 올라갈 때는 빠르게(0.3s), 내려올 때는 느리게(2.0s) 따라간다.
+# 커브 도중 잠깐 곡률이 펴져도 데드존이 풀렸다 걸렸다 하지 않게 하고, 커브를
+# 빠져나온 뒤에는 2초 정도 여유를 두고 직진 설정으로 되돌아가게 하기 위한 것.
+CURVE_FILTER_RISE_TAU = 0.3
+CURVE_FILTER_FALL_TAU = 2.0
 
 
 class LatControlTorque(LatControl):
@@ -27,89 +121,231 @@ class LatControlTorque(LatControl):
     super().__init__(CP, CI)
     self.torque_params = CP.lateralTuning.torque
     self.pid = PIDController(self.torque_params.kp, self.torque_params.ki,
-                             k_f=self.torque_params.kf, pos_limit=self.steer_max, neg_limit=-self.steer_max)
+                             k_f=self.torque_params.kf, pos_limit=self.steer_max, neg_limit=-self.steer_max,
+                             i_leak_factor=I_LEAK_FACTOR_V[0])
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.use_steering_angle = self.torque_params.useSteeringAngle
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
-    self.paramsCount = 0
 
-    self.lateralTorqueCustom = int(Params().get("LateralTorqueCustom", encoding="utf8"))
-    self.lateralTorqueAccelFactor = float(int(Params().get("LateralTorqueAccelFactor", encoding="utf8")))*0.001
-    self.lateralTorqueFriction = float(int(Params().get("LateralTorqueFriction", encoding="utf8")))*0.001
+    # 커브 판정용 요구곡률 크기 필터 (0 = 직진)
+    self.curve_mag = 0.0
+
+    # ── 토크 튜닝을 Params 로 (carrot 방식). nTune 파일은 더 이상 쓰지 않는다 ──
+    self.params = Params()
+    self.frame = 0
+    self.lateral_torque_custom = 0
+    self.latAccelFactor_default = self.torque_params.latAccelFactor
+    self.friction_default = self.torque_params.friction
+    self.kp_default = self.torque_params.kp
+    self.ki_default = self.torque_params.ki
+    self.kf_default = self.torque_params.kf
+
+    # friction 입력 계수 (DH용 안전 시작값)
+    self.lat_accel_friction_factor = 0.7
+    self.lat_jerk_friction_factor = 0.2
+    self.desired_lat_jerk_time = 0.3
+    self.low_speed_curv_tau = 0.30       # s = LatLowSpeedCurvTauMs / 1000, 0 = 끔
+    self.low_speed_curv_filtered = 0.0
+    self.t_diffs = np.diff(T_IDXS)
+    self.friction_upper_idx = len(T_IDXS)
+    self.predicted_lateral_jerk = []
+    self.predicted_lateral_jerk_frame_id = -1
+    self.read_torque_params(force=True)
+
+  def reset(self):
+    super().reset()
+    # Do not carry steering learned before a stop into the next launch.
+    # Hyundai's command-side torque limiter will ramp the fresh output from 0.
+    self.pid.reset()
+    self.curve_mag = 0.0
+
+  def _pget(self, key, default):
+    try:
+      v = self.params.get(key, encoding="utf8")
+      return float(v) if v not in (None, "") else default
+    except Exception:
+      # unknown key (params.cc) or bad value: keep the default instead of stopping controlsd
+      return default
+
+  @property
+  def lateralTorqueCustom(self):
+    # controlsd skips the LiveTorque (torqued) values while manual torque values are used
+    return self.lateral_torque_custom
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
+    # LiveTorque (torqued) learned values, kept from the 2026-11-09 aPilot port
+    if self.lateral_torque_custom > 0:
+      return
     self.torque_params.latAccelFactor = latAccelFactor
     self.torque_params.latAccelOffset = latAccelOffset
     self.torque_params.friction = friction
 
-  def update_params(self):
-    self.paramsCount += 1
-    if self.paramsCount > 30:
-      self.paramsCount = 0
-    elif self.paramsCount == 10:
-      self.lateralTorqueCustom = int(Params().get("LateralTorqueCustom", encoding="utf8"))
-      self.lateralTorqueAccelFactor = float(int(Params().get("LateralTorqueAccelFactor", encoding="utf8")))*0.001
-      self.lateralTorqueFriction = float(int(Params().get("LateralTorqueFriction", encoding="utf8")))*0.001
-      if self.lateralTorqueCustom > 0:
-        self.torque_params.latAccelFactor = self.lateralTorqueAccelFactor
-        self.torque_params.friction = self.lateralTorqueFriction
+  def read_torque_params(self, force=False):
+    custom = int(self._pget("LateralTorqueCustom", 0))
+    prev_custom = getattr(self, "lateral_torque_custom", 0)
 
-  def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk):
-    self.update_params()
+    if custom > 0:
+      # 수동 토크값(설정 화면)만 사용한다. 자동 학습 경로는 제거되었다.
+      # Missing Params must preserve the active vehicle tune. Hard-coded
+      # generic fallbacks made Custom mode jump away from the Genesis DH tune.
+      self.torque_params.latAccelFactor = self._pget(
+        "LateralTorqueAccelFactor", round(self.latAccelFactor_default * 1000.0)) * 0.001
+      self.torque_params.friction = self._pget(
+        "LateralTorqueFriction", round(self.friction_default * 1000.0)) * 0.001
+      self.pid._k_p = [[0], [self._pget(
+        "LateralTorqueKpV", round(self.kp_default * 100.0)) * 0.01]]
+      self.pid._k_i = [[0], [self._pget(
+        "LateralTorqueKiV", round(self.ki_default * 100.0)) * 0.01]]
+      self.pid.k_f = self._pget(
+        "LateralTorqueKf", round(self.kf_default * 100.0)) * 0.01
+    elif prev_custom > 0 or force:
+      self.torque_params.latAccelFactor = self.latAccelFactor_default
+      self.torque_params.friction = self.friction_default
+      self.pid._k_p = [[0], [self.kp_default]]
+      self.pid._k_i = [[0], [self.ki_default]]
+      self.pid.k_f = self.kf_default
+    self.lateral_torque_custom = custom
+
+    self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
+    self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
+    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
+    self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
+    self.desired_lat_jerk_time = max(0.1, live_tune.steer_actuator_delay() + 0.3)
+    self.friction_upper_idx = next(
+      (i for i, t in enumerate(T_IDXS) if t > max(self.desired_lat_jerk_time, 0.1)),
+      len(T_IDXS))
+
+  def _update_curve_state(self, desired_curvature):
+    """요구곡률 크기를 비대칭 필터로 추종해 커브/직진 강도(0~1)를 만든다."""
+    target = abs(float(desired_curvature))
+    tau = CURVE_FILTER_RISE_TAU if target > self.curve_mag else CURVE_FILTER_FALL_TAU
+    alpha = min(1.0, DT_CTRL / tau)
+    self.curve_mag += alpha * (target - self.curve_mag)
+    return interp(self.curve_mag, CURVE_CURV_BP, [0.0, 1.0])
+
+  def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk, model_data=None):
+    self.frame += 1
+    if self.frame % 100 == 0:     # 1초 주기 라이브 반영
+      self.read_torque_params()
     pid_log = log.ControlsState.LateralTorqueState.new_message()
-    pid_log.latAccelFactor = self.torque_params.latAccelFactor
-    pid_log.friction = self.torque_params.friction
 
-    if not active:
+    if CS.vEgo < MIN_STEER_SPEED or not active:
       output_torque = 0.0
       pid_log.active = False
-      angle_steers_des = 0.
+      angle_steers_des = 0.0
+      # 비활성 구간에서 커브 상태를 들고 있으면 재인게이지 직후 직진에서도
+      # 커브용 강한 데드존이 걸린다.
+      self.curve_mag = 0.0
+      self.low_speed_curv_filtered = desired_curvature
     else:
+      steer_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
       if self.use_steering_angle:
-        actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
+        actual_curvature = steer_curvature
         curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
       else:
-        actual_curvature_vm = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo
-        actual_curvature = interp(CS.vEgo, [2.0, 5.0], [actual_curvature_vm, actual_curvature_llk])
+        actual_curvature = interp(CS.vEgo, [2.0, 5.0], [steer_curvature, actual_curvature_llk])
         curvature_deadzone = 0.0
       desired_lateral_accel = desired_curvature * CS.vEgo ** 2
 
       # desired rate is the desired rate of change in the setpoint, not the absolute desired curvature
-      # desired_lateral_jerk = desired_curvature_rate * CS.vEgo ** 2
+      #desired_lateral_jerk = desired_curvature_rate * CS.vEgo ** 2
       actual_lateral_accel = actual_curvature * CS.vEgo ** 2
       lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
       low_speed_factor = interp(CS.vEgo, LOW_SPEED_X, LOW_SPEED_Y)**2
-      setpoint = desired_lateral_accel + low_speed_factor * desired_curvature
+      # 극저속 출발 잔떨림만 걸러내고 회전은 건드리지 않는다:
+      #  - 1.5 m/s 이하에서만(2.5 m/s 까지 점감)
+      #  - 목표/필터 곡률이 모두 거의 직진(|k| < 0.02)일 때만 저역통과
+      #  - 그 외(회전 진입·진행 중)엔 목표 곡률을 그대로 사용
+      tau = interp(CS.vEgo, LOW_SPEED_FILTER_X, [self.low_speed_curv_tau, 0.0])
+      straight = (abs(desired_curvature) < LOW_SPEED_FILTER_CURV_MAX and
+                  abs(self.low_speed_curv_filtered) < LOW_SPEED_FILTER_CURV_MAX)
+      if tau > 0.0 and straight:
+        alpha = DT_CTRL / (tau + DT_CTRL)
+        self.low_speed_curv_filtered += alpha * (desired_curvature - self.low_speed_curv_filtered)
+        low_speed_curvature = self.low_speed_curv_filtered
+      else:
+        self.low_speed_curv_filtered = desired_curvature
+        low_speed_curvature = desired_curvature
+      setpoint = desired_lateral_accel + low_speed_factor * low_speed_curvature
       measurement = actual_lateral_accel + low_speed_factor * actual_curvature
+      error = setpoint - measurement
       gravity_adjusted_lateral_accel = desired_lateral_accel - params.roll * ACCELERATION_DUE_TO_GRAVITY
-      torque_from_setpoint = self.torque_from_lateral_accel(setpoint, self.torque_params, setpoint,
+      pid_log.error = self.torque_from_lateral_accel(error, self.torque_params, error,
                                                      lateral_accel_deadzone, friction_compensation=False)
-      torque_from_measurement = self.torque_from_lateral_accel(measurement, self.torque_params, measurement,
-                                                     lateral_accel_deadzone, friction_compensation=False)
-      pid_log.error = torque_from_setpoint - torque_from_measurement
-      ff = self.torque_from_lateral_accel(gravity_adjusted_lateral_accel, self.torque_params,
-                                          desired_lateral_accel - actual_lateral_accel,
-                                          lateral_accel_deadzone, friction_compensation=True)
 
-      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5
+      # ── friction 입력 : 횡가속도 오차 + 앞으로의 횡저크 (carrot 이식) ──
+      accel_error = desired_lateral_accel - actual_lateral_accel
+      lookahead_lateral_jerk = 0.0
+      # modelV2 updates at 20 Hz while lateral control runs at 100 Hz, so reuse
+      # one prediction for each model period. 실제 곡률 측정은 DH에 맞는 조향각
+      # 기반을 유지하되, friction 선행보상에는 모델의 예측 횡저크를 사용한다.
+      if model_data is not None and len(model_data.acceleration.y) >= len(T_IDXS):
+        try:
+          model_frame_id = int(model_data.frameId)
+          if model_frame_id != self.predicted_lateral_jerk_frame_id or \
+             len(self.predicted_lateral_jerk) != len(self.t_diffs):
+            self.predicted_lateral_jerk = get_predicted_lateral_jerk(
+              model_data.acceleration.y, self.t_diffs)
+            self.predicted_lateral_jerk_frame_id = model_frame_id
+          desired_lateral_jerk = (float(interp(self.desired_lat_jerk_time, T_IDXS, model_data.acceleration.y))
+                                  - desired_lateral_accel) / self.desired_lat_jerk_time
+          lookahead_lateral_jerk = get_lookahead_value(
+              self.predicted_lateral_jerk[LAT_PLAN_MIN_IDX:self.friction_upper_idx],
+              desired_lateral_jerk)
+          jerk_deadzone = get_center_jerk_deadzone(CS.vEgo, desired_lateral_accel)
+          lookahead_lateral_jerk = math.copysign(
+            max(abs(lookahead_lateral_jerk) - jerk_deadzone, 0.0),
+            lookahead_lateral_jerk)
+        except (ValueError, ZeroDivisionError):
+          lookahead_lateral_jerk = 0.0
+
+      friction_input = (self.lat_accel_friction_factor * accel_error
+                        + self.lat_jerk_friction_factor * lookahead_lateral_jerk)
+
+      ff = self.torque_from_lateral_accel(gravity_adjusted_lateral_accel, self.torque_params,
+                                          friction_input,
+                                          lateral_accel_deadzone, friction_compensation=True)
+      # pid.f = ff * k_f 이므로 k_f(TORQUE KF) 를 반영해 자른다.
+      ff_limit = (self.steer_max - FF_HEADROOM) / max(abs(self.pid.k_f), 1e-3)
+      ff = max(-ff_limit, min(ff_limit, ff))
+
+      # 소오차 구간 적분 동결(anti-windup): 추종이 거의 맞은 뒤에도 미세 +오차가
+      # 긴 커브 내내 적분에 쌓여 서서히 안쪽으로 파고드는 현상을 차단한다.
+      # error 는 횡가속도 오차의 토크 환산값(pid_log.error). 작은 잔차는 새 누적 정지.
+      # (이미 쌓인 적분은 pid.py 의 i_leak_factor 로 계속 흘러나간다)
+      #
+      # ★ 강도를 커브 정도에 따라 보간한다. 직진에서는 데드존을 거의 0 으로,
+      #   누설 시간상수를 길게 두어 정상상태 편차(캠버·얼라인먼트)를 적분이
+      #   메울 수 있게 한다. 커브에서는 종전 값 그대로 유지.
+      curve_ratio = self._update_curve_state(desired_curvature)
+      err_freeze_deadzone = interp(curve_ratio, [0.0, 1.0],
+                                   [ERR_FREEZE_DEADZONE_V[0], getattr(self, 'curve_i_deadzone', ERR_FREEZE_DEADZONE_V[1])])
+      self.pid.i_leak_factor = interp(curve_ratio, [0.0, 1.0], I_LEAK_FACTOR_V)
+
+      low_error = abs(pid_log.error) < err_freeze_deadzone
+      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5 or low_error
       output_torque = self.pid.update(pid_log.error,
                                       feedforward=ff,
                                       speed=CS.vEgo,
                                       freeze_integrator=freeze_integrator)
 
-      #C2#pid_log.active = True
-      #C2#pid_log.p = self.pid.p
-      #C2#pid_log.i = self.pid.i
-      #C2#pid_log.d = self.pid.d
-      #C2#pid_log.f = self.pid.f
-      #C2#pid_log.output = -output_torque
-      #C2#pid_log.actualLateralAccel = actual_lateral_accel
-      #C2#pid_log.desiredLateralAccel = desired_lateral_accel
-      #C2#pid_log.saturated = self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited)
-      self.latDebugText = 'latAccel={:1.3f},Friction={:1.3f}'.format(self.torque_params.latAccelFactor, self.torque_params.friction)
+      pid_log.active = True
+      pid_log.p = self.pid.p
+      pid_log.i = self.pid.i
+      pid_log.d = self.pid.d
+      pid_log.f = self.pid.f
+      pid_log.output = -output_torque
+      pid_log.actualLateralAccel = actual_lateral_accel
+      pid_log.desiredLateralAccel = desired_lateral_accel
+      pid_log.saturated = self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited)
+
       angle_steers_des = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll)) + params.angleOffsetDeg
 
-    # TODO left is positive in this convention
+    pid_log.latAccelFactor = self.torque_params.latAccelFactor
+    pid_log.latAccelOffset = self.torque_params.latAccelOffset
+    pid_log.friction = self.torque_params.friction
+
+    #TODO left is positive in this convention
     return -output_torque, angle_steers_des, pid_log

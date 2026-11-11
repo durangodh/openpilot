@@ -310,6 +310,13 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LateralTorqueCustom", PERSISTENT},
     {"LateralTorqueAccelFactor", PERSISTENT},
     {"LateralTorqueFriction", PERSISTENT},
+    {"LateralTorqueKpV", PERSISTENT},          // kp x100
+    {"LateralTorqueKiV", PERSISTENT},          // ki x100
+    {"LateralTorqueKf", PERSISTENT},           // kf x100
+    {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
+    {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
+    {"LatCurveIDeadzone", PERSISTENT},         // 커브 구간 적분 정지 기준 토크 x0.001
+    {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속 목표곡률 저역통과 시간상수 ms (0=끔)
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
     {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
