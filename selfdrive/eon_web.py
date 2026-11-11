@@ -1326,7 +1326,11 @@ class Handler(BaseHTTPRequestHandler):
       try:
         path_end = self.headers.get("X-HUD-Path-End", "1000")
         path_end = min(1000, int(path_end)) if re.fullmatch(r"[0-9]{1,4}", path_end) else 1000
-        frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end)
+        view = re.fullmatch(r"([0-9]{2,3})x([0-9]{2,3})", self.headers.get("X-HUD-View", ""))
+        view = (min(640, int(view.group(1))), min(640, int(view.group(2)))) if view else None
+        if view is not None and min(view) < 32:
+          view = None
+        frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end, view_size=view)
       except (ImportError, OSError, ValueError):
         frame = None
       if frame is None:

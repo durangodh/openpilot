@@ -28,9 +28,11 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class RoadPreviewClient {
-    private static final long FRAME_INTERVAL_MS = 340;
+    // The EON draws its road view at 10 fps; 5 fps keeps EON web CPU bounded.
+    private static final long FRAME_INTERVAL_MS = 200;
     private static final long MAX_FRAME_AGE_MS = 1200;
     private static final int MAX_JPEG_BYTES = 256 * 1024;
+    private static final int MAX_FRAME_SIDE = 640;
     private static final String PREFS = "road_preview";
     private static final String KEY_ALIAS = "remote_hud_road_preview";
     private static final String CIPHER = "AES/GCM/NoPadding";
@@ -163,7 +165,9 @@ final class RoadPreviewClient {
         return frame.bitmap;
     }
 
-    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, IntSupplier pathEnd) {
+    /** view is the HUD pane size; the EON sends its own screen cropped to that shape. */
+    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, IntSupplier pathEnd,
+             String view) {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         try {
             while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
@@ -177,7 +181,7 @@ final class RoadPreviewClient {
                 long start = SystemClock.elapsedRealtime();
                 long interval = FRAME_INTERVAL_MS;
                 try {
-                    Bitmap bitmap = fetch(target, start, pathEnd.getAsInt());
+                    Bitmap bitmap = fetch(target, start, pathEnd.getAsInt(), view);
                     if (bitmap != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
                         latest = new Frame(target, bitmap, start);
@@ -196,7 +200,7 @@ final class RoadPreviewClient {
         }
     }
 
-    private Bitmap fetch(Connection target, long start, int pathEnd) throws IOException {
+    private Bitmap fetch(Connection target, long start, int pathEnd, String view) throws IOException {
         URL url = new URL("http", target.address, 7000, "/api/road.jpg?hud=1");
         HttpURLConnection request = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
         try {
@@ -206,6 +210,7 @@ final class RoadPreviewClient {
             request.setUseCaches(false);
             request.setRequestProperty("Authorization", target.authorization);
             request.setRequestProperty("X-HUD-Path-End", Integer.toString(pathEnd));
+            request.setRequestProperty("X-HUD-View", view);
             if (request.getResponseCode() != HttpURLConnection.HTTP_OK
                     || !"image/jpeg".equalsIgnoreCase(request.getContentType())
                     || request.getContentLength() > MAX_JPEG_BYTES) return null;
@@ -223,8 +228,8 @@ final class RoadPreviewClient {
                 BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                if (options.outWidth <= 0 || options.outWidth > 480
-                        || options.outHeight <= 0 || options.outHeight > 360) return null;
+                if (options.outWidth <= 0 || options.outWidth > MAX_FRAME_SIDE
+                        || options.outHeight <= 0 || options.outHeight > MAX_FRAME_SIDE) return null;
                 options.inJustDecodeBounds = false;
                 return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
             }

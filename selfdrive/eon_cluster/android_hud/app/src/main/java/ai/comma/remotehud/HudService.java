@@ -380,6 +380,10 @@ public final class HudService extends Service {
     private Thread localMapThread;
     private volatile java.net.ServerSocket localMapServer;
     private volatile long lastLocalMapElapsed = 0L;
+    // 네이버 HUD 지도 모듈이 알려 주는 내 차 자리(지도 세로 천분율, 상대 방향 0.1도).
+    private volatile long naverCarElapsed = 0L;
+    private volatile int naverCarPlacement = -1;
+    private volatile int naverCarBearing = 0;
     private int usbErrorStreak;
     private long lastUsbErrorElapsed;
     private boolean usbReceiverRegistered;
@@ -1060,7 +1064,9 @@ public final class HudService extends Service {
                 / (HEIGHT - NAVI_ROAD_PREVIEW_TOP)));
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
                 () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress,
-                () -> naverMapOwnsEgo(state.get()) ? 1000 : pathEnd), "hud-road-preview");
+                () -> naverMapOwnsEgo(state.get()) ? 1000 : pathEnd,
+                (WIDTH - NAVI_DRIVE_LEFT) + "x" + Math.round(HEIGHT - NAVI_ROAD_PREVIEW_TOP)),
+                "hud-road-preview");
         roadPreviewThread.start();
         receiverThread.start();
         mapThread.start();
@@ -2110,6 +2116,10 @@ public final class HudService extends Service {
                     serveNaverCarIcon(client, in);
                     return;
                 }
+                if (tagEquals(tag, "CAR2")) {
+                    serveNaverCarPlacement(client, in);
+                    return;
+                }
                 if (!tagEquals(tag, "MAPL")) throw new Exception("bad local map tag");
                 int app = in.readUnsignedByte();
                 int length = in.readInt();
@@ -2191,6 +2201,32 @@ public final class HudService extends Service {
             out.flush();
             in.readFully(tag);
         } while (running.get() && tagEquals(tag, "CAR1"));
+    }
+
+    /**
+     * The Naver module reports where its camera keeps the car; the HUD then
+     * draws the driving-screen car there and the module hides Naver's icon.
+     */
+    private void serveNaverCarPlacement(Socket client, DataInputStream in) throws java.io.IOException {
+        client.setSoTimeout(2000);
+        DataOutputStream out = new DataOutputStream(client.getOutputStream());
+        byte[] tag = new byte[4];
+        try {
+            do {
+                int placement = in.readInt();
+                int bearing = in.readInt();
+                boolean draws = placement > 0 && placement < 1000
+                        && naviLayout && state.get().optInt("hudNavApp", 2) == 2;
+                naverCarPlacement = draws ? placement : -1;
+                naverCarBearing = Math.max(-1800, Math.min(1800, bearing));
+                naverCarElapsed = SystemClock.elapsedRealtime();
+                out.writeInt(draws ? 0 : -1);
+                out.flush();
+                in.readFully(tag);
+            } while (running.get() && tagEquals(tag, "CAR2"));
+        } finally {
+            naverCarPlacement = -1;
+        }
     }
 
     private static final ColorMatrixColorFilter NAVER_CAR_WHITE = new ColorMatrixColorFilter(
@@ -3066,6 +3102,7 @@ public final class HudService extends Service {
         if (naviLayout) {
             // 지도가 맨 아래, 그 위에 게이지·EON 박스, 그 위에 회전 안내·도착정보.
             drawMapImage(c, p, s, map);
+            drawNaverMapCar(c, p, s, mapForLayout(map));
             int drivingSave = c.save();
             Bitmap roadFrame = eonStale() ? null : roadPreview.currentFrame();
             drawDriving(c, p, s, roadFrame);
@@ -3255,6 +3292,53 @@ public final class HudService extends Service {
 
     private boolean naverMapOwnsEgo(JSONObject s) {
         return naviLayout && s.optInt("hudNavApp", 0) == 2;
+    }
+
+    /**
+     * 네이버 HUD 지도 위 내 차. 모듈의 지도 카메라는 내 차를 가로 가운데·세로
+     * naverCarPlacement 천분율에 둔다. 그 자리에 주행화면 내 차를 같은 그림·같은 크기
+     * (EGO_CAR_WIDTH)로 지도 마스크 위에 그린다. 바퀴 줄이 그 점에 닿게 하고 접지 그림자를
+     * 깔아 지도 위에 붙어 보이게 한다.
+     */
+    private void drawNaverMapCar(Canvas c, Paint p, JSONObject s, Bitmap map) {
+        int placement = naverCarPlacement;
+        if (placement <= 0 || !naverMapOwnsEgo(s) || map == null || map.isRecycled()
+                || !localMapFresh() || SystemClock.elapsedRealtime() - naverCarElapsed > 800L
+                || egoCar == null || egoCar.isRecycled()) {
+            return;
+        }
+        Rect source = mapSource(map);
+        if (source == null || source.width() <= 0 || source.height() <= 0) return;
+        float x = (map.getWidth() * 0.5f - source.left) / source.width() * NAVI_MAP_RIGHT;
+        float y = (map.getHeight() * placement / 1000f - source.top) / source.height() * HEIGHT;
+        if (x < 0f || x > NAVI_MAP_RIGHT || y < 0f || y > HEIGHT) return;
+
+        float width = EGO_CAR_WIDTH;
+        float height = egoCar.getHeight() * width / egoCar.getWidth();
+        // 그림 맨 아래 12% 는 바퀴·그림자 여백: 바퀴 줄이 내 차 위치에 오게 한다.
+        float bottom = y + height * 0.12f;
+        int save = c.save();
+        c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
+        c.rotate(naverCarBearing / 10f, x, y);
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.BLACK);
+        p.setAlpha(frameDark ? 120 : 80);
+        scratchRect.set(x - width * 0.56f, bottom - height * 0.11f, x + width * 0.56f, bottom + height * 0.06f);
+        c.drawOval(scratchRect, p);
+        p.setAlpha(255);
+        p.setFilterBitmap(true);
+        scratchRect.set(x - width * 0.5f, bottom - height, x + width * 0.5f, bottom);
+        c.drawBitmap(egoCar, null, scratchRect, p);
+        if (!eonStale() && s.optBoolean("drivingValid", true)) {
+            drawEgoBrakeLamps(c, p, scratchRect, s);
+            drawEgoTurnLamps(c, p, scratchRect, s);
+            if (s.optBoolean("leftBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, true, 1f);
+            if (s.optBoolean("rightBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, false, 1f);
+        }
+        p.setAlpha(255);
+        c.restoreToCount(save);
     }
 
     private float roadPreviewCarHeight() {

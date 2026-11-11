@@ -77,9 +77,12 @@ final class NaverHudMap {
 
     private final Handler imageHandler;
     private final NaverCarMarker carMarker = new NaverCarMarker();
-    private Object appliedCarIcon;
     private Object markerSource;
-    private boolean markerFailureLogged;
+    /** HUD 가 지도 위 내 차를 직접 그리는 중이라 HUD 지도의 위치 아이콘을 숨겼다. */
+    private boolean hiddenForHud;
+    /** 마지막 카메라가 내 차를 (0.5, PIVOT_Y) 에 두었는지와 그 방향. */
+    private boolean pivotCamera;
+    private double cameraBearing;
     private final AtomicReference<Bitmap> latest = new AtomicReference<>();
     private Object surface;          // MapSurface
     private Object hudMap;           // NaverMap
@@ -314,6 +317,8 @@ final class NaverHudMap {
     private void moveCamera(Object guided, Object camera) throws Exception {
         Object location = invoke(invoke(guided, "m0"), "getPosition");
         Class<?> positionType = camera.getClass();
+        pivotCamera = false;
+        cameraBearing = positionType.getField("bearing").getDouble(camera);
         if (location != null) {
             try {
                 Class<?> updateType = positionType.getClassLoader().loadClass("com.naver.maps.map.CameraUpdate");
@@ -326,6 +331,7 @@ final class NaverHudMap {
                 update = updateType.getMethod("q", android.graphics.PointF.class)
                         .invoke(update, new android.graphics.PointF(0.5f, PIVOT_Y));
                 call(hudMap, "Y0", new Class<?>[]{updateType}, update);
+                pivotCamera = true;
                 return;
             } catch (Throwable error) {
                 NaverHudLog.status("HUD map pivot camera: " + error);
@@ -362,55 +368,51 @@ final class NaverHudMap {
     private void copyLocation(Object guided) {
         Object src = invoke(guided, "m0"), dst = invoke(hudMap, "m0");
         if (src == null || dst == null) return;
-        copyProp(src, dst, "Visible", 1f, src);
+        if (markerSource != src) {
+            markerSource = src;
+            hiddenForHud = false;
+            copied.remove(src);
+        }
+        // 네비모드: 내 차는 HUD 가 지도 위 (0.5, PIVOT_Y) 자리에 주행화면과 같은 그림·크기로
+        // 직접 그린다. 지도 안에 넣으면 1080 폭 지도가 1536 으로 늘어나며 흐려지고, 야간 지도
+        // 마스크에 같이 어두워지고, 크기도 주행화면과 달랐다(2026-11-12). HUD 가 그린다고
+        // 답하는 동안만 HUD 지도의 위치 아이콘을 숨긴다(예전 HUD 면 원래 아이콘 그대로).
+        Object visible = invoke(src, "isVisible");
+        int placement = builtWide && pivotCamera && Boolean.TRUE.equals(visible)
+                ? Math.round(PIVOT_Y * 1000f) : -1;
+        int bearing = 0;
+        Object locationBearing = invoke(src, "getBearing");
+        if (locationBearing instanceof Number) {
+            double relative = ((Number) locationBearing).doubleValue() - cameraBearing;
+            relative = ((relative % 360d) + 540d) % 360d - 180d;
+            if (!Double.isNaN(relative)) bearing = (int) Math.round(relative * 10d);
+        }
+        boolean hudDraws = builtWide && carMarker.hudDraws(placement, bearing);
         copyProp(src, dst, "Position", 1f, src);
         copyProp(src, dst, "Bearing", 1f, src);
         copyProp(src, dst, "Anchor", 1f, src);
-        if (markerSource != src) {
-            markerSource = src;
-            appliedCarIcon = null;
-            copied.remove(src);
-        }
-        Bitmap car = builtWide ? carMarker.current() : null;
-        if (car != null && applyCarIcon(src, dst, car)) return;
-        if (appliedCarIcon != null) {
-            appliedCarIcon = null;
-            copied.remove(src);
-        }
         copyProp(src, dst, "Icon", 1f, src);
         copyProp(src, dst, "IconWidth", ratio, src);
         copyProp(src, dst, "IconHeight", ratio, src);
-    }
-
-    private boolean applyCarIcon(Object src, Object dst, Bitmap car) {
-        try {
-            Method original = getter(src.getClass(), "Icon");
-            if (original == null) return false;
-            Class<?> type = original.getReturnType();
-            Object icon = carMarker.overlay(type, car);
-            if (icon == null) return false;
-            if (icon == appliedCarIcon) return true;
-            Method setIcon = setter(dst.getClass(), "Icon", type);
-            Method setWidth = setter(dst.getClass(), "IconWidth", int.class);
-            Method setHeight = setter(dst.getClass(), "IconHeight", int.class);
-            if (setIcon == null || setWidth == null || setHeight == null) return false;
-            boolean first = appliedCarIcon == null;
-            appliedCarIcon = icon;
-            // Scale the body and its lamps together while preserving the map anchor.
-            int width = Math.round(car.getWidth() * 74f / 88f);
-            int height = Math.max(1, Math.round(car.getHeight() * 86f / 88f));
-            setWidth.invoke(dst, width);
-            setHeight.invoke(dst, height);
-            setIcon.invoke(dst, icon);
-            if (first) NaverHudLog.line("HUD car marker: vehicle icon active");
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            if (!markerFailureLogged) {
-                markerFailureLogged = true;
-                NaverHudLog.ex("HUD car marker unavailable", error);
+        if (hudDraws) {
+            if (!hiddenForHud) {
+                Method setVisible = setter(dst.getClass(), "Visible", boolean.class);
+                try {
+                    if (setVisible != null) setVisible.invoke(dst, false);
+                    hiddenForHud = true;
+                    NaverHudLog.line("HUD car marker: drawn by HUD");
+                } catch (ReflectiveOperationException | RuntimeException error) {
+                    NaverHudLog.ex("HUD car marker hide failed", error);
+                }
             }
-            return false;
+            return;
         }
+        if (hiddenForHud) {
+            hiddenForHud = false;
+            Map<String, Object> last = copied.get(src);
+            if (last != null) last.remove("Visible");
+        }
+        copyProp(src, dst, "Visible", 1f, src);
     }
 
     private void copyPaths(Object guided) throws Exception {
@@ -535,8 +537,9 @@ final class NaverHudMap {
         }
         try { if (reader != null) reader.close(); } catch (Throwable ignored) { }
         surface = hudMap = hudNative = null;
-        appliedCarIcon = null;
         markerSource = null;
+        hiddenForHud = false;
+        pivotCamera = false;
         reader = null;
         mirrors.clear();
         copied.clear();
