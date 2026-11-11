@@ -159,6 +159,55 @@ void __attribute__ ((noinline)) enable_fpu(void) {
 #define HEARTBEAT_IGNITION_CNT_ON 5U
 #define HEARTBEAT_IGNITION_CNT_OFF 2U
 
+#ifdef MCAN_GW_DIAG
+// Once a second on every bus (so whichever pair reaches the HUD side shows it in the
+// main panda's M-CAN log):
+//   0x7F0: [sending bus, rx bus0 (2 bytes), rx bus1 (2), rx bus2 (2), uptime low byte]
+//   0x7F1: [TEC can0, REC can0, TEC can1, REC can1, TEC can2, REC can2,
+//           LEC can0 | LEC can1 << 4, LEC can2 | BOFF can0..2 << 4]
+static uint16_t mcan_gw_sat16(uint32_t v) {
+  return (v > 0xFFFFU) ? 0xFFFFU : (uint16_t)v;
+}
+
+static void mcan_gw_diag_send(void) {
+  uint16_t rx[3];
+  for (int i = 0; i < 3; i++) {
+    rx[i] = mcan_gw_sat16(mcan_gw_rx_cnt[i]);
+    mcan_gw_rx_cnt[i] = 0U;
+  }
+  uint32_t esr[3];
+  for (int i = 0; i < 3; i++) {
+    esr[i] = cans[i]->ESR;
+  }
+  for (uint8_t bus = 0U; bus < 3U; bus++) {
+    CANPacket_t a = {0};
+    a.addr = 0x7F0U;
+    a.bus = bus;
+    a.data_len_code = 8U;
+    a.data[0] = bus;
+    for (int i = 0; i < 3; i++) {
+      a.data[1 + (2 * i)] = (uint8_t)(rx[i] >> 8);
+      a.data[2 + (2 * i)] = (uint8_t)(rx[i] & 0xFFU);
+    }
+    a.data[7] = (uint8_t)(uptime_cnt & 0xFFU);
+    can_send(&a, bus, true);
+
+    CANPacket_t b = {0};
+    b.addr = 0x7F1U;
+    b.bus = bus;
+    b.data_len_code = 8U;
+    for (int i = 0; i < 3; i++) {
+      b.data[2 * i] = (uint8_t)((esr[i] >> 16) & 0xFFU);        // TEC
+      b.data[(2 * i) + 1] = (uint8_t)((esr[i] >> 24) & 0xFFU);  // REC
+    }
+    b.data[6] = (uint8_t)(((esr[0] >> 4) & 0x7U) | (((esr[1] >> 4) & 0x7U) << 4));
+    b.data[7] = (uint8_t)(((esr[2] >> 4) & 0x7U) | (((esr[0] >> 2) & 1U) << 4) |
+                          (((esr[1] >> 2) & 1U) << 5) | (((esr[2] >> 2) & 1U) << 6));
+    can_send(&b, bus, true);
+  }
+}
+#endif
+
 // called at 8Hz
 uint8_t loop_counter = 0U;
 void tick_handler(void) {
@@ -169,6 +218,9 @@ void tick_handler(void) {
     // decimated to 1Hz
     if (loop_counter == 0U) {
       can_live = pending_can_live;
+#ifdef MCAN_GW_DIAG
+      mcan_gw_diag_send();
+#endif
 
       current_board->usb_power_mode_tick(uptime_cnt);
 
