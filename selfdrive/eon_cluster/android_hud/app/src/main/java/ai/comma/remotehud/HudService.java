@@ -120,6 +120,8 @@ public final class HudService extends Service {
     private static final float EGO_CAR_WIDTH = 94f;
     /** 자차 후미등 아래 방향지시등을 같은 주기로 점멸한다. */
     private static final long TURN_SIGNAL_BLINK_MS = 500L;
+    private static final String LEFT_BLINK_START = "hudLeftBlinkStart";
+    private static final String RIGHT_BLINK_START = "hudRightBlinkStart";
     /** 원래 HUD 크기를 유지한다. */
     private static final float TURN_LAMP_SCALE = 1.00f;
     // 야간 전조등 불빛: 자차 앞에서 도로 위로 퍼지는 두 줄기(좌/우 램프).
@@ -1186,11 +1188,15 @@ public final class HudService extends Service {
                         } catch (Exception auxiliaryError) {
                             android.util.Log.w("RemoteHudRx", "Navigation reply failed", auxiliaryError);
                         }
+                        long receivedAt = SystemClock.elapsedRealtime();
+                        JSONObject previous = !packet.getAddress().equals(eonAddress.get()) || eonStale()
+                                ? null : state.get();
+                        recordTurnSignalStarts(previous, decoded, receivedAt);
                         state.set(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonPort = packet.getPort();
-                        lastEonRxElapsed = SystemClock.elapsedRealtime();
+                        lastEonRxElapsed = receivedAt;
                         VoiceAssistant assistant = voice;
                         if (assistant != null) {
                             assistant.onTelemetry(decoded.optInt("voiceReq", -1), decoded.optString("voiceMode", "ai"));
@@ -2166,10 +2172,10 @@ public final class HudService extends Service {
                 flags = 0;
             }
             if (flags == 0 && !eonStale() && current.optBoolean("drivingValid", true)) {
-                boolean pulse = ((SystemClock.elapsedRealtime() / TURN_SIGNAL_BLINK_MS) & 1L) == 0L;
+                long now = SystemClock.elapsedRealtime();
                 flags = (current.optBoolean("brakeLights") ? 1 : 0)
-                        | (pulse && current.optBoolean("leftBlinker") ? 2 : 0)
-                        | (pulse && current.optBoolean("rightBlinker") ? 4 : 0)
+                        | (turnLampOn(current, LEFT_BLINK_START, now) ? 2 : 0)
+                        | (turnLampOn(current, RIGHT_BLINK_START, now) ? 4 : 0)
                         | (current.optBoolean("leftBsd") ? 8 : 0)
                         | (current.optBoolean("rightBsd") ? 16 : 0);
             }
@@ -4467,15 +4473,32 @@ public final class HudService extends Service {
                 Color.argb(125, 255, 18, 28), Color.argb(235, 255, 30, 42));
     }
 
-    /** 브레이크등 바로 아래에 원래 폭의 자연스러운 진한 노랑 방향지시등을 점멸한다. */
-    private void drawEgoTurnLamps(Canvas c, Paint p, RectF carRect, JSONObject s) {
-        if (((SystemClock.elapsedRealtime() / TURN_SIGNAL_BLINK_MS) & 1L) != 0L) {
-            return;
+    private static void recordTurnSignalStarts(JSONObject previous, JSONObject current, long now)
+            throws JSONException {
+        boolean left = current.optBoolean("leftBlinker", false);
+        boolean right = current.optBoolean("rightBlinker", false);
+        long leftStart = previous == null ? 0L : previous.optLong(LEFT_BLINK_START);
+        long rightStart = previous == null ? 0L : previous.optLong(RIGHT_BLINK_START);
+        // If hazard lamps join a single indicator, start both at the same phase.
+        if (left && right && (leftStart == 0L || rightStart == 0L)) {
+            leftStart = rightStart = now;
         }
-        if (s.optBoolean("leftBlinker", false)) {
+        current.put(LEFT_BLINK_START, left ? (leftStart == 0L ? now : leftStart) : 0L);
+        current.put(RIGHT_BLINK_START, right ? (rightStart == 0L ? now : rightStart) : 0L);
+    }
+
+    private static boolean turnLampOn(JSONObject current, String key, long now) {
+        long start = current.optLong(key);
+        return start > 0L && ((Math.max(0L, now - start) / TURN_SIGNAL_BLINK_MS) & 1L) == 0L;
+    }
+
+    /** 브레이크등 바로 아래에서 차량 신호의 시작 시각을 기준으로 깜박인다. */
+    private void drawEgoTurnLamps(Canvas c, Paint p, RectF carRect, JSONObject s) {
+        long now = SystemClock.elapsedRealtime();
+        if (turnLampOn(s, LEFT_BLINK_START, now)) {
             drawEgoTurnLamp(c, p, carRect, true);
         }
-        if (s.optBoolean("rightBlinker", false)) {
+        if (turnLampOn(s, RIGHT_BLINK_START, now)) {
             drawEgoTurnLamp(c, p, carRect, false);
         }
     }

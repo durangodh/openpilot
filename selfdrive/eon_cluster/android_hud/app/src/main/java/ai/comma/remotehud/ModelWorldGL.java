@@ -1278,14 +1278,22 @@ final class ModelWorldGL {
     /** The same BSD waves and warning triangle, scaled to fit a map marker. */
     static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left) {
         int save = canvas.save();
-        canvas.translate(left ? car.left : car.right, car.bottom - 7f);
-        // Leave vertical clearance below the arcs. The car occupies its own
-        // part of the bitmap and the warning stays on the detected side.
-        canvas.scale(left ? 0.26f : -0.26f, 0.26f);
+        float centerX = left ? car.left - 24f : car.right + 24f;
+        float centerY = car.centerY();
+        float radius = Math.min(19f, car.height() * 0.46f);
+        canvas.translate(centerX, centerY);
+        // Counter the Naver marker's 74:86 horizontal/vertical size multipliers.
+        canvas.scale(86f / 74f, 1f);
         paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(0f, 0f, radius, paint);
+        float scale = radius / 83f;
+        canvas.scale(left ? scale : -scale, scale);
+        canvas.translate(72f, 16f);
         paint.setColor(BSD_COLOR);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setAlpha(Math.round(255f * BSD_CORE_ALPHA));
+        paint.setAlpha(255);
         for (int i = 0; i < BSD_ARC_RADII.length; i++) {
             float radius = BSD_ARC_RADII[i];
             float ry = radius * BSD_ARC_SQUASH;
@@ -1304,7 +1312,6 @@ final class ModelWorldGL {
         triangle.lineTo(x + half, y + h * 0.5f);
         triangle.close();
         paint.setStrokeWidth(BSD_TRI_STROKE);
-        paint.setAlpha(Math.round(255f * BSD_TRI_ALPHA));
         canvas.drawPath(triangle, paint);
         canvas.drawLine(x, y - h * 0.16f, x, y + h * 0.12f, paint);
         float dot = BSD_TRI_STROKE * 0.6f;
