@@ -879,16 +879,41 @@ def route_paths():
   return routes
 
 
+def logger_is_stopped():
+  # A batteryless EON can lose power before loggerd removes its marker.
+  flag = RECORDING_FLAGS["routeLogging"]
+  try:
+    if flag.exists():
+      return False
+    for process in Path("/proc").iterdir():
+      if not process.name.isdecimal():
+        continue
+      try:
+        if (process / "comm").read_text().strip() == "loggerd":
+          return False
+      except (FileNotFoundError, ProcessLookupError):
+        continue
+    return not flag.exists()
+  except (OSError, UnicodeError):
+    return False
+
+
 def delete_route_paths(paths):
   finished = []
+  needs_stopped_logger = False
   for path in paths:
     try:
       names = os.listdir(path)
-      if not names or any(name.endswith(".lock") for name in names):
-        return None
     except FileNotFoundError:
       continue
+    locks = {name for name in names if name.endswith(".lock")}
+    if locks - {"rlog.bz2.lock"}:
+      return None
+    needs_stopped_logger |= not names or bool(locks)
     finished.append(path)
+
+  if needs_stopped_logger and not logger_is_stopped():
+    return None
 
   deleted = 0
   for path in finished:
@@ -905,7 +930,7 @@ def delete_route(route):
     return 400, "삭제할 주행을 목록에서 선택하세요."
   deleted = delete_route_paths(route_paths().get(route, []))
   if deleted is None:
-    return 409, "기록 파일이 아직 잠겨 있어 삭제하지 않았습니다."
+    return 409, "기록 파일이 잠겨 있습니다. 주행 로거를 끄고 기록이 종료된 뒤 다시 시도하세요."
   return 200, "주행 구간 {}개를 삭제했습니다.".format(deleted)
 
 
