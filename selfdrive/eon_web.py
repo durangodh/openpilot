@@ -1312,7 +1312,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"output": str(error)}, 503)
 
   def serve_get(self):
-    path = urlsplit(self.path).path
+    target = urlsplit(self.path)
+    path = target.path
     if path == "/":
       self.send_data(PAGE, "text/html; charset=utf-8")
     elif path == "/api/bt-remote":
@@ -1332,7 +1333,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(segments())
     elif path == "/api/road.jpg":
       try:
-        frame = self.server.road_preview.frame()
+        frame = self.server.road_preview.frame(hud=target.query == "hud=1")
       except (ImportError, OSError, ValueError):
         frame = None
       if frame is None:

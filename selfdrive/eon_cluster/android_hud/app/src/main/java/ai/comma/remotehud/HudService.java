@@ -213,6 +213,7 @@ public final class HudService extends Service {
      * 네비모드 비 내리는 효과(날씨 비·뇌우일 때만, 2026-10-18 요청). 오른쪽 주행 칸은 날씨
      * 패널 아래~도로 위 하늘, 지도는 위쪽만. 둘 다 아래로 갈수록 옅어져 사라진다.
      */
+    private static final float NAVI_ROAD_PREVIEW_TOP = 185f;
     private static final float NAVI_RAIN_DRIVE_TOP = 185f;
     private static final float NAVI_RAIN_DRIVE_BOTTOM = 480f;
     private static final float NAVI_RAIN_MAP_TOP = 0f;
@@ -357,6 +358,9 @@ public final class HudService extends Service {
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
+    private Thread roadPreviewThread;
+    private final RoadPreviewClient roadPreview = new RoadPreviewClient();
+    private final Paint roadPreviewPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private Thread mapThread;
     private Thread renderThread;
     private volatile Thread bootNavigationThread;
@@ -619,6 +623,7 @@ public final class HudService extends Service {
     private int configuredLayoutMode = 1;
     /** EON 이 정한 실제 배치: true 면 네비모드(지도 8 : 주행 2). */
     private boolean naviLayout;
+    private volatile boolean roadPreviewRequested;
     private boolean configuredNaviLayout;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
@@ -822,6 +827,10 @@ public final class HudService extends Service {
 
     private GpsSourceMonitor gpsSourceMonitor;
     private GpsSourceIcons gpsSourceIcons;
+
+    static String roadPreviewAddress() {
+        return "--".equals(lastEonAddress) ? "" : lastEonAddress;
+    }
 
     static String gpsSourceLabel() {
         HudService instance = activeInstance;
@@ -1039,6 +1048,9 @@ public final class HudService extends Service {
         }, "hud-stats");
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
         logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
+        roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
+                () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress), "hud-road-preview");
+        roadPreviewThread.start();
         receiverThread.start();
         mapThread.start();
         localMapThread.start();
@@ -2146,6 +2158,7 @@ public final class HudService extends Service {
             int requestedFps = Math.max(0,
                     Math.min(15, currentState.optInt("hudFps", 8)));
             if (requestedFps == 0) {
+                roadPreviewRequested = false;
                 if (configuredFps != 0) {
                     configuredFps = 0;
                     clearPhoneFrame();
@@ -2959,13 +2972,15 @@ public final class HudService extends Service {
 
         // 네비모드는 지도 화면(SCREEN MODE 1)일 때만. 디버그·주행리포트는 기존 배치.
         naviLayout = configuredNaviLayout && configuredScreenMode != 2 && configuredScreenMode != 3;
+        roadPreviewRequested = naviLayout;
         if (naviLayout) {
             // 지도가 맨 아래, 그 위에 게이지·EON 박스, 그 위에 회전 안내·도착정보.
             drawMapImage(c, p, s, map);
             int drivingSave = c.save();
-            drawDriving(c, p, s);
+            Bitmap roadFrame = eonStale() ? null : roadPreview.currentFrame();
+            drawDriving(c, p, s, roadFrame);
             c.restoreToCount(drivingSave);
-            drawNaviRain(c, p);
+            drawNaviRain(c, p, roadFrame != null);
             drawMapOverlays(c, p, s, lane, trafficSignal);
             drawNaviCongestion(c, p, s);
             drawNaviNoo(c, p, s);
@@ -2976,7 +2991,7 @@ public final class HudService extends Service {
             return;
         }
 
-        drawDriving(c, p, s);
+        drawDriving(c, p, s, null);
 
         if (configuredLayoutMode == 1) {
             JSONObject l = layout(s);
@@ -3148,19 +3163,34 @@ public final class HudService extends Service {
         text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
-    private void drawDriving(Canvas c, Paint p, JSONObject s) {
-        JSONObject l = layout(s);
-        // Keep transport health separate from vehicle-data health. The EON can
-        // remain reachable and continue serving the map while it is outside the
-        // vehicle and carState/controlsState are unavailable. In that case the
-        // driving panel must stay suppressed, but reporting a lost EON link is
-        // misleading because UDP and the map connection are still healthy.
-        boolean linkStale = eonStale();
-        boolean drivingValid = s.optBoolean("drivingValid", true);
-        boolean stale = linkStale || !drivingValid;
-        boolean worldValid = s.optBoolean("worldValid", true);
-        boolean enabled = !stale && s.optBoolean("enabled", false);
+    private void drawRoadPreview(Canvas c, Paint p, JSONObject s, Bitmap frame) {
+        int save = c.save();
+        c.clipRect(NAVI_DRIVE_LEFT, NAVI_ROAD_PREVIEW_TOP, WIDTH, HEIGHT);
+        float scale = Math.max((WIDTH - NAVI_DRIVE_LEFT) / (float) frame.getWidth(),
+                (HEIGHT - NAVI_ROAD_PREVIEW_TOP) / frame.getHeight());
+        float halfWidth = frame.getWidth() * scale / 2f;
+        float halfHeight = frame.getHeight() * scale / 2f;
+        float centerY = (HEIGHT + NAVI_ROAD_PREVIEW_TOP) / 2f;
+        scratchRect.set(NAVI_DRIVE_CX - halfWidth, centerY - halfHeight,
+                NAVI_DRIVE_CX + halfWidth, centerY + halfHeight);
+        c.drawBitmap(frame, null, scratchRect, roadPreviewPaint);
 
+        p.setShader(null);
+        p.setColorFilter(null);
+        if (egoCar != null && !egoCar.isRecycled()) {
+            float bottom = EGO_Y - NAVI_WORLD_LIFT;
+            float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
+            scratchRect.set(NAVI_DRIVE_CX - EGO_CAR_WIDTH / 2f, bottom - carHeight,
+                    NAVI_DRIVE_CX + EGO_CAR_WIDTH / 2f, bottom);
+            c.drawBitmap(egoCar, null, scratchRect, roadPreviewPaint);
+            drawEgoBrakeLamps(c, p, scratchRect, s);
+            drawEgoTurnLamps(c, p, scratchRect, s);
+        }
+        c.restoreToCount(save);
+    }
+
+    private void drawDrivingWorld(Canvas c, Paint p, JSONObject s, JSONObject l,
+                                  boolean stale, boolean worldValid, boolean enabled) {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231));
@@ -3269,9 +3299,30 @@ public final class HudService extends Service {
         if (columnSave >= 0) {
             c.restoreToCount(columnSave);
         }
+    }
+
+    private void drawDriving(Canvas c, Paint p, JSONObject s, Bitmap roadFrame) {
+        JSONObject l = layout(s);
+        // Keep transport health separate from vehicle-data health. The EON can
+        // remain reachable and continue serving the map while it is outside the
+        // vehicle and carState/controlsState are unavailable. In that case the
+        // driving panel must stay suppressed, but reporting a lost EON link is
+        // misleading because UDP and the map connection are still healthy.
+        boolean linkStale = eonStale();
+        boolean drivingValid = s.optBoolean("drivingValid", true);
+        boolean stale = linkStale || !drivingValid;
+        boolean worldValid = s.optBoolean("worldValid", true);
+        boolean enabled = !stale && s.optBoolean("enabled", false);
+
+        if (roadFrame == null) {
+            drawDrivingWorld(c, p, s, l, stale, worldValid, enabled);
+        }
         // 네비모드에서는 복원된 전체 화면 좌표에 하늘을 한 번 얹어 지도와
         // 오른쪽 주행 장면의 상단이 끊기지 않고 같은 하늘로 이어지게 한다.
         drawSkyBand(c, p);
+        if (roadFrame != null) {
+            drawRoadPreview(c, p, s, roadFrame);
+        }
 
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
@@ -7492,21 +7543,23 @@ public final class HudService extends Service {
         return d;
     }
 
-    private void drawNaviRain(Canvas c, Paint p) {
+    private void drawNaviRain(Canvas c, Paint p, boolean roadPreviewVisible) {
         if (weather == null || eonStale()) return;
         int icon = weather.icon();
         if (icon != WeatherService.ICON_RAIN && icon != WeatherService.ICON_THUNDER) return;
         float phase = (SystemClock.uptimeMillis() % NAVI_RAIN_FALL_MS) / (float) NAVI_RAIN_FALL_MS;
         int rgb = frameDark ? Color.rgb(184, 206, 232) : Color.rgb(225, 235, 250);
 
-        // 오른쪽 주행 칸 하늘: 살짝 어둡게 한 뒤 빗줄기.
-        p.setStyle(Paint.Style.FILL);
-        p.setShader(new LinearGradient(0f, NAVI_RAIN_DRIVE_TOP, 0f, NAVI_RAIN_DRIVE_BOTTOM,
-                Color.argb(55, 60, 72, 90), Color.argb(0, 60, 72, 90), Shader.TileMode.CLAMP));
-        c.drawRect(NAVI_DRIVE_LEFT, NAVI_RAIN_DRIVE_TOP, WIDTH, NAVI_RAIN_DRIVE_BOTTOM, p);
-        p.setShader(null);
-        drawRainDrops(c, p, NAVI_DRIVE_LEFT, WIDTH, NAVI_RAIN_DRIVE_TOP, NAVI_RAIN_DRIVE_BOTTOM,
-                NAVI_RAIN_DRIVE_DROPS, phase, rgb, 170, 0.6f);
+        if (!roadPreviewVisible) {
+            // 오른쪽 주행 칸 하늘: 살짝 어둡게 한 뒤 빗줄기.
+            p.setStyle(Paint.Style.FILL);
+            p.setShader(new LinearGradient(0f, NAVI_RAIN_DRIVE_TOP, 0f, NAVI_RAIN_DRIVE_BOTTOM,
+                    Color.argb(55, 60, 72, 90), Color.argb(0, 60, 72, 90), Shader.TileMode.CLAMP));
+            c.drawRect(NAVI_DRIVE_LEFT, NAVI_RAIN_DRIVE_TOP, WIDTH, NAVI_RAIN_DRIVE_BOTTOM, p);
+            p.setShader(null);
+            drawRainDrops(c, p, NAVI_DRIVE_LEFT, WIDTH, NAVI_RAIN_DRIVE_TOP, NAVI_RAIN_DRIVE_BOTTOM,
+                    NAVI_RAIN_DRIVE_DROPS, phase, rgb, 170, 0.6f);
+        }
         // 지도 위쪽: 지명이 읽히도록 더 옅게.
         drawRainDrops(c, p, 0f, NAVI_MAP_RIGHT, NAVI_RAIN_MAP_TOP, NAVI_RAIN_MAP_BOTTOM,
                 NAVI_RAIN_MAP_DROPS, phase, rgb, 140, 1f);
@@ -7828,6 +7881,7 @@ public final class HudService extends Service {
             }
         }
         interrupt(receiverThread);
+        interrupt(roadPreviewThread);
         interrupt(mapThread);
         interrupt(localMapThread);
         interrupt(renderThread);
@@ -7841,7 +7895,7 @@ public final class HudService extends Service {
     /** Wait off the Android main thread, then release objects no worker can still touch. */
     private void cleanupAfterWorkers() {
         if (display != null) display.close();
-        Thread[] workers = {receiverThread, mapThread, renderThread,
+        Thread[] workers = {receiverThread, roadPreviewThread, mapThread, renderThread,
                 statsThread, logUploadThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
         long deadline = SystemClock.elapsedRealtime() + 15_000L;
         boolean stopped = true;
