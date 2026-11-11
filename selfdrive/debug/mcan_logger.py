@@ -7,6 +7,10 @@ messages). Frames are written in candump -l format, which SavvyCAN and
 python-can read:
   (1700000000.123456) can1 4F1#0102030405060708
 
+Frames this panda sent itself come back from boardd as src bus+128 (sent) or bus+192
+(rejected by the panda safety); they are kept too, as can129 / can193 for bus 1, so our
+own HUD frames are in the log next to the AVN's.
+
 Run over SSH while openpilot is running (boardd publishes the frames):
   python3 selfdrive/debug/mcan_logger.py
 The files can be downloaded from http://<EON IP>:7714/trace.
@@ -51,6 +55,8 @@ def main():
   log_fn = os.path.join(args.dir, name + ".log")
   marks_fn = os.path.join(args.dir, name + "_marks.log")
   buses = set(args.bus)
+  # our own transmitted frames: returned (+128) and rejected (+192), see boardd panda.cc
+  buses |= {b + 128 for b in args.bus} | {b + 192 for b in args.bus}
 
   can_sock = messaging.sub_sock("can", conflate=False)
   count = 0
@@ -58,7 +64,8 @@ def main():
   with open(log_fn, "w") as log_f, open(marks_fn, "w", encoding="utf-8", errors="replace") as marks_f:
     if sys.stdin.isatty():
       threading.Thread(target=mark_reader, args=(marks_f,), daemon=True).start()
-    print(f"recording bus {sorted(buses)} to {log_fn}")
+    print(f"recording bus {sorted(args.bus)} (+ own sent {sorted(b + 128 for b in args.bus)}, "
+          f"rejected {sorted(b + 192 for b in args.bus)}) to {log_fn}")
     print("Enter = mark, Ctrl+C = stop")
 
     # logMonoTime -> wall clock, so marks and video can be lined up with frames
