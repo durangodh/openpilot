@@ -422,6 +422,49 @@ def _calib_pitch(live_calibration):
   return round(max(-0.15, min(0.15, pitch)), 4)
 
 
+def _road_camera(sm, model_valid, path_style):
+  """S9 가 도로 카메라 사진 위에 EON 화면과 같은 선을 직접 그리는 데 쓰는 값.
+
+  선 좌표(path/lanes/edges/lead)는 이미 패킷에 있다. 카메라 투영에는 캘리브레이션
+  roll/pitch/yaw 전체가, EON 과 같은 진하기에는 손대지 않은 차선 확률이 더 필요하다.
+  """
+  calibration = sm["liveCalibration"]
+  rpy = list(_field(calibration, "rpyCalib", []) or [])
+  if not model_valid or len(rpy) != 3 or not _stream_alive(sm, "liveCalibration", 100):
+    return None
+  model = sm["modelV2"]
+  probs = [round(max(0.0, min(1.0, _finite(prob))), 2)
+           for prob in list(_field(model, "laneLineProbs", []) or [])[:4]]
+  vision = 0.0
+  leads = list(_field(model, "leadsV3", []) or [])
+  if leads and _finite(_field(leads[0], "prob", 0.0)) > 0.5:
+    vision = _finite(_first(_field(leads[0], "x", []) or []))
+  status_color, width_cm = path_style
+  return {
+    "rpy": [round(_finite(value), 5) for value in rpy],
+    "lp": probs,
+    "lv": round(max(0.0, vision), 1),
+    "pc": 1 if status_color else 0,
+    "pw": width_cm,
+  }
+
+
+def _path_style(params):
+  """EON NvgWindow 와 같은 경로 설정: ShowPathStatusColor(기본 1), ShowPathWidth(cm, 기본 100)."""
+  try:
+    value = params.get("ShowPathStatusColor", encoding="utf8")
+    status_color = bool(int(value)) if value else True
+  except (TypeError, ValueError):
+    status_color = False
+  try:
+    value = params.get("ShowPathWidth", encoding="utf8")
+    width = int(value) if value else 100
+  except (TypeError, ValueError):
+    width = 100
+  width = width if width > 0 else 100
+  return status_color, max(30, min(150, width))
+
+
 def _remote_output_enabled(params):
   return params.get_bool(PARAM_ENABLED)
 
@@ -1023,7 +1066,7 @@ def _battery_voltage(sm):
   return round(millivolts / 1000.0, 1) if 5000.0 < millivolts < 20000.0 else -1.0
 
 
-def _packet(sm, noo_enabled, path_offset=0.0):
+def _packet(sm, noo_enabled, path_offset=0.0, path_style=(True, 100)):
   car_valid = _stream_ok(sm, "carState")
   car_control_valid = _stream_ok(sm, "carControl")
   controls_valid = _stream_ok(sm, "controlsState")
@@ -1273,6 +1316,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "edges": hud_edges,
     "lead": _lead(sm["radarState"], "leadOne") if radar_valid else None,
     "lead2": _lead(sm["radarState"], "leadTwo") if radar_valid else None,
+    "cam": _road_camera(sm, model_valid, path_style),
     # UI only: controls continue to consume radarState exactly as before.
   }
 
@@ -1312,6 +1356,7 @@ def main():
   next_probe = 0.0
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
+  path_style = _path_style(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = _telemetry_fps(configured_fps)
   # The asset thread checks for a new map file at the telemetry rate and
@@ -1336,13 +1381,14 @@ def main():
     if started >= next_param_read:
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
+      path_style = _path_style(params)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
       telemetry_fps = _telemetry_fps(configured_fps)
       map_server.set_poll_fps(telemetry_fps)
       next_param_read = started + 1.0
     sm.update(0)
     try:
-      packet = _packet(sm, noo_enabled, path_offset)
+      packet = _packet(sm, noo_enabled, path_offset, path_style)
       packet.update(nav_selection.telemetry())
       # EON Bluetooth remote (bt_remote): link state and the last command.
       remote = remote_status()

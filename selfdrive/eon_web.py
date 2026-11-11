@@ -1330,13 +1330,22 @@ class Handler(BaseHTTPRequestHandler):
         view = (min(640, int(view.group(1))), min(640, int(view.group(2)))) if view else None
         if view is not None and min(view) < 32:
           view = None
-        frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end, view_size=view)
+        headers = ()
+        if target.query == "hud=1" and self.headers.get("X-HUD-Overlay") == "0":
+          # S9 가 선을 직접 그린다: 선 없는 EON 화면 크롭과 그 위치·촬영 시각만 보낸다.
+          camera = self.server.road_preview.hud_camera(view)
+          frame = camera[0] if camera else None
+          if camera:
+            headers = (("X-EON-View", ",".join(map(str, camera[1]))), ("X-Frame-Time", str(camera[2])))
+        else:
+          frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end, view_size=view)
       except (ImportError, OSError, ValueError):
         frame = None
       if frame is None:
         self.send_json({"output": "전방 카메라 준비 중"}, 503)
       else:
-        self.send_data(frame, "image/jpeg")
+        self.begin(200, "image/jpeg", len(frame), extra_headers=headers)
+        self.wfile.write(frame)
     elif path.startswith("/api/replay/"):
       segment = path.rsplit("/", 1)[-1]
       if not SEGMENT.fullmatch(segment):

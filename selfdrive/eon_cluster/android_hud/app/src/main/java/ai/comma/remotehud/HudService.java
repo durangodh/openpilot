@@ -364,6 +364,11 @@ public final class HudService extends Service {
     private Thread receiverThread;
     private Thread roadPreviewThread;
     private final RoadPreviewClient roadPreview = new RoadPreviewClient();
+    private final RoadOverlay roadOverlay = new RoadOverlay();
+    private final RectF roadPreviewRect = new RectF();
+    // 도로 사진과 같은 순간의 선을 그리려고 최근 텔레메트리를 EON 시각("t")과 함께 둔다.
+    private final JSONObject[] telemetryHistory = new JSONObject[32];
+    private int telemetryHistoryNext;
     private final Paint roadPreviewPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private Thread mapThread;
     private Thread renderThread;
@@ -1199,6 +1204,7 @@ public final class HudService extends Service {
                                 ? null : state.get();
                         recordTurnSignalStarts(previous, decoded, receivedAt);
                         state.set(decoded);
+                        rememberTelemetry(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonPort = packet.getPort();
@@ -3104,7 +3110,7 @@ public final class HudService extends Service {
             drawMapImage(c, p, s, map);
             drawNaverMapCar(c, p, s, mapForLayout(map));
             int drivingSave = c.save();
-            Bitmap roadFrame = eonStale() ? null : roadPreview.currentFrame();
+            RoadPreviewClient.Frame roadFrame = eonStale() ? null : roadPreview.currentFrame();
             drawDriving(c, p, s, roadFrame);
             c.restoreToCount(drivingSave);
             drawNaviRain(c, p, roadFrame != null);
@@ -3345,7 +3351,38 @@ public final class HudService extends Service {
         return egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
     }
 
-    private void drawRoadPreview(Canvas c, Paint p, JSONObject s, Bitmap frame) {
+    private void rememberTelemetry(JSONObject decoded) {
+        synchronized (telemetryHistory) {
+            telemetryHistory[telemetryHistoryNext] = decoded;
+            telemetryHistoryNext = (telemetryHistoryNext + 1) % telemetryHistory.length;
+        }
+    }
+
+    /**
+     * 도로 사진을 찍은 EON 시각에 가장 가까운 텔레메트리. 사진(10fps)보다 최신 선을 그리면
+     * 멈춘 사진 위에서 선이 미끄러져 보인다(carrot-wip 이 같은 이유로 프레임마다 맞춘다).
+     */
+    private JSONObject telemetryAt(long eonTime, JSONObject fallback) {
+        if (eonTime <= 0L) return fallback;
+        JSONObject best = null;
+        long bestError = Long.MAX_VALUE;
+        synchronized (telemetryHistory) {
+            for (JSONObject candidate : telemetryHistory) {
+                if (candidate == null) continue;
+                long t = candidate.optLong("t", 0L);
+                if (t <= 0L) continue;
+                long error = Math.abs(t - eonTime);
+                if (error < bestError) {
+                    bestError = error;
+                    best = candidate;
+                }
+            }
+        }
+        return best != null && bestError <= 500L ? best : fallback;
+    }
+
+    private void drawRoadPreview(Canvas c, Paint p, JSONObject s, RoadPreviewClient.Frame preview) {
+        Bitmap frame = preview.bitmap;
         int save = c.save();
         c.clipRect(NAVI_DRIVE_LEFT, NAVI_ROAD_PREVIEW_TOP, WIDTH, HEIGHT);
         float scale = Math.max((WIDTH - NAVI_DRIVE_LEFT) / (float) frame.getWidth(),
@@ -3356,6 +3393,13 @@ public final class HudService extends Service {
         scratchRect.set(NAVI_DRIVE_CX - halfWidth, centerY - halfHeight,
                 NAVI_DRIVE_CX + halfWidth, centerY + halfHeight);
         c.drawBitmap(frame, null, scratchRect, roadPreviewPaint);
+        if (preview.crop != null) {
+            // 이온이 보낸 건 선 없는 사진이다. 그 순간의 텔레메트리로 이온과 같은 선을 그린다.
+            roadPreviewRect.set(scratchRect);
+            boolean ego = !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled();
+            float pathBottom = ego ? NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() : Float.NaN;
+            roadOverlay.draw(c, roadPreviewRect, preview.crop, telemetryAt(preview.eonTime, s), pathBottom);
+        }
 
         p.setShader(null);
         p.setColorFilter(null);
@@ -3483,7 +3527,7 @@ public final class HudService extends Service {
         }
     }
 
-    private void drawDriving(Canvas c, Paint p, JSONObject s, Bitmap roadFrame) {
+    private void drawDriving(Canvas c, Paint p, JSONObject s, RoadPreviewClient.Frame roadFrame) {
         JSONObject l = layout(s);
         // Keep transport health separate from vehicle-data health. The EON can
         // remain reachable and continue serving the map while it is outside the

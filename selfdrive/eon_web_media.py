@@ -8,7 +8,9 @@ import time
 from contextlib import ExitStack
 
 VIDEO_FILE = "qcamera.mp4"
-FRAME_INTERVAL = 1 / 5
+# 10 fps like the EON road view (NvgWindow frame_divider=2). The S9 draws the
+# lines itself, so a frame costs only a crop and a JPEG here.
+FRAME_INTERVAL = 1 / 10
 MAX_LOG_BYTES = 32 * 1024 * 1024
 MAX_REPLAY_SECONDS = 120
 
@@ -170,6 +172,7 @@ class RoadPreview:
     self.client = None
     self.frame_array = None
     self.camera_size = None
+    self.captured_ms = 0
     self.images = {}
     self.subscriber = None
     self.updated = 0
@@ -211,6 +214,7 @@ class RoadPreview:
     if raw.size < stride * height:
       return
     self.camera_size = (width, height)
+    self.captured_ms = int(time.time() * 1000)
     self.frame_array = raw[:stride * height].reshape(height, stride)
 
   def _image(self, box=None):
@@ -411,6 +415,36 @@ class RoadPreview:
         left = top = 0
       draw.text(((x0 + x1 - (right - left)) / 2 - left, (y0 + y1 - (bottom - top)) / 2 - top), text,
                 font=font, fill=(255, 255, 255, 255))
+
+  def hud_camera(self, view_size=None):
+    """EON-view camera crop without lines, for HUDs that draw the lines themselves.
+
+    Returns (jpeg, camera crop box, capture time in epoch ms) or None. The S9
+    projects the telemetry captured closest to that time onto this crop.
+    """
+    from common.transformations.camera import FOCAL
+
+    now = time.monotonic()
+    self.requested = now
+    if now - self.updated >= FRAME_INTERVAL:
+      self.updated = now
+      self.frame_array = None
+      self.images.clear()
+      self._capture()
+    if self.frame_array is None:
+      return None
+    view_size = view_size or HUD_VIEW_DEFAULT
+    variant = ("camera", view_size)
+    if variant not in self.images:
+      from PIL import Image
+      box, output, _origin, _scale = eon_view(self.camera_size, view_size, FOCAL)
+      image = self._image(box)
+      if image.size != output:
+        image = image.resize(output, Image.BILINEAR)
+      data = io.BytesIO()
+      image.save(data, "JPEG", quality=70)
+      self.images[variant] = (data.getvalue(), box, self.captured_ms)
+    return self.images[variant]
 
   def frame(self, hud=False, path_end=1000, view_size=None):
     now = time.monotonic()
