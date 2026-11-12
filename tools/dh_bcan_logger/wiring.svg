@@ -64,12 +64,13 @@
   <text x="796" y="287" font-size="14" font-weight="700">L</text>
   <rect x="782" y="330" width="80" height="50" fill="#90caf9" stroke="#1565c0"/>
   <text x="822" y="324" text-anchor="middle" font-size="12" fill="#0d47a1">DC 단자</text>
-  <text x="792" y="352" font-size="13" font-weight="700">GND</text>
+  <text x="792" y="352" font-size="13" fill="#888">GND ✕</text>
   <text x="792" y="372" font-size="13" fill="#888">VCC ✕</text>
   <rect x="890" y="222" width="110" height="40" rx="6" fill="#fff59d" stroke="#f9a825"/>
-  <text x="945" y="240" text-anchor="middle" font-size="12" font-weight="700">120Ω 점퍼</text>
-  <text x="945" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">ON</text>
+  <text x="945" y="240" text-anchor="middle" font-size="12" font-weight="700">CAN 120Ω 점퍼</text>
+  <text x="945" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">ON (기본 꺼짐)</text>
   <text x="945" y="290" text-anchor="middle" font-size="12" fill="#888">RS485 A/B 사용 안 함</text>
+  <text x="960" y="312" text-anchor="middle" font-size="12" fill="#1565c0">CAN 절연형 · GND 불필요</text>
   <rect x="980" y="330" width="74" height="40" rx="6" fill="#cfd8dc" stroke="#455a64"/>
   <text x="1017" y="355" text-anchor="middle" font-size="13" font-weight="700">USB-C</text>
 
@@ -86,9 +87,6 @@
   <!-- HS CANL -> board L -->
   <path d="M678 319 L760 319 L760 282 L782 282" fill="none" stroke="#1e88e5" stroke-width="5" stroke-linejoin="round"/>
   <text x="730" y="311" text-anchor="middle" font-size="12" font-weight="700">CANL</text>
-  <!-- conv GND -> board GND -->
-  <path d="M720 356 L782 356" fill="none" stroke="#212121" stroke-width="4" stroke-dasharray="8 5"/>
-  <text x="751" y="348" text-anchor="middle" font-size="11">GND 공통</text>
 
   <!-- 12V supply: drawn last with a white halo so crossings read as jumps -->
   <rect x="360" y="510" width="230" height="62" rx="8" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
@@ -103,14 +101,14 @@
   <text x="1000" y="536" text-anchor="middle" font-size="15" font-weight="700">노트북</text>
   <text x="1000" y="557" text-anchor="middle" font-size="12" fill="#444">시리얼 115200</text>
   <path d="M1017 370 L1017 510" fill="none" stroke="#455a64" stroke-width="5"/>
-  <text x="1008" y="445" text-anchor="end" font-size="12" font-weight="700">USB-C (전원+로그)</text>
+  <text x="1008" y="478" text-anchor="end" font-size="12" font-weight="700">USB-C (전원+로그)</text>
 
   <!-- Notes -->
   <g font-size="13" fill="#222">
     <text x="30" y="610" font-weight="700">확인 사항</text>
     <text x="30" y="633">• 펌웨어 맨 위: CAN_TX_PIN 15 · CAN_RX_PIN 16 · FT_EN_PIN -1 · FT_STB_PIN -1 (수신 전용, 차에 아무것도 안 보냄)</text>
-    <text x="30" y="655">• 변환기↔보드 고속 구간은 두 장치뿐이라 양쪽 종단(변환기 점퍼, 보드 120Ω) 모두 ON. 차량 B-CAN 쪽 저항은 손대지 않음</text>
-    <text x="30" y="677">• 전선은 자르지 말고 백프로빙/T-탭으로 분기. 보드 VCC·RS485·기존 M-CAN 변환기는 그대로 둠</text>
+    <text x="30" y="655">• 양쪽 종단(변환기 점퍼, 보드 CAN 120Ω) 모두 ON → 전원 끄고 변환기 고속 CANH–CANL 사이 약 60Ω이면 정상</text>
+    <text x="30" y="677">• 전선은 자르지 말고 백프로빙/T-탭으로 분기. 보드 DC 단자(VCC·GND)·RS485·기존 M-CAN 변환기는 연결 안 함</text>
     <text x="30" y="699">• 시동 ON·P단에서 s로 ID 확인 → n → l → r → x 를 2~3회 반복, 시리얼 내용을 통째로 보내기</text>
   </g>
 </svg>
