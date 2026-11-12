@@ -229,7 +229,9 @@ final class RoadOverlay {
             JSONArray p = points.optJSONArray(i);
             if (p == null || p.length() < 2) continue;
             px[pathCount] = (float) p.optDouble(0);
-            py[pathCount] = (float) p.optDouble(1);
+            // The packet's Y is left-positive (hud_geometry.normalize_geometry); ui.cc's
+            // calibrated frame is right-positive.
+            py[pathCount] = -(float) p.optDouble(1);
             pz[pathCount] = p.length() > 2 ? (float) p.optDouble(2) : 0f;
             pathCount++;
         }
@@ -272,7 +274,7 @@ final class RoadOverlay {
         for (int i = 0; points != null && i <= maxIdx && i < points.length() && count < MAX_POINTS; i++) {
             JSONArray p = points.optJSONArray(i);
             if (p == null || p.length() < 2) continue;
-            float x = (float) p.optDouble(0), y = (float) p.optDouble(1);
+            float x = (float) p.optDouble(0), y = -(float) p.optDouble(1);  // left-positive packet Y
             if (!(x >= 0f)) continue;
             // Lane lines and road edges come without z; modelV2 puts them on the road surface,
             // PATH_Z below the path's z (the car's own trajectory at camera height). Without it

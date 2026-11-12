@@ -3303,35 +3303,26 @@ public final class HudService extends Service {
 
     private float shownCarBearing = 0f;
     private long carBearingFrameMs = 0L;
-    private long carBearingJumpSinceMs = 0L;
 
     /**
-     * Naver's marker bearing turns the car smoothly. A sudden jump of more than 100 degrees
-     * (GPS heading noise at low speed, a momentary reversed marker) is held off until it
-     * persists for 1.5 s, so the car does not flip over and back.
+     * The Naver module's map camera follows the car (heading up), so the marker's bearing
+     * relative to the camera is near 0 and only swings a little in turns. Right after a
+     * navigation switch the camera bearing is not set yet and the relative bearing is the
+     * car's compass heading (the car lay on its side), and GPS noise can flip it. Only
+     * relative bearings within 45 degrees turn the car; anything larger counts as 0.
+     * Turns are smoothed and start from 0.
      */
     private float smoothedNaverCarBearing() {
         long now = SystemClock.elapsedRealtime();
         float target = naverCarBearing / 10f;
-        float dtSec = carBearingFrameMs == 0L ? 1f : Math.min(1f, (now - carBearingFrameMs) / 1000f);
-        boolean fresh = carBearingFrameMs == 0L || now - carBearingFrameMs > 2000L;
+        if (!(Math.abs(target) <= 45f)) target = 0f;
+        if (carBearingFrameMs == 0L || now - carBearingFrameMs > 2000L) shownCarBearing = 0f;
+        float dtSec = carBearingFrameMs == 0L ? 0f : Math.min(1f, (now - carBearingFrameMs) / 1000f);
         carBearingFrameMs = now;
-        if (fresh) {
-            shownCarBearing = target;
-            carBearingJumpSinceMs = 0L;
-            return shownCarBearing;
-        }
-        float diff = ((target - shownCarBearing) % 360f + 540f) % 360f - 180f;
-        if (Math.abs(diff) > 100f) {
-            if (carBearingJumpSinceMs == 0L) carBearingJumpSinceMs = now;
-            if (now - carBearingJumpSinceMs < 1500L) return shownCarBearing;
-        } else {
-            carBearingJumpSinceMs = 0L;
-        }
-        float maxStep = 180f * dtSec;  // at most 180 deg/s
-        float step = diff * Math.min(1f, dtSec * 8f);
-        step = Math.max(-maxStep, Math.min(maxStep, step));
-        shownCarBearing = ((shownCarBearing + step) % 360f + 540f) % 360f - 180f;
+        float diff = target - shownCarBearing;
+        float maxStep = 90f * dtSec;  // at most 90 deg/s
+        float step = diff * Math.min(1f, dtSec * 6f);
+        shownCarBearing += Math.max(-maxStep, Math.min(maxStep, step));
         return shownCarBearing;
     }
 
