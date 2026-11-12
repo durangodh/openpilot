@@ -31,6 +31,12 @@
 #define FT_EN_PIN 6
 #define FT_STB_PIN 7
 #define BOOT_BUTTON_PIN 0
+// CAN_ACK 0 (default): LISTEN_ONLY, the controller never drives the bus (no ACK, no error frames).
+// CAN_ACK 1: only for a store-and-forward converter (an MCU repeats each B-CAN frame on its high-speed
+//   side and waits for an ACK there). Symptom with 0: the same frames repeat endlessly or nothing
+//   arrives although the bit rate is right. 1 lets the controller ACK; it still has no TX queue, so it
+//   never sends data. Set 1 only after the bit rate is known (a wrong rate would send error frames).
+#define CAN_ACK 0
 // ----------------------------------------------------------------------------------------------
 
 struct Rate { const char *name; uint32_t brp; };  // brp 0: use the IDF preset for that name
@@ -67,8 +73,8 @@ static bool startCan(int i) {
     installed = false;
   }
   twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN,
-                                                        TWAI_MODE_LISTEN_ONLY);
-  g.tx_queue_len = 0;   // no transmit queue at all
+                                                        CAN_ACK ? TWAI_MODE_NORMAL : TWAI_MODE_LISTEN_ONLY);
+  g.tx_queue_len = 0;   // no transmit queue at all: data frames can never be sent
   g.rx_queue_len = 128;
   g.alerts_enabled = TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL;
   twai_timing_config_t t = timingFor(i);
@@ -301,8 +307,8 @@ static void help() {
   out("\nGenesis DH B-CAN listen-only logger (never transmits)\n"
       "  n baseline 5 s | l left 5 s | r right 5 s | x control 5 s (no lever) | s list IDs | c changes on/off | v all frames on/off\n"
       "  m marker (or BOOT button) | a bit-rate scan | b next bit rate | h help\n");
-  outf("  pins TX %d RX %d, bit rate %s, %s\n\n", CAN_TX_PIN, CAN_RX_PIN, RATES[rateIdx].name,
-       installed ? "running" : "NOT running");
+  outf("  pins TX %d RX %d, bit rate %s, %s, %s\n\n", CAN_TX_PIN, CAN_RX_PIN, RATES[rateIdx].name,
+       CAN_ACK ? "ACK on (converter mode)" : "listen-only", installed ? "running" : "NOT running");
 }
 
 void setup() {
