@@ -85,6 +85,7 @@ final class ModelWorldGL {
     private static final float BSD_TRI_STROKE = 4f;
     private static final float BSD_TRI_ALPHA = 225f / 255f;
     private static final int BSD_COLOR = Color.rgb(228, 62, 62);
+    private static final int BSD_ON_BLACK_COLOR = Color.rgb(255, 184, 28);
 
     /** 가드레일. 도로경계 바깥쪽에 세운다 — 위치는 모델 edges 그대로다. */
     private static final float RAIL_INSET = 0.34f;   // 경계선 바깥으로 밀어낼 거리(m)
@@ -1296,13 +1297,16 @@ final class ModelWorldGL {
         float scale = badgeRadius / 83f;
         canvas.scale(left ? scale : -scale, scale);
         canvas.translate(72f, 16f);
-        paint.setColor(BSD_COLOR);
+        // The red icon is lost on the black (day) badge: bright amber, thicker strokes there.
+        boolean blackBadge = !dark;
+        paint.setColor(blackBadge ? BSD_ON_BLACK_COLOR : BSD_COLOR);
         paint.setStyle(Paint.Style.STROKE);
         paint.setAlpha(255);
+        float boost = blackBadge ? 1.5f : 1f;
         for (int i = 0; i < BSD_ARC_RADII.length; i++) {
             float radius = BSD_ARC_RADII[i];
             float ry = radius * BSD_ARC_SQUASH;
-            paint.setStrokeWidth(7f - i);
+            paint.setStrokeWidth((7f - i) * boost);
             canvas.drawArc(-radius, -BSD_CORNER_DY - ry, radius, -BSD_CORNER_DY + ry,
                     BSD_ARC_A0, BSD_ARC_A1 - BSD_ARC_A0, false, paint);
         }
@@ -1316,7 +1320,7 @@ final class ModelWorldGL {
         triangle.lineTo(x - half, y + h * 0.5f);
         triangle.lineTo(x + half, y + h * 0.5f);
         triangle.close();
-        paint.setStrokeWidth(BSD_TRI_STROKE);
+        paint.setStrokeWidth(BSD_TRI_STROKE * boost);
         canvas.drawPath(triangle, paint);
         canvas.drawLine(x, y - h * 0.16f, x, y + h * 0.12f, paint);
         float dot = BSD_TRI_STROKE * 0.6f;
