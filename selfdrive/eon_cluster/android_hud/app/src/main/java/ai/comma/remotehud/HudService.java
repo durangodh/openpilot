@@ -2179,7 +2179,8 @@ public final class HudService extends Service {
         client.setSoTimeout(2000);
         DataOutputStream out = new DataOutputStream(client.getOutputStream());
         byte[] tag = new byte[4];
-        byte[][] variants = new byte[32][];
+        byte[][] variants = new byte[64][];
+        boolean sentDark = false;
         do {
             int previous = in.readInt();
             JSONObject current = state.get();
@@ -2196,10 +2197,14 @@ public final class HudService extends Service {
                         | (current.optBoolean("rightBsd") ? 16 : 0);
             }
             byte[] image = null;
-            if (flags >= 0 && flags != previous) {
-                image = variants[flags];
-                if (image == null) image = variants[flags] = makeNaverCarIcon(flags, current);
+            boolean dark = darkTheme();
+            boolean themeChanged = (flags & 24) != 0 && dark != sentDark;
+            if (flags >= 0 && (flags != previous || themeChanged)) {
+                int key = flags | (dark ? 32 : 0);
+                image = variants[key];
+                if (image == null) image = variants[key] = makeNaverCarIcon(flags, current, dark);
                 if (image == null) flags = -1;
+                else sentDark = dark;
             }
             out.writeInt(flags);
             out.writeInt(image == null ? 0 : image.length);
@@ -2243,7 +2248,7 @@ public final class HudService extends Service {
                     0f, 0f, 0f, 1f, 0f,
             });
 
-    private byte[] makeNaverCarIcon(int flags, JSONObject current) {
+    private byte[] makeNaverCarIcon(int flags, JSONObject current, boolean dark) {
         Bitmap icon;
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         synchronized (assetLock) {
@@ -2260,8 +2265,8 @@ public final class HudService extends Service {
             if ((flags & 1) != 0) drawEgoBrakeLamps(canvas, paint, bounds, current);
             if ((flags & 2) != 0) drawEgoTurnLamp(canvas, paint, bounds, true);
             if ((flags & 4) != 0) drawEgoTurnLamp(canvas, paint, bounds, false);
-            if ((flags & 8) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, true);
-            if ((flags & 16) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, false);
+            if ((flags & 8) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, true, dark);
+            if ((flags & 16) != 0) ModelWorldGL.drawMapBsd(canvas, paint, bounds, false, dark);
         }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try {
@@ -3340,8 +3345,8 @@ public final class HudService extends Service {
         if (!eonStale() && s.optBoolean("drivingValid", true)) {
             drawEgoBrakeLamps(c, p, scratchRect, s);
             drawEgoTurnLamps(c, p, scratchRect, s);
-            if (s.optBoolean("leftBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, true, 1f);
-            if (s.optBoolean("rightBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, false, 1f);
+            if (s.optBoolean("leftBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, true, 1f, frameDark);
+            if (s.optBoolean("rightBsd")) ModelWorldGL.drawMapBsd(c, p, scratchRect, false, 1f, frameDark);
         }
         p.setAlpha(255);
         c.restoreToCount(save);

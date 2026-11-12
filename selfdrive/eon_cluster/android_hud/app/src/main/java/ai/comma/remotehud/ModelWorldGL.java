@@ -1276,21 +1276,22 @@ final class ModelWorldGL {
     }
 
     /** The same BSD waves and warning triangle, scaled to fit a map marker. */
-    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left) {
+    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, boolean dark) {
         // Counter the Naver marker's 74:86 horizontal/vertical size multipliers.
-        drawMapBsd(canvas, paint, car, left, 86f / 74f);
+        drawMapBsd(canvas, paint, car, left, 86f / 74f, dark);
     }
 
-    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, float xStretch) {
+    /** Badge beside the map car: white by day, black at night, level with the car's rear. */
+    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, float xStretch, boolean dark) {
         int save = canvas.save();
         float centerX = left ? car.left - 24f : car.right + 24f;
-        float centerY = car.centerY();
         float badgeRadius = Math.min(19f, car.height() * 0.46f);
+        float centerY = Math.max(car.centerY(), car.bottom - badgeRadius - 1f);
         canvas.translate(centerX, centerY);
         canvas.scale(xStretch, 1f);
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.WHITE);
+        paint.setColor(dark ? Color.BLACK : Color.WHITE);
         canvas.drawCircle(0f, 0f, badgeRadius, paint);
         float scale = badgeRadius / 83f;
         canvas.scale(left ? scale : -scale, scale);
