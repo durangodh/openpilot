@@ -302,6 +302,87 @@ static void hyundai_community_mcan_answer(int addr) {
   }
 }
 
+// Genesis DH CGW1 (0x541) turn-signal request, enabled by CGW_BLINKER_PARAM (host cgw_blinker.py).
+// The DH has no turn-lamp command message, so the host asks for the lamp by imitating the
+// BCM's CGW1 status: lever side (TSigLHSw/RHSw) plus that side's lamp bit (TurnSigLh/Rh).
+// The host frame never goes on the bus. It is a command that may carry only those bits; the
+// newest one is held and, right behind every stock CGW1 (10 Hz), a copy of that stock frame
+// with the command's bits added is sent on bus 0, so ours never starts together with the BCM's.
+// Nothing is added while the stock frame shows hazard or the driver's lever, when the command
+// is older than 300 ms, or after 10 s of continuous requests until they pause for 1 s.
+#define CGW1_ADDR 0x541
+#define CGW_CMD_FRESH_US 300000U
+#define CGW_MAX_ACTIVE_US 10000000U
+#define CGW_GAP_US 1000000U
+static bool hyundai_community_cgw_tx = false;
+static bool hyundai_community_cgw_cmd_valid = false;
+static uint8_t hyundai_community_cgw_cmd_lever = 0U;  // byte 5: 0x04 left, 0x02 right
+static uint8_t hyundai_community_cgw_cmd_lamp2 = 0U;  // byte 2: 0x08 left lamp
+static uint8_t hyundai_community_cgw_cmd_lamp7 = 0U;  // byte 7: 0x40 right lamp
+static uint32_t hyundai_community_cgw_cmd_ts = 0U;
+static bool hyundai_community_cgw_seen = false;
+static uint32_t hyundai_community_cgw_series_ts = 0U;
+
+static bool hyundai_community_cgw_cmd_ok(CANPacket_t *to_send) {
+  bool ok = GET_LEN(to_send) == 8U;
+  if (ok) {
+    uint8_t lever = GET_BYTE(to_send, 5);
+    uint8_t lamp2 = GET_BYTE(to_send, 2);
+    uint8_t lamp7 = GET_BYTE(to_send, 7);
+    bool left = (lever == 0x04U) && ((lamp2 == 0U) || (lamp2 == 0x08U)) && (lamp7 == 0U);
+    bool right = (lever == 0x02U) && ((lamp7 == 0U) || (lamp7 == 0x40U)) && (lamp2 == 0U);
+    ok = (left || right) && (GET_BYTE(to_send, 0) == 0U) && (GET_BYTE(to_send, 1) == 0U) &&
+         (GET_BYTE(to_send, 3) == 0U) && (GET_BYTE(to_send, 4) == 0U) && (GET_BYTE(to_send, 6) == 0U);
+  }
+  return ok;
+}
+
+// Always returns 0: the command itself is never sent (the host sees it as rejected, bus + 192).
+static int hyundai_community_cgw_command(CANPacket_t *to_send, int bus) {
+  uint32_t now = microsecond_timer_get();
+  bool ok = hyundai_community_cgw_tx && (bus == 0) && !relay_malfunction && hyundai_community_cgw_cmd_ok(to_send);
+
+  // 10 s cap per continuous request series; a 1 s pause starts a new one.
+  bool continuing = hyundai_community_cgw_seen &&
+                    (get_ts_elapsed(now, hyundai_community_cgw_cmd_ts) < CGW_GAP_US);
+  if (!continuing) {
+    hyundai_community_cgw_series_ts = now;
+  }
+  ok = ok && (get_ts_elapsed(now, hyundai_community_cgw_series_ts) < CGW_MAX_ACTIVE_US);
+
+  // the CAN RX interrupt reads it (hyundai_community_cgw_answer)
+  ENTER_CRITICAL();
+  hyundai_community_cgw_seen = true;
+  hyundai_community_cgw_cmd_ts = now;
+  hyundai_community_cgw_cmd_valid = ok;
+  if (ok) {
+    hyundai_community_cgw_cmd_lever = GET_BYTE(to_send, 5);
+    hyundai_community_cgw_cmd_lamp2 = GET_BYTE(to_send, 2);
+    hyundai_community_cgw_cmd_lamp7 = GET_BYTE(to_send, 7);
+  }
+  EXIT_CRITICAL();
+  return 0;
+}
+
+static void hyundai_community_cgw_answer(CANPacket_t *stock) {
+  if (hyundai_community_cgw_tx && hyundai_community_cgw_cmd_valid && (GET_LEN(stock) == 8U)) {
+    if (get_ts_elapsed(microsecond_timer_get(), hyundai_community_cgw_cmd_ts) >= CGW_CMD_FRESH_US) {
+      hyundai_community_cgw_cmd_valid = false;
+    } else if (((GET_BYTE(stock, 4) & 0x06U) == 0U) && ((GET_BYTE(stock, 5) & 0x06U) == 0U)) {
+      // no hazard switch (byte 4 bits 1..2), no driver lever (byte 5 bits 1..2)
+      CANPacket_t echo;
+      (void)memcpy(&echo, stock, sizeof(CANPacket_t));
+      echo.returned = 0U;
+      echo.rejected = 0U;
+      echo.data[5] |= hyundai_community_cgw_cmd_lever;
+      echo.data[2] |= hyundai_community_cgw_cmd_lamp2;
+      echo.data[7] |= hyundai_community_cgw_cmd_lamp7;
+      can_send(&echo, 0U, true);
+    } else {
+    }
+  }
+}
+
 static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_allowed) {
   int tx = 1;
   int addr = GET_ADDR(to_send);
@@ -315,6 +396,10 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
       hyundai_community_mcan_remember(to_send, addr);
     }
     return mcan_ok;
+  }
+
+  if (addr == CGW1_ADDR) {
+    return hyundai_community_cgw_command(to_send, bus);
   }
 
   if (!msg_allowed(to_send, HYUNDAI_COMMUNITY_TX_MSGS, sizeof(HYUNDAI_COMMUNITY_TX_MSGS)/sizeof(HYUNDAI_COMMUNITY_TX_MSGS[0]))) {
@@ -457,6 +542,9 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   if (BUS1_IS_MCAN && (bus_num == 1)) {
     hyundai_community_mcan_answer(addr);
   }
+  if ((bus_num == 0) && (addr == CGW1_ADDR)) {
+    hyundai_community_cgw_answer(to_fwd);
+  }
   int fwd_to_bus1 = -1;
   if (Fwd_bus1 || Fwd_obd){fwd_to_bus1 = 1;}
 
@@ -521,6 +609,9 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
 
 static const addr_checks* hyundai_community_init(int16_t param) {
   hyundai_community_mcan_tx = (((uint16_t)param & MCAN_TX_PARAM) != 0U);
+  hyundai_community_cgw_tx = (((uint16_t)param & CGW_BLINKER_PARAM) != 0U);
+  hyundai_community_cgw_cmd_valid = false;
+  hyundai_community_cgw_seen = false;
   for (int i = 0; i < MCAN_ECHO_CNT; i++) {
     hyundai_community_mcan_echo_valid[i] = false;
   }

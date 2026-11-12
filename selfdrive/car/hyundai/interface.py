@@ -6,6 +6,7 @@ from cereal import car
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car.hyundai.mcan_hud import MCAN_TX_PARAM
+from selfdrive.car.hyundai.cgw_blinker import CGW_BLINKER_PARAM
 from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
 from selfdrive.eon_cluster.hud_remote import RemoteButtonSource
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
@@ -325,6 +326,9 @@ class CarInterface(CarInterfaceBase):
     # MAIN switch, so community safety must always be active for this model.
     # McanHudTbt: the panda opens MM-CAN (bus 1) for the stock-HUD TBT messages.
     safety_param = MCAN_TX_PARAM if Params().get_bool("McanHudTbt") else 0
+    # CgwBlinker: the panda echoes the host's CGW1 turn-signal request behind each stock CGW1 (cgw_blinker.py).
+    if Params().get_bool("CgwBlinker"):
+      safety_param |= CGW_BLINKER_PARAM
     ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, safety_param)]
     return ret
 

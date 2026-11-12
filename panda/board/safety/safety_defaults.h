@@ -16,6 +16,10 @@ int Last_StrColTq = 0;
 // safety lets only the stock-HUD turn-by-turn IDs out on it. Needs an MM-CAN
 // low-speed fault-tolerant <-> high-speed converter between the panda and the car.
 #define MCAN_TX_PARAM 0x0400
+// Safety param bit (host CgwBlinker): Genesis DH CGW1 (0x541) turn-signal request.
+// The host's command frame is held; panda adds its side/lamp bits to a copy of each
+// stock CGW1 and sends that right behind it on bus 0 (safety_hyundai_community.h).
+#define CGW_BLINKER_PARAM 0x0800
 
 const addr_checks default_rx_checks = {
   .check = NULL,

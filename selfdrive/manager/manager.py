@@ -185,6 +185,8 @@ def manager_init() -> None:
     ("LongitudinalActuatorDelayLowerBound", "50"),
     ("SoftHoldMode", "1"),
     ("McanHudTbt", "0"),
+    ("CgwBlinker", "0"),
+    ("CgwBlinkerTest", "0"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))

@@ -1002,6 +1002,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "McanHudTbt", "STOCK HUD NAVER TBT (M-CAN)",
       "켜짐: 네이버 회전 안내(화살표·거리·방면)를 순정 HUD 에 보냅니다. 판다와 차 M-CAN 사이에 저속(내결함)↔고속 CAN 변환기가 있어야 합니다. 변환기 없이 켜지 마세요(판다가 저속 M-CAN 에 직접 신호를 냄). 순정 내비는 목적지 없이 두세요. 재부팅 후 적용.",
       "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "CgwBlinker", "CGW1 BLINKER (TEST)",
+      "켜짐: 리모컨 등 오픈파일럿 차로변경 중 레버를 쓰지 않았으면, 순정 CGW1(0x541) 깜빡이 상태를 흉내 내 그 방향 깜빡이를 요청합니다(최대 10초). 판다가 순정 프레임 바로 뒤에 붙여 보냅니다. 실제 램프 점등은 미확인이니 아래 정차 시험부터 하세요. 비상등·레버 사용 중엔 보내지 않습니다. 재부팅 후 적용.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "CgwBlinkerTest", "CGW1 BLINKER PARKED TEST",
+      "0: 끔, 1: 왼쪽, 2: 오른쪽. CGW1 BLINKER를 켜고 재부팅한 뒤, P단·정차·오픈파일럿 해제 상태에서 3초간 깜빡이 요청을 보냅니다. 차 밖 램프와 계기판을 확인하세요. 다시 하려면 0으로 바꾼 뒤 선택. 재시작하면 0.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
