@@ -737,6 +737,12 @@ for (const [id, action, message] of [
         headers: {'X-EON-Action': action}});
       systemOutput.textContent = (await response.json()).output;
       if (!response.ok) button.disabled = false;
+      // The EON normally drops this page within seconds. If it is still answering after
+      // 60 s the reboot did not happen: unlock the button so it can be asked again.
+      else setTimeout(() => {
+        button.disabled = false;
+        systemOutput.textContent += '\n60초가 지나도 재부팅되지 않았습니다. 다시 시도할 수 있습니다.';
+      }, 60000);
     } catch (_) {
       systemOutput.textContent = 'EON 응답을 받지 못했습니다. 장치 화면에서 상태를 확인하세요.';
       button.disabled = false;
