@@ -208,7 +208,7 @@ class LatControlTorque(LatControl):
 
     self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
-    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
+    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
     self.desired_lat_jerk_time = max(0.1, live_tune.steer_actuator_delay() + 0.3)
     self.friction_upper_idx = next(
