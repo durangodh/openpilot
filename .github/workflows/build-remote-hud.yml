@@ -131,9 +131,6 @@ jobs:
           name: eon-remote-hud-s9-debug
           path: selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk
       - name: Publish in-app updater APK
-        if: >-
-          github.ref != 'refs/heads/g_web' ||
-          (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'HUD 도로화면: 이온은 사진만 보내고 선은 S20이 이온과 같은 방식으로 그림'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
