@@ -3336,6 +3336,77 @@ public final class HudService extends Service {
      * (EGO_CAR_WIDTH)로 지도 마스크 위에 그린다. 바퀴 줄이 그 점에 닿게 하고 접지 그림자를
      * 깔아 지도 위에 붙어 보이게 한다.
      */
+    /** Naver map car: 1.2x the driving-screen car, bright white body (2026-11-12 preview 3). */
+    private static final float NAVER_MAP_CAR_SCALE = 1.2f;
+    private static final ColorMatrixColorFilter NAVER_MAP_CAR_WHITE = new ColorMatrixColorFilter(
+            new float[] {
+                    1.6f, 0f, 0f, 0f, 25f,
+                    0f, 1.6f, 0f, 0f, 25f,
+                    0f, 0f, 1.6f, 0f, 25f,
+                    0f, 0f, 0f, 1f, 0f,
+            });
+    private Bitmap mapHeadlightBitmap;   // render thread only
+    private float mapHeadlightWidth = Float.NaN;
+    private float mapHeadlightLeft, mapHeadlightNear;
+
+    /**
+     * Night headlight beams in front of the Naver map car, the driving-screen shape scaled
+     * to the map car. Drawn inside the car's rotation so they turn with it. The blurred
+     * beams are built once into a bitmap relative to (car centre, car front).
+     */
+    private void drawMapHeadlights(Canvas c, Paint p, float cx, float carTop, float width) {
+        if (mapHeadlightBitmap == null || mapHeadlightBitmap.isRecycled() || mapHeadlightWidth != width) {
+            if (mapHeadlightBitmap != null && !mapHeadlightBitmap.isRecycled()) mapHeadlightBitmap.recycle();
+            mapHeadlightBitmap = null;
+            float reach = HEADLIGHT_REACH * width / EGO_CAR_WIDTH;
+            float pad = 28f;
+            float halfSpan = width * (0.30f + HEADLIGHT_SPREAD + HEADLIGHT_FAR_HALF * 0.5f) + pad;
+            int bw = (int) Math.ceil(2f * halfSpan) + 2;
+            int bh = (int) Math.ceil(reach + 2f * pad) + 2;
+            Bitmap bitmap;
+            try {
+                bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            } catch (Throwable t) {
+                return;
+            }
+            float mid = bw / 2f;
+            float nearY = pad + reach;
+            float farY = pad;
+            Canvas bc = new Canvas(bitmap);
+            Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bp.setStyle(Paint.Style.FILL);
+            bp.setMaskFilter(HEADLIGHT_BLUR);
+            bp.setShader(new LinearGradient(0f, nearY, 0f, farY,
+                    new int[]{Color.argb(135, 255, 243, 213), Color.argb(60, 255, 243, 213),
+                            Color.argb(25, 255, 243, 213), Color.argb(0, 255, 243, 213)},
+                    new float[]{0f, 0.35f, 0.70f, 1f}, Shader.TileMode.CLAMP));
+            Path path = new Path();
+            for (int side = -1; side <= 1; side += 2) {
+                float lamp = mid + side * width * 0.30f;
+                float drift = side * width * HEADLIGHT_SPREAD;
+                path.rewind();
+                path.moveTo(lamp - width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+                path.lineTo(lamp + width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+                path.lineTo(lamp + drift + width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+                path.lineTo(lamp + drift - width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+                path.close();
+                bc.drawPath(path, bp);
+            }
+            mapHeadlightBitmap = bitmap;
+            mapHeadlightWidth = width;
+            mapHeadlightLeft = mid;
+            mapHeadlightNear = nearY;
+        }
+        // nearY sits 6 px behind the car's front so the beams start under the bumper.
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setXfermode(HEADLIGHT_BLEND);
+        p.setAlpha(255);
+        p.setFilterBitmap(false);
+        c.drawBitmap(mapHeadlightBitmap, cx - mapHeadlightLeft, carTop + 6f - mapHeadlightNear, p);
+        p.setXfermode(null);
+    }
+
     private void drawNaverMapCar(Canvas c, Paint p, JSONObject s, Bitmap map) {
         int placement = naverCarPlacement;
         if (placement <= 0 || !naverMapOwnsEgo(s) || map == null || map.isRecycled()
@@ -3349,13 +3420,16 @@ public final class HudService extends Service {
         float y = (map.getHeight() * placement / 1000f - source.top) / source.height() * HEIGHT;
         if (x < 0f || x > NAVI_MAP_RIGHT || y < 0f || y > HEIGHT) return;
 
-        float width = EGO_CAR_WIDTH;
+        float width = EGO_CAR_WIDTH * NAVER_MAP_CAR_SCALE;
         float height = egoCar.getHeight() * width / egoCar.getWidth();
         // 그림 맨 아래 12% 는 바퀴·그림자 여백: 바퀴 줄이 내 차 위치에 오게 한다.
         float bottom = y + height * 0.12f;
         int save = c.save();
         c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
         c.rotate(smoothedNaverCarBearing(), x, y);
+        if (frameDark && s.optInt("hudHeadlights", 1) != 0) {
+            drawMapHeadlights(c, p, x, bottom - height, width);
+        }
         p.setShader(null);
         p.setColorFilter(null);
         p.setStyle(Paint.Style.FILL);
@@ -3366,7 +3440,9 @@ public final class HudService extends Service {
         p.setAlpha(255);
         p.setFilterBitmap(true);
         scratchRect.set(x - width * 0.5f, bottom - height, x + width * 0.5f, bottom);
+        p.setColorFilter(NAVER_MAP_CAR_WHITE);
         c.drawBitmap(egoCar, null, scratchRect, p);
+        p.setColorFilter(null);
         if (!eonStale() && s.optBoolean("drivingValid", true)) {
             drawEgoBrakeLamps(c, p, scratchRect, s);
             drawEgoTurnLamps(c, p, scratchRect, s);
