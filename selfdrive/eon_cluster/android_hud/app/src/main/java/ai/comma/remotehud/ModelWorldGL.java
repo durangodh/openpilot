@@ -1281,7 +1281,7 @@ final class ModelWorldGL {
         drawMapBsd(canvas, paint, car, left, 86f / 74f, dark);
     }
 
-    /** Badge beside the map car: white by day, black at night, level with the car's rear. */
+    /** Badge beside the map car: black by day, white at night, level with the car's rear. */
     static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, float xStretch, boolean dark) {
         int save = canvas.save();
         float centerX = left ? car.left - 24f : car.right + 24f;
@@ -1291,7 +1291,7 @@ final class ModelWorldGL {
         canvas.scale(xStretch, 1f);
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(dark ? Color.BLACK : Color.WHITE);
+        paint.setColor(dark ? Color.WHITE : Color.BLACK);
         canvas.drawCircle(0f, 0f, badgeRadius, paint);
         float scale = badgeRadius / 83f;
         canvas.scale(left ? scale : -scale, scale);
