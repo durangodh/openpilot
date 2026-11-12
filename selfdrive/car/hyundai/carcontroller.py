@@ -166,6 +166,8 @@ class CarController:
 
     torque_fault = lkas_active and self.angle_limit_counter > self.max_angle_frames
     lkas_active = lkas_active and not torque_fault
+    # the steering request actually sent to the MDPS (interface.py MDPS fault display)
+    self.lkas_request_sent = lkas_active
 
     if self.angle_limit_counter >= self.max_angle_frames + MAX_ANGLE_CONSECUTIVE_FRAMES:
       self.angle_limit_counter = 0

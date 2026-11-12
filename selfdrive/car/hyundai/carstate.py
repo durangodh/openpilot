@@ -215,6 +215,7 @@ class CarState(CarStateBase):
     self.mdps_bits = (int(cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"]),
                       int(cp_mdps.vl["MDPS12"]["CF_Mdps_ToiFlt"]),
                       int(cp_mdps.vl["MDPS12"]["CF_Mdps_FailStat"]))
+    self.mdps_toi_active = bool(cp_mdps.vl["MDPS12"]["CF_Mdps_ToiActive"])
     # Match aPilot c2-master: transient MDPS rejection does not make controlsd
     # drop latActive; the controller keeps sending and lets the MDPS recover.
     ret.steerFaultTemporary = False

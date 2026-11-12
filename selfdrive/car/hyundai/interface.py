@@ -387,13 +387,17 @@ class CarInterface(CarInterfaceBase):
     events = self.create_common_events(ret)
 
     # MDPS fault display only: steerFaultTemporary stays False (aPilot c2: latActive is kept
-    # and the MDPS recovers), so show the MDPS12 fault bits as a red warning instead. Two
-    # frames so a single-frame blip does not flash it.
-    if any(getattr(self.CS, "mdps_bits", (0, 0, 0))) and not ret.standstill:
+    # and the MDPS recovers). Warn only when steering has really stopped: we request torque
+    # but the MDPS does not take it (CF_Mdps_ToiActive 0) for 0.5 s. The MDPS12 fault bits
+    # alone also come on in hard turns while the MDPS keeps steering, so they no longer warn.
+    # The request is the one really sent last frame, so the high-angle release (MAX_ANGLE)
+    # does not count. Not while the driver turns the wheel (override) or at standstill.
+    if getattr(self.CC, "lkas_request_sent", False) and not getattr(self.CS, "mdps_toi_active", True) \
+        and not ret.standstill and not ret.steeringPressed:
       self.mdps_fault_frames += 1
     else:
       self.mdps_fault_frames = 0
-    if self.mdps_fault_frames >= 2:
+    if self.mdps_fault_frames >= 50:
       events.add(EventName.steerTempUnavailableSilent)
 
     # ---- apilot-c2 engagement model (ajouatom/openpilot apilot-c2) ----
