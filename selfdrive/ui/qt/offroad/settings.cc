@@ -1909,6 +1909,42 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0.000 ~ 1.000  /  Genesis G-MCAN 기본값: 0.098",
       "../assets/offroad/icon_openpilot.png", 0.0, 1.0, 0.001, 3, 0.098, this));
 
+  // 횡제어 토크(2026-11-09 이전 컨트롤러, c4e491f 복구) 세부값. KP/KI/KF 는 CUSTOM TORQUE=1 일 때만.
+  list->addItem(new ParamValueControlF("LateralTorqueKpV",
+      "TORQUE KP", "현재 조향오차 반응값(×0.01)입니다. 값 증가(+): 조향 반응이 강하고 빠름 / 값 감소(-): 부드럽고 느림. 기본값: 100 (=1.00, 차량 정의값과 동일).",
+      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 100, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKiV",
+      "TORQUE KI", "누적 조향오차 보정값(×0.01)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정.\n"
+      "값이 크면 긴 커브에서 적분이 쌓여 안쪽으로 파고들 수 있습니다.\n"
+      "DH 차량 정의 기본값: 10 (=0.10).",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKf",
+      "TORQUE KF", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100 (=1.00, 차량 정의값과 동일).",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
+
+  list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
+      "LAT ACCEL FRICTION FACTOR",
+      "횡가속도 오차를 마찰보상에 반영하는 비율(×0.01)입니다. 값 증가(+): 커브 조향 반응이 강해짐 / 값 감소(-): 부드러워짐. 기본값: 70.",
+      "../assets/offroad/icon_openpilot.png", 0, 300, 5, 0, 70, this));
+
+  list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
+      "LAT JERK FRICTION FACTOR",
+      "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 20.",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 20, this));
+
+  list->addItem(new ParamValueControlF("LatCurveIDeadzone",
+      "CURVE I DEADZONE (x0.001)",
+      "커브에서 이 값보다 작은 조향 오차는 적분(I)이 바로잡지 않습니다(토크 ×0.001). 값 감소(-): 긴 커브에서 더 돌거나 덜 도는 것을 적분이 서서히 바로잡음 / 값 증가(+): 적분 개입 줄임. 긴 커브에서 인코스로 파고들면 낮추고, 커브 중 핸들이 서서히 출렁이면 올리세요. 기본값: 20 (예전 70).",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 20, this));
+
+  list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
+      "LOW SPEED JITTER FILTER (ms)",
+      "5 km/h 이하, 거의 직진(반경 50 m 이상)일 때만 목표 곡률의 잔떨림을 걸러냅니다(9 km/h 까지 점감, 회전 중엔 자동 우회). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
+      "../assets/offroad/icon_openpilot.png", 0, 1000, 50, 0, 300, this));
+
+
   list->addItem(horizontal_line());
 
   list->addItem(horizontal_line());
