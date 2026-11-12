@@ -2254,7 +2254,7 @@ public final class HudService extends Service {
         synchronized (assetLock) {
             if (egoCar == null || egoCar.isRecycled()) return null;
             final int width = 88;
-            final int bsdPadding = 48;
+            final int bsdPadding = 72;
             int height = Math.max(1, Math.round(width * egoCar.getHeight() / (float) egoCar.getWidth()));
             icon = Bitmap.createBitmap(width + 2 * bsdPadding, height, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(icon);

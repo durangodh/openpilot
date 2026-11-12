@@ -1279,15 +1279,23 @@ final class ModelWorldGL {
     /** The same BSD waves and warning triangle, scaled to fit a map marker. */
     static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, boolean dark) {
         // Counter the Naver marker's 74:86 horizontal/vertical size multipliers.
-        drawMapBsd(canvas, paint, car, left, 86f / 74f, dark);
+        // The marker bitmap ends at the car's rear, so the badge stays inside it there.
+        drawMapBsd(canvas, paint, car, left, 86f / 74f, dark, false);
     }
 
-    /** Badge beside the map car: black by day, white at night, level with the car's rear. */
     static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, float xStretch, boolean dark) {
+        drawMapBsd(canvas, paint, car, left, xStretch, dark, true);
+    }
+
+    /** Badge beside the map car: black by day, white at night, low beside the car's rear. */
+    static void drawMapBsd(Canvas canvas, Paint paint, RectF car, boolean left, float xStretch, boolean dark,
+                           boolean belowRear) {
         int save = canvas.save();
-        float centerX = left ? car.left - 24f : car.right + 24f;
-        float badgeRadius = Math.min(19f, car.height() * 0.46f);
-        float centerY = Math.max(car.centerY(), car.bottom - badgeRadius - 1f);
+        float badgeRadius = Math.min(26f, car.height() * 0.6f);
+        float gap = badgeRadius * xStretch + 6f;
+        float centerX = left ? car.left - gap : car.right + gap;
+        float centerY = belowRear ? car.bottom - badgeRadius * 0.15f
+                : Math.max(car.centerY(), car.bottom - badgeRadius - 1f);
         canvas.translate(centerX, centerY);
         canvas.scale(xStretch, 1f);
         paint.setShader(null);
