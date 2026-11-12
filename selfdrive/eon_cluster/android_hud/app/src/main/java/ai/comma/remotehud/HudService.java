@@ -3301,6 +3301,40 @@ public final class HudService extends Service {
         text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
+    private float shownCarBearing = 0f;
+    private long carBearingFrameMs = 0L;
+    private long carBearingJumpSinceMs = 0L;
+
+    /**
+     * Naver's marker bearing turns the car smoothly. A sudden jump of more than 100 degrees
+     * (GPS heading noise at low speed, a momentary reversed marker) is held off until it
+     * persists for 1.5 s, so the car does not flip over and back.
+     */
+    private float smoothedNaverCarBearing() {
+        long now = SystemClock.elapsedRealtime();
+        float target = naverCarBearing / 10f;
+        float dtSec = carBearingFrameMs == 0L ? 1f : Math.min(1f, (now - carBearingFrameMs) / 1000f);
+        boolean fresh = carBearingFrameMs == 0L || now - carBearingFrameMs > 2000L;
+        carBearingFrameMs = now;
+        if (fresh) {
+            shownCarBearing = target;
+            carBearingJumpSinceMs = 0L;
+            return shownCarBearing;
+        }
+        float diff = ((target - shownCarBearing) % 360f + 540f) % 360f - 180f;
+        if (Math.abs(diff) > 100f) {
+            if (carBearingJumpSinceMs == 0L) carBearingJumpSinceMs = now;
+            if (now - carBearingJumpSinceMs < 1500L) return shownCarBearing;
+        } else {
+            carBearingJumpSinceMs = 0L;
+        }
+        float maxStep = 180f * dtSec;  // at most 180 deg/s
+        float step = diff * Math.min(1f, dtSec * 8f);
+        step = Math.max(-maxStep, Math.min(maxStep, step));
+        shownCarBearing = ((shownCarBearing + step) % 360f + 540f) % 360f - 180f;
+        return shownCarBearing;
+    }
+
     private boolean naverMapOwnsEgo(JSONObject s) {
         return naviLayout && s.optInt("hudNavApp", 0) == 2;
     }
@@ -3330,7 +3364,7 @@ public final class HudService extends Service {
         float bottom = y + height * 0.12f;
         int save = c.save();
         c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
-        c.rotate(naverCarBearing / 10f, x, y);
+        c.rotate(smoothedNaverCarBearing(), x, y);
         p.setShader(null);
         p.setColorFilter(null);
         p.setStyle(Paint.Style.FILL);
