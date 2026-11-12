@@ -274,7 +274,10 @@ final class RoadOverlay {
             if (p == null || p.length() < 2) continue;
             float x = (float) p.optDouble(0), y = (float) p.optDouble(1);
             if (!(x >= 0f)) continue;
-            float z = p.length() > 2 ? (float) p.optDouble(2) : roadZ(x);
+            // Lane lines and road edges come without z; modelV2 puts them on the road surface,
+            // PATH_Z below the path's z (the car's own trajectory at camera height). Without it
+            // they were projected at camera height, onto the horizon, and did not show.
+            float z = p.length() > 2 ? (float) p.optDouble(2) : roadZ(x) + PATH_Z;
             if (!project(x, y - yOff, z)) continue;
             float leftX = projected[0], leftY = projected[1];
             if (!project(x, y + yOff, z)) continue;

@@ -72,6 +72,22 @@ def eon_view(camera_size, view_size, focal):
   return (u0, v0, u1, v1), output, origin, scale
 
 
+def camera_view(camera_size, view_size):
+  """Full-height camera crop in the HUD pane's shape (the framing the HUD showed before
+  2026-11-12). The EON-screen zoom (eon_view) made the HUD's narrow pane show only the
+  middle of the EON view, about twice as large. Returns the crop and the output size."""
+  cam_w, cam_h = camera_size
+  aspect = view_size[0] / view_size[1]
+  crop_w, crop_h = min(cam_w, cam_h * aspect), min(cam_h, cam_w / aspect)
+  u0 = int(round((cam_w - crop_w) / 2))
+  v0 = int(round((cam_h - crop_h) / 2))
+  u1, v1 = int(round(u0 + crop_w)), int(round(v0 + crop_h))
+  native = (u1 - u0, v1 - v0)
+  fit = min(1.0, view_size[0] / native[0], view_size[1] / native[1])
+  output = (max(1, int(round(native[0] * fit))), max(1, int(round(native[1] * fit))))
+  return (u0, v0, u1, v1), output
+
+
 class EonProjector:
   """calib_frame_to_full_frame from selfdrive/ui/ui.cc, in EON screen pixels."""
 
@@ -437,7 +453,7 @@ class RoadPreview:
     variant = ("camera", view_size)
     if variant not in self.images:
       from PIL import Image
-      box, output, _origin, _scale = eon_view(self.camera_size, view_size, FOCAL)
+      box, output = camera_view(self.camera_size, view_size)
       image = self._image(box)
       if image.size != output:
         image = image.resize(output, Image.BILINEAR)
