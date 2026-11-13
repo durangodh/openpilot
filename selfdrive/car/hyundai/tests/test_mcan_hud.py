@@ -363,3 +363,18 @@ def test_no_arrived_flag_when_guidance_ends_far_from_the_goal():
   run(hud, nav(turn_type=13, dist=60.0), 50)
   msgs = run(hud, nav(fresh=False), 100, start=50)
   assert not any(a == TBT_ADDR for a, _, _ in msgs)
+
+
+def test_t_junction_from_lanes_without_a_lane_distance():
+  # 2026-11-13 photo: lanes U-turn+left, left, left, right before a right turn, no straight.
+  hud = McanHud()
+  state = dict(nav(turn_type=13, dist=113.0, text="오산"),
+               lane_current={"distance_m": 0, "dirs": [10, 2, 2, 4]})
+  tbt = [d for a, d, _ in run(hud, state, 10) if a == TBT_ADDR]
+  assert tbt and tbt[-1][1:3] == bytes([0x08, 0x10])
+  # far from the turn an undistanced lane list is not trusted: crossroads
+  hud = McanHud()
+  state = dict(nav(turn_type=13, dist=800.0, text="오산"),
+               lane_current={"distance_m": 0, "dirs": [1, 2, 4]})
+  run(hud, state, 10)
+  assert hud.junction is None

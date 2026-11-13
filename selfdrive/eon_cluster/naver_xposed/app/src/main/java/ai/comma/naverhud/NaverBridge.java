@@ -540,8 +540,16 @@ final class NaverBridge {
 
     private static String lane(Object item) {
         if (item == null) return "null";
-        List<?> lanes = asList(call(item, "i"));
+        // The lane list is k() (NaverViewImage.hasItems, the verified 6.11 lane view gate);
+        // i()/j() are kept for older versions. Reading i()/j() alone gave no lanes on 6.11, so
+        // every junction went out as a crossroads.
+        List<?> lanes = asList(call(item, "k"));
+        if (lanes.isEmpty()) lanes = asList(call(item, "i"));
         if (lanes.isEmpty()) lanes = asList(call(item, "j"));
+        if (!laneFieldsLogged && !lanes.isEmpty()) {
+            laneFieldsLogged = true;
+            NaverHudLog.line("lane-fields item=" + item + " | lane0=" + lanes.get(0));
+        }
         StringBuilder details = new StringBuilder("[");
         StringBuilder turns = new StringBuilder("[");
         StringBuilder available = new StringBuilder("[");
@@ -552,6 +560,9 @@ final class NaverBridge {
             boolean recommended = Boolean.TRUE.equals(call(entry, "getRecommend"));
             Object guide = call(entry, "getGuideSet");
             if (guide == null) guide = call(entry, "g");
+            // Unknown getter on this version: the lane's own text holds its arrow enum names
+            // (Naver enums print as "Left#1"), which laneDirs/laneTurn read the same way.
+            if (guide == null || NaverCodes.laneDirs(String.valueOf(guide)) == 0) guide = entry;
             int turn = NaverCodes.laneTurn(String.valueOf(guide));
             if (recommended) current = i + 1;
             if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
@@ -566,6 +577,7 @@ final class NaverBridge {
                 + ",\"available\":" + available.append(']') + ",\"dirs\":" + dirs.append(']') + "}";
     }
 
+    private static boolean laneFieldsLogged;
     private boolean signalLogged;
 
     /** 폰이 표시하는 신호(없으면 직진·유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
