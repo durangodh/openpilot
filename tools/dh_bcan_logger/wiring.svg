@@ -106,7 +106,7 @@
   <!-- Notes -->
   <g font-size="13" fill="#222">
     <text x="30" y="610" font-weight="700">확인 사항</text>
-    <text x="30" y="633">• 펌웨어 맨 위: CAN_TX_PIN 15 · CAN_RX_PIN 16 · FT_EN_PIN -1 · FT_STB_PIN -1 (수신 전용, 차에 아무것도 안 보냄)</text>
+    <text x="30" y="633">• 펌웨어는 기본값 그대로 업로드 (보드 CAN 단자 GPIO15/16, 수신 전용, 차에 아무것도 안 보냄)</text>
     <text x="30" y="655">• 양쪽 종단(변환기 점퍼, 보드 CAN 120Ω) 모두 ON → 전원 끄고 변환기 고속 CANH–CANL 사이 약 60Ω이면 정상</text>
     <text x="30" y="677">• 전선은 자르지 말고 백프로빙/T-탭으로 분기. 보드 DC 단자(VCC·GND)·RS485·기존 M-CAN 변환기는 연결 안 함</text>
     <text x="30" y="699">• 시동 ON·P단에서 s로 ID 확인 → n → l → r → x 를 2~3회 반복, 시리얼 내용을 통째로 보내기</text>

@@ -21,15 +21,14 @@
 #include <driver/twai.h>
 
 // ---- wiring ---------------------------------------------------------------------------------
-// Method 1 (default): TJA1055 (3.3 V logic, "T/3") module on the header pins.
-//   IO4 -> module TXD, IO5 <- module RXD. EN/STB on IO6/IO7 are driven HIGH (normal mode);
-//   tying them to 3.3 V on the module instead is also fine.
-// Method 2: low-speed <-> high-speed converter into the board's own CAN terminals:
-//   set CAN_TX_PIN 15, CAN_RX_PIN 16 and FT_EN_PIN/FT_STB_PIN -1.
-#define CAN_TX_PIN 4
-#define CAN_RX_PIN 5
-#define FT_EN_PIN 6
-#define FT_STB_PIN 7
+// Default: the board's own CAN terminals (Waveshare ESP32-S3-RS485-CAN: TX GPIO15, RX GPIO16),
+//   used by method 2 (low-speed <-> high-speed converter) and method 3 (board only, listen test).
+// Method 1: TJA1055 (3.3 V logic, "T/3") module on the header pins instead:
+//   CAN_TX_PIN 4, CAN_RX_PIN 5, FT_EN_PIN 6, FT_STB_PIN 7 (EN/STB driven HIGH = normal mode).
+#define CAN_TX_PIN 15
+#define CAN_RX_PIN 16
+#define FT_EN_PIN -1
+#define FT_STB_PIN -1
 #define BOOT_BUTTON_PIN 0
 // CAN_ACK 0 (default): LISTEN_ONLY, the controller never drives the bus (no ACK, no error frames).
 // CAN_ACK 1: only for a store-and-forward converter (an MCU repeats each B-CAN frame on its high-speed
