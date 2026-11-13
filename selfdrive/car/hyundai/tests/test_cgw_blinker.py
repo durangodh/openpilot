@@ -58,6 +58,17 @@ def test_parked_test_is_one_shot_three_seconds():
   assert run(b, 10, start=TEST_FRAMES + 301, test_selection=LEFT, parked=True)
 
 
+def test_parked_test_left_then_right_without_zero():
+  # the settings stepper passes through 1 on the way to 2
+  b = CgwBlinker()
+  run(b, 1, parked=True)
+  left = run(b, 30, start=1, test_selection=LEFT, parked=True)
+  right = run(b, 30, start=31, test_selection=RIGHT, parked=True)
+  assert left and all(m[2][5] == 0x04 for m in left.values())
+  assert right and all(m[2][5] == 0x02 for m in right.values())
+  assert right[min(right)][2][7] == 0x40  # right lamp bit, lamp on at the start
+
+
 def test_parked_test_stops_when_not_parked():
   b = CgwBlinker()
   run(b, 1, parked=True)

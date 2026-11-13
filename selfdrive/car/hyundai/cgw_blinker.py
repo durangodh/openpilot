@@ -51,19 +51,21 @@ class CgwBlinker:
   """Decides when to request the lamp: the parked test or an openpilot lane change without the lever."""
 
   def __init__(self):
-    self.test_armed = False
+    self.test_selection = 0
     self.test_dir = 0
     self.test_start = 0
     self.lane_dir = 0
     self.lane_start = 0
 
   def _test(self, frame, selection, parked):
+    # Every change to 1 or 2 starts one 3 s test. The settings stepper goes 0 -> 1 -> 2, so 1 -> 2
+    # must start the right test too (on the car, stepping to 2 through 1 started nothing).
+    changed = selection != self.test_selection
+    self.test_selection = selection
     if selection not in (LEFT, RIGHT):
-      self.test_armed = True   # back to 0 re-arms the one-shot test
       self.test_dir = 0
       return 0
-    if self.test_armed:
-      self.test_armed = False
+    if changed:
       self.test_dir = selection
       self.test_start = frame
     if self.test_dir != selection or not parked or frame - self.test_start >= TEST_FRAMES:
