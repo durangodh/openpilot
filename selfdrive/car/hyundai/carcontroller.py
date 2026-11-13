@@ -1,6 +1,6 @@
 from random import randint
 
-from cereal import car, log
+from cereal import car
 from common.realtime import DT_CTRL
 from common.numpy_fast import clip
 from selfdrive.car import apply_driver_steer_torque_limits
@@ -9,7 +9,6 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.mcan_hud import McanHud
-from selfdrive.car.hyundai.cgw_blinker import CgwBlinker
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -19,7 +18,6 @@ from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
-LaneChangeState = log.LateralPlan.LaneChangeState
 
 # Match aPilot c2-master: the EPS faults if torque is requested above about
 # 90 degrees for too long. Keep the request valid for 89 frames, then clear
@@ -102,9 +100,6 @@ class CarController:
     # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
     # when the same param was in the safety config at startup (interface.py).
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
-    # CGW1 turn-signal request (cgw_blinker.py). Panda only echoes it when CgwBlinker was on at startup.
-    self.cgw_blinker = CgwBlinker() if param.get_bool("CgwBlinker") else None
-    self.cgw_blinker_test = 0
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -218,28 +213,12 @@ class CarController:
       can_sends.extend(self.mcan_hud.update(self.frame, controls.cruise_helper.navigation_route.state,
                                             CS.out.vEgo))
 
-    if self.cgw_blinker is not None:
-      can_sends.extend(self.update_cgw_blinker(CC, CS, controls))
-
     new_actuators = actuators.copy()
     new_actuators.steer = apply_steer / self.params.STEER_MAX
     new_actuators.accel = self.accel
 
     self.frame += 1
     return new_actuators, can_sends
-
-  def update_cgw_blinker(self, CC, CS, controls):
-    if self.frame % 20 == 0:
-      self.cgw_blinker_test = self.op_params.get_int("CgwBlinkerTest")
-    parked = (CS.out.gearShifter == car.CarState.GearShifter.park and CS.out.standstill and
-              not (CC.enabled or CC.latActive or CC.longActive))
-    lane_dir = 0
-    if CC.latActive and CS.out.gearShifter == car.CarState.GearShifter.drive:
-      plan = controls.sm['lateralPlan']
-      if plan.laneChangeState != LaneChangeState.off:
-        lane_dir = int(plan.laneChangeDirection)  # 1 left, 2 right
-    return self.cgw_blinker.update(self.frame, self.cgw_blinker_test, parked, lane_dir,
-                                   CS.cgw_hazard, CS.cgw_lever_left, CS.cgw_lever_right)
 
   def update_auto_resume(self, CC, CS, clu11_speed, can_sends):
     # CC.cruiseControl.resume is already gated by enabled, standstill and

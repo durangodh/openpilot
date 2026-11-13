@@ -181,10 +181,6 @@ class CarState(CarStateBase):
     ret.yawRate = cp.vl["ESP12"]["YAW_RATE"]
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"],
                                                             cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
-    # CGW1 switch states for the CGW1 blinker request (cgw_blinker.py): never add to hazard or the driver's lever.
-    self.cgw_hazard = bool(cp.vl["CGW1"]["CF_Gway_HazardSw"])
-    self.cgw_lever_left = bool(cp.vl["CGW1"]["CF_Gway_TSigLHSw"])
-    self.cgw_lever_right = bool(cp.vl["CGW1"]["CF_Gway_TSigRHSw"])
     # DH model years expose manual/AUTO exterior-lamp activity on different
     # gateway variants.  OR the actual low beam with every available tail
     # activity source so a manually selected lamp is not missed.
@@ -440,9 +436,6 @@ class CarState(CarStateBase):
       ("CF_Gway_RRDrSw", "CGW2"),        # Rear right door
       ("CF_Gway_TurnSigLh", "CGW1"),
       ("CF_Gway_TurnSigRh", "CGW1"),
-      ("CF_Gway_HazardSw", "CGW1"),
-      ("CF_Gway_TSigLHSw", "CGW1"),
-      ("CF_Gway_TSigRHSw", "CGW1"),
       ("CF_Gway_HeadLampLow", "CGW1"),
       ("CF_Gway_AvTail", "CGW2"),
       ("CF_Gway_ExtTailAct", "CGW2"),
