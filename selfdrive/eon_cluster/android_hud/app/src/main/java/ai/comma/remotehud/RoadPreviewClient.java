@@ -28,9 +28,10 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class RoadPreviewClient {
-    // The EON draws its road view at 10 fps. It now only crops and encodes the
-    // camera; the HUD phone draws the lines (RoadOverlay), so match 10 fps.
-    private static final long FRAME_INTERVAL_MS = 100;
+    // 4 fps, as the EON now serves it. At 10 fps the phone's Wi-Fi traffic broke up its
+    // Bluetooth audio (navi voice, music; 2026-11-14). The HUD phone draws the lines
+    // (RoadOverlay) from telemetry matched to each photo, so they stay smooth.
+    private static final long FRAME_INTERVAL_MS = 250;
     private static final long MAX_FRAME_AGE_MS = 1200;
     private static final int MAX_JPEG_BYTES = 256 * 1024;
     private static final int MAX_FRAME_SIDE = 640;
