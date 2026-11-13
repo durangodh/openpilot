@@ -82,6 +82,13 @@ SIDE_TURN = 0x0811         # the AVN's most common intersection-shape value for 
 SIDE_EXIT = 0x0003         # the AVN's exit/ramp shape ("r", 북오산IC 07:17, dir 3)
 BAR_NONE = 0xF
 ARRIVED_DIST_M = 15
+# Naver ends its guidance near the goal ("목적지 부근") before the car is within
+# ARRIVED_DIST_M, so the arrived flag never went out and the HUD went back to the AVN's
+# idle screen. Guidance that stops within ARRIVE_END_M of the goal shows the flag for
+# ARRIVED_HOLD_FRAMES like the AVN's arrival screen.
+ARRIVE_END_M = 200
+ARRIVED_HOLD_FRAMES = 500  # 5 s at 100 Hz
+ARRIVED_PAYLOAD = bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
 SEND_PERIOD_FRAMES = 5     # 20 Hz from the 100 Hz carcontroller (panda echo freshness 300 ms)
 
 # turn_type (TMAP codes; the Naver and Kakao modules map theirs onto them)
@@ -118,7 +125,7 @@ LANE_MATCH_M = 50
 TURN_ARRIVE = (2, 201)
 
 # The AVN's 0x123 bar is 0 % with keep-going (65-72) and EXIT sign frames (10-31..11-02 logs).
-BAR_EMPTY_DISPLAYS = (DISPLAY_STRAIGHT, 66, 67, 70, 72, DISPLAY_HIGHWAY_EXIT)
+BAR_EMPTY_DISPLAYS = (DISPLAY_STRAIGHT, 66, 67, 70, 72, DISPLAY_HIGHWAY_EXIT, DISPLAY_ARRIVED)
 
 # Fallback stock bytes 0-6 of 0x123 until the AVN's own frame has been seen.
 BAR_PREFIX_DEFAULT = bytes.fromhex("000000c0ffff0f")
@@ -354,6 +361,8 @@ class McanHud:
     self.cur_exit = False
     self.shown = False          # the current turn is drawn (not the keep-going preview)
     self.junction = None        # junction shape from the navi's lanes at this turn
+    self.goal_frame = None      # last frame guidance was to the goal within ARRIVE_END_M
+    self.arrived_until = -1     # arrived flag held after the guidance ended at the goal
 
   def _queue_text(self, text):
     self.text = text
@@ -424,6 +433,21 @@ class McanHud:
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
       rerouting = True
+
+    if payload is not None and payload[0] in (DISPLAY_DEST_AHEAD, DISPLAY_ARRIVED) \
+        and dist <= ARRIVE_END_M:
+      self.goal_frame = frame
+      self.arrived_until = -1
+    elif payload is None and self.goal_frame is not None:
+      if frame - self.goal_frame <= 100:
+        self.arrived_until = frame + ARRIVED_HOLD_FRAMES
+      self.goal_frame = None
+    elif payload is not None:
+      self.goal_frame = None
+      self.arrived_until = -1
+    if payload is None and frame < self.arrived_until:
+      payload = ARRIVED_PAYLOAD
+      text = ""
 
     if payload is None:
       if self.active:
