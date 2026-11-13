@@ -1067,6 +1067,7 @@ public final class HudService extends Service {
         int pathEnd = egoCar == null ? 1000 : Math.max(0, Math.round(1000f
                 * (NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() - NAVI_ROAD_PREVIEW_TOP)
                 / (HEIGHT - NAVI_ROAD_PREVIEW_TOP)));
+        roadPreview.setLightDetector(new TrafficLightDetector(this));
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
                 () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress,
                 () -> naverMapOwnsEgo(state.get()) ? 1000 : pathEnd,
@@ -3505,6 +3506,7 @@ public final class HudService extends Service {
             boolean ego = !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled();
             float pathBottom = ego ? NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() : Float.NaN;
             roadOverlay.draw(c, roadPreviewRect, preview.crop, telemetryAt(preview.eonTime, s), pathBottom);
+            drawTrafficLightTest(c, p, roadPreviewRect, preview.light);
         }
 
         p.setShader(null);
@@ -3519,6 +3521,36 @@ public final class HudService extends Service {
             drawEgoTurnLamps(c, p, scratchRect, s);
         }
         c.restoreToCount(save);
+    }
+
+    /**
+     * Display-only traffic light test: the box the S20 found on the road photo and a badge
+     * with the colour it read. Never used for control.
+     */
+    private void drawTrafficLightTest(Canvas c, Paint p, RectF photo, TrafficLightDetector.Result light) {
+        if (light == null || light.color == TrafficLightDetector.NONE) return;
+        int color = light.color == TrafficLightDetector.RED ? Color.rgb(255, 59, 48)
+                : light.color == TrafficLightDetector.YELLOW ? Color.rgb(255, 196, 0) : Color.rgb(0, 214, 160);
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3f);
+        p.setColor(color);
+        float l = photo.left + light.box[0] * photo.width(), t = photo.top + light.box[1] * photo.height();
+        float r = photo.left + light.box[2] * photo.width(), b = photo.top + light.box[3] * photo.height();
+        c.drawRect(l - 3f, t - 3f, r + 3f, b + 3f, p);
+        // Badge in the pane's top-right corner.
+        float cx = WIDTH - 34f, cy = NAVI_ROAD_PREVIEW_TOP + 34f;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(170, 0, 0, 0));
+        c.drawRoundRect(cx - 28f, cy - 28f, cx + 28f, cy + 44f, 10f, 10f, p);
+        p.setColor(color);
+        c.drawCircle(cx, cy, 18f, p);
+        p.setColor(Color.WHITE);
+        p.setTextSize(13f);
+        p.setTextAlign(Paint.Align.CENTER);
+        c.drawText("카메라", cx, cy + 36f, p);
+        p.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawDrivingWorld(Canvas c, Paint p, JSONObject s, JSONObject l,

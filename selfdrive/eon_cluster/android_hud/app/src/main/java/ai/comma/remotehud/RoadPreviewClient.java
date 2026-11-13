@@ -28,9 +28,10 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class RoadPreviewClient {
-    // The EON draws its road view at 10 fps. It now only crops and encodes the
-    // camera; the HUD phone draws the lines (RoadOverlay), so match 10 fps.
-    private static final long FRAME_INTERVAL_MS = 100;
+    // 4 fps, as the EON now serves it. At 10 fps the phone's Wi-Fi traffic broke up its
+    // Bluetooth audio (navi voice, music; 2026-11-14). The HUD phone draws the lines
+    // (RoadOverlay) from telemetry matched to each photo, so they stay smooth.
+    private static final long FRAME_INTERVAL_MS = 250;
     private static final long MAX_FRAME_AGE_MS = 1200;
     private static final int MAX_JPEG_BYTES = 256 * 1024;
     private static final int MAX_FRAME_SIDE = 640;
@@ -57,6 +58,8 @@ final class RoadPreviewClient {
         final int[] crop;
         /** EON capture time (epoch ms), matched against telemetry "t". */
         final long eonTime;
+        /** Display-only traffic light test result for this photo, or null. */
+        volatile TrafficLightDetector.Result light;
 
         Frame(Connection connection, Bitmap bitmap, long timestamp, int[] crop, long eonTime) {
             this.connection = connection;
@@ -71,6 +74,11 @@ final class RoadPreviewClient {
     private static Connection savedConnection;
     private static boolean restored;
     private volatile Frame latest;
+    private volatile TrafficLightDetector lightDetector;
+
+    void setLightDetector(TrafficLightDetector detector) {
+        lightDetector = detector;
+    }
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -191,6 +199,8 @@ final class RoadPreviewClient {
                     Frame frame = fetch(target, start, pathEnd.getAsInt(), view);
                     if (frame != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
+                        TrafficLightDetector detector = lightDetector;
+                        if (detector != null && frame.crop != null) frame.light = detector.detect(frame.bitmap);
                         latest = frame;
                     } else {
                         interval = 1000;

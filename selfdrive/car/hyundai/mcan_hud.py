@@ -181,6 +181,21 @@ def lane_matches(lane, dist_m):
   return lane_dist > 0.0 and abs(lane_dist - dist_m) <= LANE_MATCH_M
 
 
+def lane_for_junction(lane, dist_m):
+  """Lanes usable for the junction shape: matching the turn's distance, or, when the navi
+  gives no lane distance (Naver 6.11's lane item, distance getter unverified), lanes shown
+  within TURN_SHOW_M of the turn, where the navi only shows the turn's own lanes."""
+  if lane_matches(lane, dist_m):
+    return True
+  if not isinstance(lane, dict) or not lane.get("dirs"):
+    return False
+  try:
+    lane_dist = float(lane.get("distance_m", -1.0))
+  except (TypeError, ValueError):
+    lane_dist = -1.0
+  return lane_dist <= 0.0 and 0.0 < dist_m <= TURN_SHOW_M
+
+
 def lane_side(turn_type, lane):
   """Junction shape for a left/right turn from the navi's lane arrows at that junction, as
   the AVN draws it: an arm for every direction some lane may take, plus the turn's own arm.
@@ -411,7 +426,7 @@ class McanHud:
         self.shown = False
         self.junction = None
       lane = nav_state.get("lane_current")
-      if lane_matches(lane, dist):
+      if lane_for_junction(lane, dist):
         # Kept for the rest of the maneuver: the lanes go away close to the junction.
         self.junction = lane_side(turn_type, lane) or self.junction
       # Far turns keep going with their preview until the AVN would draw them; once drawn

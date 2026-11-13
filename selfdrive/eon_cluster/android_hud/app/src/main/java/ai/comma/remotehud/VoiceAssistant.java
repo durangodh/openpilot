@@ -161,12 +161,16 @@ public final class VoiceAssistant {
         pending = null;
         session++;
         // 마이크가 실제로 열리기 전(투명 창 실행·인식기 준비)에는 "준비 중"으로 둔다.
+        lastPartial = "";
         show(State.LISTENING, "준비 중", "잠시만요", LISTEN_TIMEOUT_MS);
         new Thread(this::launchListener, "hud-voice-launch").start();
     }
 
     private static volatile boolean micOpsGranted;
     private SpeechRecognizer recognizer;   // main thread only
+    /** Last partial transcript: used when the final result is empty or times out. */
+    private volatile String lastPartial = "";
+    private AudioFocusRequest listenFocus;  // main thread only
 
     /**
      * Listens inside the HUD service so nothing is drawn on the phone screen: nMirror
@@ -200,6 +204,7 @@ public final class VoiceAssistant {
             }
             recognizer = SpeechRecognizer.createSpeechRecognizer(context);
             recognizer.setRecognitionListener(new ServiceListener(mySession));
+            holdListenFocus();
             recognizer.startListening(recognizerIntent(context));
         } catch (Exception e) {
             Log.w(TAG, "service recognizer failed", e);
@@ -207,18 +212,74 @@ public final class VoiceAssistant {
         }
     }
 
+    /** Words the recognizer should prefer (Android 13+): this assistant's settings vocabulary. */
+    private static final String[] BIAS_WORDS = {
+            "크루즈", "크루즈 속도", "설정속도", "차간거리", "차간", "조향비", "조향", "횡제어", "종제어",
+            "오픈파일럿", "롱컨", "가속", "감속", "최저", "최고", "올려", "내려", "설정", "찾아줘",
+            "차 상태", "타이어", "공기압", "배터리", "내비", "목적지", "길안내", "네이버", "티맵", "카카오",
+    };
+
     static Intent recognizerIntent(Context context) {
-        return new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        // Several hypotheses, so a misheard first one can be corrected (direct commands try
+        // them in order, Claude sees them all). Longer silence before the end of speech:
+        // with road noise and a pause between words 1 s cut sentences short.
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ko-KR")
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
                 .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.getPackageName());
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            ArrayList<String> bias = new ArrayList<>();
+            java.util.Collections.addAll(bias, BIAS_WORDS);
+            intent.putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, bias);
+        }
+        return intent;
+    }
+
+    /** All hypotheses of a result bundle, best first, without blanks or repeats (at most 5). */
+    static List<String> candidates(Bundle results) {
+        List<String> out = new ArrayList<>();
+        ArrayList<String> list = results == null ? null
+                : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        for (int i = 0; list != null && i < list.size() && out.size() < 5; i++) {
+            String text = list.get(i) == null ? "" : list.get(i).trim();
+            if (!text.isEmpty() && !out.contains(text)) out.add(text);
+        }
+        return out;
+    }
+
+    /**
+     * While listening, other audio on the phone (navi voice, music) is paused so the
+     * microphone hears only the driver.
+     */
+    private void holdListenFocus() {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio == null || listenFocus != null) return;
+        listenFocus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .build();
+        try {
+            audio.requestAudioFocus(listenFocus);
+        } catch (Exception e) {
+            listenFocus = null;
+        }
+    }
+
+    private void releaseListenFocus() {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio != null && listenFocus != null) audio.abandonAudioFocusRequest(listenFocus);
+        listenFocus = null;
     }
 
     private void destroyRecognizer() {
+        releaseListenFocus();
         if (recognizer != null) {
             try {
                 recognizer.cancel();
@@ -273,7 +334,7 @@ public final class VoiceAssistant {
         @Override
         public void onResults(Bundle results) {
             destroyRecognizer();
-            if (current()) onSpeech(VoiceActivity.first(results));
+            if (current()) onSpeechCandidates(candidates(results));
         }
 
         @Override
@@ -282,9 +343,14 @@ public final class VoiceAssistant {
             if (!current()) return;
             boolean micBlocked = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
                     || error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_CLIENT;
+            boolean unheard = error == SpeechRecognizer.ERROR_NO_MATCH
+                    || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT;
             if (!ready && micBlocked) {
                 Log.w(TAG, "background microphone blocked (" + error + "), using VoiceActivity");
                 launchActivityFallback();
+            } else if (unheard && !lastPartial.isEmpty()) {
+                // The final pass gave nothing, but words were already shown while listening.
+                onSpeech(lastPartial);
             } else {
                 onSpeechError(VoiceActivity.errorText(error));
             }
@@ -309,25 +375,43 @@ public final class VoiceAssistant {
 
     void onPartial(String text) {
         if (state == State.LISTENING && text != null && !text.isEmpty()) {
+            lastPartial = text.trim();
             body = "\"" + text + "\"";
         }
     }
 
     void onSpeech(String text) {
+        List<String> list = new ArrayList<>();
+        if (text != null && !text.trim().isEmpty()) list.add(text.trim());
+        onSpeechCandidates(list);
+    }
+
+    void onSpeechCandidates(List<String> list) {
         if (state != State.LISTENING) return;
-        if (text == null || text.trim().isEmpty()) {
+        if (list.isEmpty() && !lastPartial.isEmpty()) list.add(lastPartial);
+        if (list.isEmpty()) {
             show(State.ERROR, "못 알아들었어요", "버튼을 다시 누르고 말씀하세요", ERROR_MS);
             return;
         }
-        final String said = text.trim();
+        final List<String> heard = new ArrayList<>(list);
         final int mySession = session;
-        show(State.THINKING, "확인 중", "\"" + said + "\"", 0);
-        new Thread(() -> handleSpeech(said, mySession), "hud-voice-command").start();
+        show(State.THINKING, "확인 중", "\"" + heard.get(0) + "\"", 0);
+        new Thread(() -> handleSpeech(heard, mySession), "hud-voice-command").start();
     }
 
-    private void handleSpeech(String said, int mySession) {
+    private void handleSpeech(List<String> heard, int mySession) {
         try {
+            // Direct commands: the best hypothesis first, then up to two alternatives.
+            String said = heard.get(0);
             JSONObject reply = askEon(new JSONObject().put("op", "direct").put("text", said));
+            for (int i = 1; i < Math.min(heard.size(), 3) && !reply.optBoolean("handled")
+                    && reply.has("handled") && mySession == session; i++) {
+                JSONObject alt = askEon(new JSONObject().put("op", "direct").put("text", heard.get(i)));
+                if (alt.optBoolean("handled")) {
+                    reply = alt;
+                    said = heard.get(i);
+                }
+            }
             if (mySession != session) return;
             if (reply.optBoolean("handled")) {
                 if (!reply.optBoolean("ok")) {
@@ -367,7 +451,7 @@ public final class VoiceAssistant {
                 return;
             }
             if (!AppPrefs.getClaudeApiKey(context).isEmpty()) {
-                converse(said, mySession);
+                converse(withAlternatives(heard), mySession);
             } else if (!reply.has("handled")) {
                 finish(State.ERROR, "직접 명령 연결 확인", reply.optString("error"));
             } else {
@@ -376,6 +460,18 @@ public final class VoiceAssistant {
         } catch (JSONException e) {
             if (mySession == session) finish(State.ERROR, "직접 명령 실패", e.getMessage());
         }
+    }
+
+    /** The driver's words for Claude, with the recognizer's other hypotheses when there are any. */
+    private static String withAlternatives(List<String> heard) {
+        if (heard.size() < 2) return heard.get(0);
+        StringBuilder text = new StringBuilder(heard.get(0));
+        text.append("\n\n(음성 인식 결과입니다. 위 문장이 어색하면 다음 다른 인식 후보 중 차 안에서 할 법한 말로 이해하세요: ");
+        for (int i = 1; i < heard.size(); i++) {
+            if (i > 1) text.append(" / ");
+            text.append(heard.get(i));
+        }
+        return text.append(")").toString();
     }
 
     void onSpeechError(String message) {

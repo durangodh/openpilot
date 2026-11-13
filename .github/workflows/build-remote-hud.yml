@@ -10,7 +10,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_abcd, g_hud, g_remote, g_mcan, g_web]
+    branches: [g_abcd, g_hud, g_remote, g_mcan, g_web, g_blinker]
     paths:
       - "selfdrive/carrot_navi_server.py"
       - "selfdrive/eon_cluster/remote_hud.py"
@@ -104,6 +104,15 @@ jobs:
           python3 test_offscreen_map.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-offscreen-map-check"
           javac -d "$RUNNER_TEMP/naver-code-check" CarrotNaverCodes.java CarrotNaverCodesCheck.java
           java -cp "$RUNNER_TEMP/naver-code-check" com.naver.map.carrot.CarrotNaverCodesCheck
+      - name: Fetch the traffic light model (display-only test)
+        working-directory: selfdrive/eon_cluster/android_hud
+        run: |
+          mkdir -p app/src/main/assets "$RUNNER_TEMP/tl"
+          curl -fsSL -o "$RUNNER_TEMP/tl/coco.zip" \
+            https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip
+          echo "a809cd290b4d6a2e8a9d5dad076e0bd695b8091974e0eed1052b480b2f21b6dc  $RUNNER_TEMP/tl/coco.zip" | sha256sum -c -
+          unzip -o -q "$RUNNER_TEMP/tl/coco.zip" detect.tflite -d app/src/main/assets
+          echo "e4b118e5e4531945de2e659742c7c590f7536f8d0ed26d135abcfe83b4779d13  app/src/main/assets/detect.tflite" | sha256sum -c -
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         env:

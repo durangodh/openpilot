@@ -1,2 +1,4 @@
 .gradle/
 app/build/
+# downloaded by the build (build-remote-hud.yml)
+app/src/main/assets/detect.tflite

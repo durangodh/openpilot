@@ -10,7 +10,9 @@ from contextlib import ExitStack
 VIDEO_FILE = "qcamera.mp4"
 # 10 fps like the EON road view (NvgWindow frame_divider=2). The S9 draws the
 # lines itself, so a frame costs only a crop and a JPEG here.
-FRAME_INTERVAL = 1 / 10
+# 4 fps: at 10 fps the S20's Wi-Fi traffic broke up its Bluetooth audio (navi voice,
+# music; 2026-11-14) and the EON encoded a JPEG every 100 ms.
+FRAME_INTERVAL = 1 / 4
 MAX_LOG_BYTES = 32 * 1024 * 1024
 MAX_REPLAY_SECONDS = 120
 
@@ -458,7 +460,7 @@ class RoadPreview:
       if image.size != output:
         image = image.resize(output, Image.BILINEAR)
       data = io.BytesIO()
-      image.save(data, "JPEG", quality=70)
+      image.save(data, "JPEG", quality=60)
       self.images[variant] = (data.getvalue(), box, self.captured_ms)
     return self.images[variant]
 
