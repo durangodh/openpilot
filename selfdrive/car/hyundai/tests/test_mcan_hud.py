@@ -341,3 +341,25 @@ def test_underpass_like_avn():
   assert [d.hex() for a, d, _ in run(hud, state, 5, start=5) if a == TBT_ADDR] == ["2e00000c019000a0"]
   # unknown underpass kinds keep the normal turn
   assert tbt_payload(13, 400, underpass="side_left")[0] == 13
+
+
+def test_arrived_flag_when_naver_ends_guidance_near_the_goal():
+  hud = McanHud()
+  run(hud, nav(turn_type=2, dist=60.0, text="목적지"), 50)
+  msgs = run(hud, nav(fresh=False), 500, start=50)
+  tbt = [d for a, d, _ in msgs if a == TBT_ADDR]
+  assert tbt and all(d.hex() == "03000000000000f0" for d in tbt)
+  assert len(tbt) == 100  # 5 s at 20 Hz
+  # then the AVN's screen again
+  assert not any(a == TBT_ADDR for a, _, _ in run(hud, nav(fresh=False), 200, start=550))
+
+
+def test_no_arrived_flag_when_guidance_ends_far_from_the_goal():
+  hud = McanHud()
+  run(hud, nav(turn_type=2, dist=900.0, text="목적지"), 50)
+  msgs = run(hud, nav(fresh=False), 100, start=50)
+  assert not any(a == TBT_ADDR for a, _, _ in msgs)
+  hud = McanHud()
+  run(hud, nav(turn_type=13, dist=60.0), 50)
+  msgs = run(hud, nav(fresh=False), 100, start=50)
+  assert not any(a == TBT_ADDR for a, _, _ in msgs)
