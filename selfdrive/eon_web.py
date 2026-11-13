@@ -693,7 +693,7 @@ for (const button of document.querySelectorAll('[data-tmux]')) {
   });
 }
 document.querySelector('#gitPull').addEventListener('click', async event => {
-  if (!confirm('openpilot 인게이지를 해제한 상태에서 g_web 업데이트를 가져올까요?')) return;
+  if (!confirm('openpilot 인게이지를 해제한 상태에서 현재 브랜치 업데이트를 가져올까요?')) return;
   const button = event.currentTarget;
   button.disabled = true;
   gitOutput.textContent = '업데이트 확인 중…';
@@ -1116,16 +1116,21 @@ def set_bt_mapping(payload):
   return 200, "리모컨 버튼 설정을 저장했습니다."
 
 
+PULL_BRANCH = re.compile(r"g_[A-Za-z0-9_]+")
+
+
 def git_pull():
-  if git_info()["branch"] != "g_web":
-    return False, "g_web 브랜치에서만 업데이트할 수 있습니다."
+  # The current g_* branch from origin (g_web, g_blinker, ...), fast-forward only.
+  branch = git_info()["branch"]
+  if not PULL_BRANCH.fullmatch(branch or ""):
+    return False, "g_ 로 시작하는 브랜치에서만 업데이트할 수 있습니다."
   status, changes = command(["git", "status", "--porcelain", "--untracked-files=no"])
   if status or changes:
     return False, "로컬 추적 파일에 변경이 있습니다. SSH에서 git status를 확인하세요."
   reason = maintenance_block_reason()
   if reason:
     return False, reason
-  status, output = command(["git", "fetch", "--no-recurse-submodules", "origin", "g_web"], timeout=35)
+  status, output = command(["git", "fetch", "--no-recurse-submodules", "origin", branch], timeout=35)
   if status:
     return False, output or "원격 브랜치를 가져오지 못했습니다."
   status, target = command(["git", "rev-parse", "--verify", "FETCH_HEAD"])
@@ -1162,8 +1167,8 @@ def git_switch(branch):
 
 
 def request_reboot(rebuild=False):
-  if rebuild and git_info()["branch"] != "g_web":
-    return 409, "전체 재빌드는 g_web 브랜치에서 실행하세요."
+  if rebuild and not PULL_BRANCH.fullmatch(git_info()["branch"] or ""):
+    return 409, "전체 재빌드는 g_ 로 시작하는 브랜치에서 실행하세요."
   reason = maintenance_block_reason()
   if reason:
     return 409, reason
