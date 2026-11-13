@@ -18,6 +18,7 @@
 //   b  next bit rate by hand
 //   h  help
 #include <Arduino.h>
+#include <stdarg.h>
 #include <driver/twai.h>
 
 // ---- wiring ---------------------------------------------------------------------------------
@@ -47,7 +48,13 @@ static int rateIdx = 0;  // B-CAN on Hyundai is usually 100 kbit/s (DH M-CAN is 
 
 static bool installed = false;
 
-static twai_timing_config_t timingFor(int i) {
+// Arduino IDE puts its own prototypes for every function above the sketch's #includes and types,
+// so no function here takes or returns a TWAI or sketch type, and none is static. Values of those
+// types go through these globals instead.
+static twai_timing_config_t gTiming;
+static twai_message_t gMsg;
+
+void fillTiming(int i) {
   twai_timing_config_t t = TWAI_TIMING_CONFIG_100KBITS();
   const char *n = RATES[i].name;
   if (!strcmp(n, "125k")) { twai_timing_config_t p = TWAI_TIMING_CONFIG_125KBITS(); t = p; }
@@ -62,10 +69,10 @@ static twai_timing_config_t timingFor(int i) {
     t.tseg_2 = 4;
     t.sjw = 3;
   }
-  return t;
+  gTiming = t;
 }
 
-static bool startCan(int i) {
+bool startCan(int i) {
   if (installed) {
     twai_stop();
     twai_driver_uninstall();
@@ -76,21 +83,21 @@ static bool startCan(int i) {
   g.tx_queue_len = 0;   // no transmit queue at all: data frames can never be sent
   g.rx_queue_len = 128;
   g.alerts_enabled = TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL;
-  twai_timing_config_t t = timingFor(i);
+  fillTiming(i);
   twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-  installed = twai_driver_install(&g, &t, &f) == ESP_OK && twai_start() == ESP_OK;
+  installed = twai_driver_install(&g, &gTiming, &f) == ESP_OK && twai_start() == ESP_OK;
   rateIdx = i;
   return installed;
 }
 
 // ---- output to both the native USB port and UART0, whichever the board's USB-C uses ----------
-static void out(const char *s) {
+void out(const char *s) {
   Serial.print(s);
 #if ARDUINO_USB_CDC_ON_BOOT
   Serial0.print(s);
 #endif
 }
-static void outf(const char *fmt, ...) {
+void outf(const char *fmt, ...) {
   char buf[256];
   va_list ap;
   va_start(ap, fmt);
@@ -98,7 +105,7 @@ static void outf(const char *fmt, ...) {
   va_end(ap);
   out(buf);
 }
-static int readCmd() {
+int readCmd() {
   if (Serial.available()) return Serial.read();
 #if ARDUINO_USB_CDC_ON_BOOT
   if (Serial0.available()) return Serial0.read();
@@ -134,28 +141,29 @@ static const uint32_t WINDOW_MS = 5000;
 static bool printChanges = true, printAll = false;
 static int markerNo = 0;
 
-static Entry *lookup(uint32_t id, bool ext) {
+int lookupIdx(uint32_t id, bool ext) {
   for (int i = 0; i < idCnt; i++) {
-    if (ids[i].id == id && ids[i].ext == ext) return &ids[i];
+    if (ids[i].id == id && ids[i].ext == ext) return i;
   }
-  if (idCnt >= MAX_IDS) { overflowIds++; return nullptr; }
-  Entry *e = &ids[idCnt++];
-  memset(e, 0, sizeof(*e));
-  e->id = id;
-  e->ext = ext;
-  return e;
+  if (idCnt >= MAX_IDS) { overflowIds++; return -1; }
+  memset(&ids[idCnt], 0, sizeof(ids[idCnt]));
+  ids[idCnt].id = id;
+  ids[idCnt].ext = ext;
+  return idCnt++;
 }
 
-static void hex8(char *dst, const uint8_t *d, uint8_t n) {
+void hex8(char *dst, const uint8_t *d, uint8_t n) {
   dst[0] = 0;
   for (uint8_t i = 0; i < n; i++) sprintf(dst + strlen(dst), "%02X ", d[i]);
 }
 
-static void onFrame(const twai_message_t &m, uint32_t now) {
+void onFrame(uint32_t now) {  // the frame is in gMsg
+  const twai_message_t &m = gMsg;
   rxTotal++;
   if (m.rtr) return;
-  Entry *e = lookup(m.identifier, m.extd);
-  if (!e) return;
+  int idx = lookupIdx(m.identifier, m.extd);
+  if (idx < 0) return;
+  Entry *e = &ids[idx];
   uint8_t n = m.data_length_code > 8 ? 8 : m.data_length_code;
   bool changed = e->count > 0 && (n != e->dlc || memcmp(e->data, m.data, n) != 0);
 
@@ -189,14 +197,14 @@ static void onFrame(const twai_message_t &m, uint32_t now) {
   e->count++;
 }
 
-static void startBaseline(uint32_t now) {
+void startBaseline(uint32_t now) {
   for (int i = 0; i < idCnt; i++) memset(ids[i].noise, 0, 8);
   phase = BASELINE;
   phaseEnd = now + WINDOW_MS;
   out("\n=== BASELINE 5 s: lever neutral, hazard off, touch nothing ===\n");
 }
 
-static void endBaseline() {
+void endBaseline() {
   int n = 0;
   for (int i = 0; i < idCnt; i++) {
     Entry &e = ids[i];
@@ -209,9 +217,9 @@ static void endBaseline() {
   outf("=== BASELINE done: %d IDs. Now press l (left) or r (right) and hold the lever. ===\n\n", n);
 }
 
-static const char *sideName(char side) { return side == 'l' ? "LEFT" : side == 'r' ? "RIGHT" : "CONTROL"; }
+const char *sideName(char side) { return side == 'l' ? "LEFT" : side == 'r' ? "RIGHT" : "CONTROL"; }
 
-static void startLearn(char side, uint32_t now) {
+void startLearn(char side, uint32_t now) {
   bool any = false;
   for (int i = 0; i < idCnt; i++) {
     memset(ids[i].diff, 0, 8);
@@ -227,7 +235,7 @@ static void startLearn(char side, uint32_t now) {
   else outf("\n=== %s 5 s: hold the %s turn-signal lever now ===\n", sideName(side), sideName(side));
 }
 
-static void endLearn() {
+void endLearn() {
   phase = IDLE;
   outf("=== %s result: bits that changed and were quiet in the baseline ===\n", sideName(learnSide));
   int shown = 0;
@@ -250,7 +258,7 @@ static void endLearn() {
       "never in x, and the same every repeat.\n\n");
 }
 
-static void listIds(uint32_t now) {
+void listIds(uint32_t now) {
   twai_status_info_t st;
   bool ok = installed && twai_get_status_info(&st) == ESP_OK;
   outf("\n=== %s, %d IDs, %lu frames, bus errors %lu, rx missed %lu%s ===\n", RATES[rateIdx].name, idCnt,
@@ -268,21 +276,19 @@ static void listIds(uint32_t now) {
   out("\n");
 }
 
-static void drain(uint32_t now) {
-  twai_message_t m;
-  for (int i = 0; installed && i < 64 && twai_receive(&m, 0) == ESP_OK; i++) onFrame(m, now);
+void drain(uint32_t now) {
+  for (int i = 0; installed && i < 64 && twai_receive(&gMsg, 0) == ESP_OK; i++) onFrame(now);
 }
 
-static void autoScan() {
+void autoScan() {
   out("\n=== bit-rate scan (1.5 s each, listen-only) ===\n");
   int best = -1;
   uint32_t bestFrames = 0;
   for (int i = 0; i < RATE_CNT; i++) {
     if (!startCan(i)) { outf("  %-6s driver start failed\n", RATES[i].name); continue; }
     uint32_t frames = 0, t0 = millis();
-    twai_message_t m;
     while (millis() - t0 < 1500) {
-      if (twai_receive(&m, pdMS_TO_TICKS(10)) == ESP_OK) frames++;
+      if (twai_receive(&gMsg, pdMS_TO_TICKS(10)) == ESP_OK) frames++;
     }
     twai_status_info_t st;
     uint32_t errs = twai_get_status_info(&st) == ESP_OK ? st.bus_error_count : 0;
@@ -302,7 +308,7 @@ static void autoScan() {
   out("\n");
 }
 
-static void help() {
+void help() {
   out("\nGenesis DH B-CAN listen-only logger (never transmits)\n"
       "  n baseline 5 s | l left 5 s | r right 5 s | x control 5 s (no lever) | s list IDs | c changes on/off | v all frames on/off\n"
       "  m marker (or BOOT button) | a bit-rate scan | b next bit rate | h help\n");
