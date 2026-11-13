@@ -58,6 +58,8 @@ final class RoadPreviewClient {
         final int[] crop;
         /** EON capture time (epoch ms), matched against telemetry "t". */
         final long eonTime;
+        /** Display-only traffic light test result for this photo, or null. */
+        volatile TrafficLightDetector.Result light;
 
         Frame(Connection connection, Bitmap bitmap, long timestamp, int[] crop, long eonTime) {
             this.connection = connection;
@@ -72,6 +74,11 @@ final class RoadPreviewClient {
     private static Connection savedConnection;
     private static boolean restored;
     private volatile Frame latest;
+    private volatile TrafficLightDetector lightDetector;
+
+    void setLightDetector(TrafficLightDetector detector) {
+        lightDetector = detector;
+    }
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -192,6 +199,8 @@ final class RoadPreviewClient {
                     Frame frame = fetch(target, start, pathEnd.getAsInt(), view);
                     if (frame != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
+                        TrafficLightDetector detector = lightDetector;
+                        if (detector != null && frame.crop != null) frame.light = detector.detect(frame.bitmap);
                         latest = frame;
                     } else {
                         interval = 1000;

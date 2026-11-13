@@ -38,4 +38,12 @@ android {
     sourceCompatibility JavaVersion.VERSION_11
     targetCompatibility JavaVersion.VERSION_11
   }
+  // The traffic light model is memory-mapped from the APK (TrafficLightDetector).
+  androidResources {
+    noCompress "tflite"
+  }
+}
+
+dependencies {
+  implementation "org.tensorflow:tensorflow-lite:2.14.0"
 }
