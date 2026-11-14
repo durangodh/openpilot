@@ -17,6 +17,7 @@ Sending requires the panda's bus 1 to be live (McanHudTbt, through an MM-CAN
 low-speed/fault-tolerant <-> high-speed converter); the panda only lets these three
 IDs out on bus 1.
 """
+import math
 import time
 
 from selfdrive.car import make_can_msg
@@ -403,6 +404,35 @@ CLOCK_FAR_M = 1000
 CLOCK_STOPPED_FRAMES = 100   # 1 s at 100 Hz
 
 
+def distance_text(meters):
+  """350m in 50 m steps under 1 km, then 3.2km in 0.1 km steps (rounded up, so a value
+  holds until the next step instead of flickering)."""
+  meters = max(0.0, float(meters or 0.0))
+  if meters < 1000.0:
+    return "%dm" % (max(1, math.ceil(meters / 50.0)) * 50)
+  return "%.1fkm" % (math.ceil(meters / 100.0) / 10.0)
+
+
+def camera_text(camera, rear):
+  """'카메라350m' / '후면단속350m'."""
+  label = REAR_CAMERA_TEXT if rear else "카메라"
+  dist = float(camera.get("distance", -1.0) or -1.0) if isinstance(camera, dict) else -1.0
+  return label + distance_text(dist) if dist > 0.0 else label
+
+
+def section_text(section):
+  """'구간3.2km평균89' (the zone's remaining distance and average speed; parts the navi
+  does not give are left out)."""
+  if not isinstance(section, dict):
+    return SECTION_TEXT
+  dist = float(section.get("distance", -1.0) or -1.0)
+  avg = float(section.get("average", 0.0) or 0.0)
+  if dist <= 0.0:
+    return SECTION_TEXT
+  text = "구간" + distance_text(dist)
+  return text + ("평균%d" % round(avg) if avg > 0.0 else "")
+
+
 def clock_text(now=None):
   """'오후 3:25' (EON local time, Asia/Seoul via timezoned)."""
   t = time.localtime(now)
@@ -469,6 +499,7 @@ class McanHud:
     # The AVN's map has no rear-facing cameras and the HUD no picture for them: while the navi
     # alerts one, its circle shows the limit as usual and the text line says so.
     rear_camera = cam is not None and bool(camera.get("rear"))
+    front_camera = cam is not None and not rear_camera
     in_section = False
     if cam is None:
       cam = section_payload(section, v_ego * 3.6)
@@ -533,7 +564,18 @@ class McanHud:
       self.stopped_frames += 1
     elif v_ego > 1.0:
       self.stopped_frames = 0
-    if (payload is not None and not rerouting and not rear_camera and not in_section
+    # Camera / section distance on the text line (the AVN's 0x1E5 has no distance): rear
+    # cameras and section zones always, front cameras only on a keep-going picture so a turn
+    # keeps its direction name.
+    alert_text = None
+    if payload is not None and not rerouting:
+      if rear_camera:
+        alert_text = camera_text(camera, True)
+      elif in_section:
+        alert_text = section_text(section)
+      elif front_camera and payload[0] in CLOCK_STRAIGHT_DISPLAYS:
+        alert_text = camera_text(camera, False)
+    if (payload is not None and not rerouting and alert_text is None
         and payload[0] not in (DISPLAY_TOLLGATE, DISPLAY_ARRIVED) and self._clock_on(frame)):
       far_straight = payload[0] in CLOCK_STRAIGHT_DISPLAYS and dist >= CLOCK_FAR_M
       if far_straight or self.stopped_frames >= CLOCK_STOPPED_FRAMES:
@@ -562,11 +604,8 @@ class McanHud:
     else:
       self.active = True
       text = "" if rerouting else text
-      if rear_camera and not rerouting:
-        text = REAR_CAMERA_TEXT
-      elif in_section and not rerouting:
-        # The AVN only shows the limit circle in a section zone; say what it is on the text line.
-        text = SECTION_TEXT
+      if alert_text is not None:
+        text = alert_text
       if text != self.text:
         self._queue_text(text)
       if frame % SEND_PERIOD_FRAMES == 0:

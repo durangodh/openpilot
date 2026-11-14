@@ -281,7 +281,7 @@ def test_section_zone_shows_the_limit_like_avn():
                                   "average_speed_kph": 89}})
   msgs = run(McanHud(), state, 30)
   assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 6
-  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간10.0km평균89"))]
 
 
 def test_tollgate_next_after_rest_area_then_gate_from_1km():
@@ -450,3 +450,17 @@ def test_clock_on_long_straight_and_when_stopped_only():
   # off: never the clock
   hud = McanHud(clock=False)
   assert texts(hud, nav(turn_type=11, dist=3000.0, text="오산"), 20)[0][:2] == isotp_frames(text_payload("오산"))[0][:2]
+
+
+def test_camera_and_section_distance_texts():
+  from selfdrive.car.hyundai.mcan_hud import camera_text, section_text, distance_text
+  assert distance_text(330) == "350m" and distance_text(20) == "50m" and distance_text(3150) == "3.2km"
+  assert camera_text({"distance": 350}, False) == "카메라350m"
+  assert camera_text({"distance": 300}, True) == "후면단속300m"
+  assert section_text({"distance": 3200, "average": 89.4}) == "구간3.2km평균89"
+  assert section_text({"distance": 800, "average": 0}) == "구간800m"
+  # a front camera on a keep-going stretch shows its distance; next to a turn the direction name
+  state = nav(turn_type=11, dist=2000.0, text="오산")
+  state.update(speed_fresh=True, speed={"sdi": {"type": 1, "distance_m": 350, "speed_limit_kph": 50}})
+  sent = b"".join(d for a, d, _ in run(McanHud(), state, 20) if a == TEXT_ADDR)
+  assert "카메".encode("utf-16-le") in sent
