@@ -41,6 +41,8 @@ procs = [
   PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON, persistent=True),
   # Bluetooth remote input is read locally on EON from the kernel HID node; no phone or Wi-Fi.
   PythonProcess("bt_remote", "selfdrive.eon_cluster.bt_remote", enabled=EON, persistent=True),
+  # Genesis DH: asks the B-CAN ESP32 for a one-touch blinker tap on openpilot lane changes (DhBcanBlinker).
+  PythonProcess("bcan_blinker", "selfdrive.eon_cluster.bcan_blinker", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   PythonProcess("deleter", "selfdrive.loggerd.deleter", enabled=EON_ROUTE_LOGGING, persistent=True),
   # dmonitoringmodeld 가 꺼져 driverState 가 안 오므로 같이 끈다.

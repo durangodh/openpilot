@@ -98,6 +98,7 @@ def manager_init() -> None:
     ("ShowCarrotHud", "1"),
     ("EonClusterHud", "0"),
     ("BtRemoteEnabled", "0"),
+    ("DhBcanBlinker", "0"),
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
     ("EonClusterHudViewPitch", "0"),

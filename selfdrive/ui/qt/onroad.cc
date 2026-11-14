@@ -604,6 +604,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   }
 
   drawBottomIcons(p);
+  drawBcanBlinker(p);
 
   drawTextAnim(p);   // 팝업 애니메이션은 항상 맨 위
 }
@@ -625,6 +626,87 @@ static const QString get_tpms_text(float tpms) {
     char str[32];
     snprintf(str, sizeof(str), "%.0f", round(tpms));
     return QString(str);
+}
+
+// DH B-CAN 깜빡이 ESP32 상태 (selfdrive/eon_cluster/bcan_blinker.py 가 0.5초마다 쓰는 파일).
+// 기능이 꺼져 있거나 bcan_blinker 가 멈추면(3초) 아무것도 그리지 않는다. 오른쪽 아래 정보줄 바로 위.
+// link: 0 ESP32 없음, 1 B-CAN 없음, 2 준비됨, 3 버스 오류. 원터치 요청 결과는 3초 동안 보여 준다.
+struct BcanBlinkerStatus {
+  bool valid = false;
+  int link = 0;
+  int rssi = 0;
+  bool event = false;
+  bool ok = false;
+  QString dir, why;
+};
+
+static BcanBlinkerStatus readBcanBlinkerStatus() {
+  static BcanBlinkerStatus cached;
+  static uint64_t last_read = 0;
+  const uint64_t now = millis_since_boot();
+  if (last_read != 0 && now - last_read < 500) return cached;
+  last_read = now;
+
+  cached = BcanBlinkerStatus();
+  QFile f("/dev/shm/dh_bcan_blinker.json");
+  if (!f.open(QIODevice::ReadOnly)) return cached;
+  const QJsonDocument doc = QJsonDocument::fromJson(f.read(4096));
+  if (!doc.isObject()) return cached;
+  const QJsonObject o = doc.object();
+  const double wall = (double)QDateTime::currentMSecsSinceEpoch() / 1000.0;
+  const double ts = o.value("wall").toDouble(-1.0);
+  if (ts < 0.0 || wall - ts < 0.0 || wall - ts > 3.0) return cached;
+  cached.valid = true;
+  cached.link = o.value("link").toInt(0);
+  cached.rssi = o.value("rssi").toInt(0);
+  const QJsonObject ev = o.value("event").toObject();
+  const double ev_ts = ev.value("wall").toDouble(-1.0);
+  if (ev_ts >= 0.0 && wall - ev_ts >= 0.0 && wall - ev_ts <= 3.0) {
+    cached.event = true;
+    cached.ok = ev.value("ok").toBool(false);
+    cached.dir = ev.value("dir").toString();
+    cached.why = ev.value("why").toString();
+  }
+  return cached;
+}
+
+void NvgWindow::drawBcanBlinker(QPainter &p) {
+  const BcanBlinkerStatus st = readBcanBlinkerStatus();
+  if (!st.valid) return;
+
+  const QColor dot = st.link == 2 ? QColor(70, 220, 120) : st.link == 3 ? QColor(255, 80, 80)
+                   : st.link == 1 ? QColor(255, 190, 60) : QColor(150, 150, 150);
+  const QColor edge = st.event ? (st.ok ? QColor(80, 200, 255) : QColor(255, 170, 60)) : dot;
+  QString label;
+  if (st.event) {
+    const QString side = st.dir == "L" ? QString::fromUtf8("깜빡이 좌") : QString::fromUtf8("깜빡이 우");
+    label = st.ok ? side + QString::fromUtf8(" 켬")
+                  : side + (st.why.isEmpty() ? QString::fromUtf8(" 실패") : QString::fromUtf8(" · ") + st.why);
+  } else if (st.link == 2) {
+    label = st.rssi < 0 ? QString::fromUtf8("깜빡이 연결됨 %1dBm").arg(st.rssi) : QString::fromUtf8("깜빡이 연결됨");
+  } else if (st.link == 1) {
+    label = QString::fromUtf8("깜빡이 B-CAN 없음");
+  } else if (st.link == 3) {
+    label = QString::fromUtf8("깜빡이 버스 오류");
+  } else {
+    label = QString::fromUtf8("깜빡이 연결 안 됨");
+  }
+
+  p.save();
+  p.setRenderHint(QPainter::Antialiasing);
+  const int w = 360, h = 46;
+  const QRect box(width() - w - 20, height() - 72 - h - 10, w, h);
+  p.setPen(QPen(edge, 3));
+  p.setBrush(QColor(0, 0, 0, 170));
+  p.drawRoundedRect(box, h / 2, h / 2);
+  p.setPen(Qt::NoPen);
+  p.setBrush(dot);
+  p.drawEllipse(QPoint(box.x() + 26, box.center().y()), 9, 9);
+  configFont(p, "Open Sans", 30, "Regular");
+  p.setPen(st.event ? edge : QColor(235, 235, 235));
+  p.drawText(box.adjusted(48, 0, -16, 0), Qt::AlignLeft | Qt::AlignVCenter,
+             p.fontMetrics().elidedText(label, Qt::ElideRight, box.width() - 64));
+  p.restore();
 }
 
 void NvgWindow::drawBottomIcons(QPainter &p) {

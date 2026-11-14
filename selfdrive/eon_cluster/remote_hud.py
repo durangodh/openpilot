@@ -20,6 +20,7 @@ import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
+from selfdrive.eon_cluster.bcan_blinker_core import hud_status as blinker_status
 from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 from selfdrive.eon_cluster import voice_system
@@ -1403,6 +1404,10 @@ def main():
       remote = remote_status()
       if remote is not None:
         packet["remote"] = remote
+      # DH B-CAN blinker ESP32 (bcan_blinker): link state and the last tap.
+      blinker = blinker_status()
+      if blinker is not None:
+        packet["blinker"] = blinker
       voice = voice_request()
       if voice is not None:
         packet["voiceReq"], packet["voiceMode"] = voice

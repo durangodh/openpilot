@@ -1227,6 +1227,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EON에 직접(UHID) 페어링한 클래식 블루투스 리모컨으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(btRemoteToggle);
+  toggleLayout->addWidget(new ParamControl("DhBcanBlinker", "DH B-CAN BLINKER (ESP32)",
+      "켜짐: 리모컨·NOO 차로변경 때 B-CAN ESP32(휴대폰 핫스팟 2.4GHz로 연결)에 원터치 깜빡이를 요청해 외부 램프를 5번 깜빡입니다. 레버로 시작한 차로변경에는 보내지 않습니다. 연결 상태는 주행 화면과 S9 HUD에 표시됩니다.",
+      "../assets/offroad/icon_openpilot.png", this));
   auto remoteLearningAllowed = []() {
     if (Params().getBool("IsOffroad")) return true;
     const SubMaster &sm = *(uiState()->sm);

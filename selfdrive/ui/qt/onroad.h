@@ -101,6 +101,8 @@ protected:
   void drawCarrotBottom(QPainter &p);
   void drawCarrotBottomContent(QPainter &p);
   void drawCarrotDeviceState(QPainter &p);
+  // DH B-CAN 깜빡이 ESP32 상태 (bcan_blinker, /dev/shm/dh_bcan_blinker.json)
+  void drawBcanBlinker(QPainter &p);
   void drawCarrotNavi(QPainter &p);
   void updateCarrotNavi(bool load_images = true);
 

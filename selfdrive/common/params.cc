@@ -280,6 +280,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleKakao", PERSISTENT},
     {"EonClusterHudMapScaleNaver", PERSISTENT},
     {"BtRemoteEnabled", PERSISTENT},       // EON 블루투스 리모컨(bt_remote) 사용
+    {"DhBcanBlinker", PERSISTENT},         // DH B-CAN 깜빡이 원터치(ESP32, bcan_blinker)
     {"BtRemoteDevice", PERSISTENT},        // 학습한 리모컨의 Bluetooth 주소
     {"BtRemoteMapping", PERSISTENT},       // 버튼@누르기 방식 -> 명령(JSON)
     {"BtRemoteLearn", CLEAR_ON_MANAGER_START},

@@ -3846,6 +3846,9 @@ public final class HudService extends Service {
         drawInfoRow(c, p, s);
         if (!linkStale) {
             drawRemoteStatus(c, p, s.optJSONObject("remote"));
+            JSONObject blinker = s.optJSONObject("blinker");
+            drawBlinkerStatus(c, p, blinker,
+                    s.optJSONObject("remote") != null ? REMOTE_BOTTOM + BLINKER_GAP : REMOTE_TOP);
         }
 
         // Driving layout keeps NOO above the EON box. The navi layout
@@ -5282,6 +5285,64 @@ public final class HudService extends Service {
     private long remoteShowUntil;
     private String remoteCmd = "", remoteResult = "";
     private boolean remoteOk;
+
+    // DH B-CAN 깜빡이 ESP32(bcan_blinker) 표시: 리모컨 상자 바로 아래, 같은 크기(2026-11-14 요청).
+    // link: 0 ESP32 없음, 1 B-CAN 없음, 2 준비됨, 3 버스 오류. 원터치 요청 결과는 3초 동안 보여 준다.
+    private static final float BLINKER_GAP = 6f;
+    private void drawBlinkerStatus(Canvas c, Paint p, JSONObject b, float top) {
+        if (b == null) {
+            return;
+        }
+        int link = b.optInt("link", 0);
+        int dot = link == 2 ? Color.rgb(70, 220, 120) : link == 3 ? Color.rgb(255, 80, 80)
+                : link == 1 ? Color.rgb(255, 190, 60) : Color.rgb(150, 150, 150);
+        boolean event = b.has("seq");
+        boolean ok = b.optBoolean("ok", false);
+        int edge = event ? (ok ? Color.rgb(80, 200, 255) : Color.rgb(255, 170, 60)) : dot;
+        float bottom = top + REMOTE_LINE_H;
+        float radius = REMOTE_LINE_H / 2f;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(175, 0, 0, 0));
+        scratchRect.set(REMOTE_LEFT, top, REMOTE_RIGHT, bottom);
+        c.drawRoundRect(scratchRect, radius, radius, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3f);
+        p.setColor(edge);
+        c.drawRoundRect(scratchRect, radius, radius, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(dot);
+        float dotY = top + REMOTE_LINE_H / 2f;
+        c.drawCircle(REMOTE_LEFT + 22f, dotY, 7f, p);
+
+        String label;
+        int color = Color.rgb(230, 230, 230);
+        if (event) {
+            String side = "L".equals(b.optString("dir")) ? "깜빡이 좌" : "깜빡이 우";
+            String why = b.optString("why", "");
+            label = ok ? side + " 켬" : side + (why.isEmpty() ? " 실패" : " · " + why);
+            color = edge;
+        } else if (link == 2) {
+            int rssi = b.optInt("rssi", 0);
+            label = rssi < 0 ? String.format(Locale.US, "깜빡이 연결됨 %ddBm", rssi) : "깜빡이 연결됨";
+        } else if (link == 1) {
+            label = "깜빡이 B-CAN 없음";
+        } else if (link == 3) {
+            label = "깜빡이 버스 오류";
+        } else {
+            label = "깜빡이 연결 안 됨";
+        }
+        float size = REMOTE_TEXT_SIZE;
+        p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+        p.setTextSize(size);
+        float room = REMOTE_RIGHT - 14f - (REMOTE_LEFT + 38f);
+        float w = p.measureText(label);
+        if (w > room && room > 0f) {
+            size = Math.max(12f, size * room / w);
+        }
+        textNormal(c, p, label, REMOTE_LEFT + 38f, dotY + 8f, size, color, Paint.Align.LEFT);
+    }
 
     private void drawRemoteStatus(Canvas c, Paint p, JSONObject r) {
         if (r == null) {
