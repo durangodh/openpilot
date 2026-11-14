@@ -706,6 +706,13 @@ public final class HudService extends Service {
     private long nextOpenStallRecoverElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
+    // 기어 팝업(EON NvgWindow::ctTextAnimStart/drawTextAnim 과 같은 동작).
+    private final Matrix gearBoxMatrix = new Matrix();
+    private final float[] gearBoxPoint = new float[2];
+    private String gearLast = "";
+    private String gearAnimText = "";
+    private long gearAnimStart = 0L;
+    private float gearAnimX, gearAnimY, gearAnimSize;
     private final RectF scratchRect = new RectF();
     private final Rect scratchIRect = new Rect();
     private final Path scratchPath = new Path();
@@ -3134,6 +3141,7 @@ public final class HudService extends Service {
             drawNaviWeatherPanel(c, p, s);
             drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
+            drawGearPopup(c, p, NAVI_MAP_RIGHT / 2f);
             drawOemWarningPopup(c, p, s);
             return;
         }
@@ -3161,9 +3169,42 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
+        drawGearPopup(c, p, WIDTH / 2f);
         // 순정 계기판 경고는 주행패널 오른쪽 EON HUD 박스 자리에 흰색 팝업으로 덮는다.
         // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
         drawOemWarningPopup(c, p, s);
+    }
+
+    /**
+     * EON drawTextAnim: 기어가 바뀌면 새 기어가 화면 가운데 아래쪽에 크게(EON 350px, 1080 높이
+     * 기준) 0.3초 떠 있다가 1초 동안 기어칸으로 날아가며 작아진다. 처음 0.3초는 검은 그림자로 강조.
+     */
+    private void drawGearPopup(Canvas c, Paint p, float centerX) {
+        if (gearAnimStart == 0L || gearAnimText.isEmpty()) return;
+        long elapsed = SystemClock.elapsedRealtime() - gearAnimStart;
+        if (elapsed >= 1300L) {
+            gearAnimStart = 0L;
+            return;
+        }
+        float t = Math.min(1f, (1300L - elapsed) / 1000f);   // 1 = 시작, 0 = 도착
+        float startY = HEIGHT * (1080f - 400f) / 1080f;
+        float startSize = 350f * HEIGHT / 1080f;
+        float x = centerX * t + gearAnimX * (1f - t);
+        float y = startY * t + gearAnimY * (1f - t);
+        float size = startSize * t + gearAnimSize * (1f - t);
+        if (size < 1f) return;
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.setTextSize(size);
+        p.setTextAlign(Paint.Align.CENTER);
+        if (elapsed < 300L) {
+            p.setColor(Color.argb(200, 0, 0, 0));
+            c.drawText(gearAnimText, x + 3f, y + 4f, p);
+        }
+        p.setColor(Color.WHITE);
+        c.drawText(gearAnimText, x, y, p);
     }
 
     private boolean eonStale() {
@@ -5530,6 +5571,19 @@ public final class HudService extends Service {
         }
         eonBoxRect(c, p, 370f, 245f, 90f, 100f, Color.argb(210, 0, 203, 0), 3f, white);
         eonTextIn(c, p, gear, 370f, 245f, 90f, 100f, 76f, white);
+        // 팝업이 날아와 앉을 자리: 기어칸 글자 자리(화면 좌표)와 그때의 글자 크기.
+        c.getMatrix(gearBoxMatrix);
+        gearBoxPoint[0] = 415f;
+        gearBoxPoint[1] = 245f + 100f / 2f + 76f * 0.36f;
+        gearBoxMatrix.mapPoints(gearBoxPoint);
+        gearAnimX = gearBoxPoint[0];
+        gearAnimY = gearBoxPoint[1];
+        gearAnimSize = gearBoxMatrix.mapRadius(76f);
+        if (!gearLast.isEmpty() && !gearLast.equals(gear) && s.optInt("gearAnim", 1) != 0) {
+            gearAnimText = gear;
+            gearAnimStart = SystemClock.elapsedRealtime();
+        }
+        gearLast = gear;
 
         // 주행모드
         int mode = s.optInt("drivingMode", 3);

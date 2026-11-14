@@ -1359,6 +1359,7 @@ def main():
   path_offset = _path_offset(params)
   path_style = _path_style(params)
   camera_signal = _param_int(params, "CameraSignal", 1, 0, 2)
+  gear_animation = _param_int(params, "ShowGearAnimation", 1, 0, 9)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = _telemetry_fps(configured_fps)
   # The asset thread checks for a new map file at the telemetry rate and
@@ -1385,6 +1386,8 @@ def main():
       path_offset = _path_offset(params)
       path_style = _path_style(params)
       camera_signal = _param_int(params, "CameraSignal", 1, 0, 2)
+      # EON 설정 > 기어 변속 애니메이션. HUD 기어칸 팝업도 같은 설정을 따른다.
+      gear_animation = _param_int(params, "ShowGearAnimation", 1, 0, 9)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
       telemetry_fps = _telemetry_fps(configured_fps)
       map_server.set_poll_fps(telemetry_fps)
@@ -1395,6 +1398,7 @@ def main():
       packet.update(nav_selection.telemetry())
       # HUD phone camera traffic light: 0 off, 1 display, 2 display + planner assist.
       packet["camSig"] = camera_signal
+      packet["gearAnim"] = 1 if gear_animation else 0
       # EON Bluetooth remote (bt_remote): link state and the last command.
       remote = remote_status()
       if remote is not None:
