@@ -421,8 +421,8 @@ def camera_text(camera, rear):
 
 
 def section_text(section):
-  """'구간3.2km평균89' (the zone's remaining distance and average speed; parts the navi
-  does not give are left out)."""
+  """'구간3.2km 89' (the zone's remaining distance and average speed, without the word
+  평균 to keep it short; parts the navi does not give are left out)."""
   if not isinstance(section, dict):
     return SECTION_TEXT
   dist = float(section.get("distance", -1.0) or -1.0)
@@ -430,7 +430,7 @@ def section_text(section):
   if dist <= 0.0:
     return SECTION_TEXT
   text = "구간" + distance_text(dist)
-  return text + ("평균%d" % round(avg) if avg > 0.0 else "")
+  return text + (" %d" % round(avg) if avg > 0.0 else "")
 
 
 def clock_text(now=None):

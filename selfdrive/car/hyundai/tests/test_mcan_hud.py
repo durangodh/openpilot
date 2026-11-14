@@ -281,7 +281,7 @@ def test_section_zone_shows_the_limit_like_avn():
                                   "average_speed_kph": 89}})
   msgs = run(McanHud(), state, 30)
   assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 6
-  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간10.0km평균89"))]
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간10.0km 89"))]
 
 
 def test_tollgate_next_after_rest_area_then_gate_from_1km():
@@ -457,7 +457,7 @@ def test_camera_and_section_distance_texts():
   assert distance_text(330) == "350m" and distance_text(20) == "50m" and distance_text(3150) == "3.2km"
   assert camera_text({"distance": 350}, False) == "카메라350m"
   assert camera_text({"distance": 300}, True) == "후면단속300m"
-  assert section_text({"distance": 3200, "average": 89.4}) == "구간3.2km평균89"
+  assert section_text({"distance": 3200, "average": 89.4}) == "구간3.2km 89"
   assert section_text({"distance": 800, "average": 0}) == "구간800m"
   # a front camera on a keep-going stretch shows its distance; next to a turn the direction name
   state = nav(turn_type=11, dist=2000.0, text="오산")
