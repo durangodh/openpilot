@@ -72,8 +72,7 @@ final class RoadPreviewClient {
     private static Connection savedConnection;
     private static boolean restored;
     private volatile Frame latest;
-    /** Upper road region for the traffic light networks, ~3 fps (TrafficLightDetector). */
-    private static final long SIGNAL_INTERVAL_MS = 333;
+    /** Upper road region for the traffic light networks; the HUD sets the rate (heat). */
     private static final int MAX_SIGNAL_JPEG_BYTES = 256 * 1024;
 
     private static SharedPreferences prefs(Context context) {
@@ -216,18 +215,18 @@ final class RoadPreviewClient {
      * hands each photo to sink on this thread (the traffic light networks run there). Shares
      * the road preview's EON address and password.
      */
-    void runSignal(BooleanSupplier active, BooleanSupplier wanted, Supplier<String> telemetryAddress,
+    void runSignal(BooleanSupplier active, java.util.function.LongSupplier intervalMs, Supplier<String> telemetryAddress,
                    java.util.function.Consumer<Frame> sink) {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         try {
             while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
                 Connection target = connection;
-                if (target == null || !wanted.getAsBoolean() || !target.address.equals(telemetryAddress.get())) {
+                long interval = intervalMs.getAsLong();   // <= 0: not now
+                if (target == null || interval <= 0L || !target.address.equals(telemetryAddress.get())) {
                     Thread.sleep(500);
                     continue;
                 }
                 long start = SystemClock.elapsedRealtime();
-                long interval = SIGNAL_INTERVAL_MS;
                 try {
                     Frame frame = fetchSignal(target, start);
                     if (frame != null && connection == target) {

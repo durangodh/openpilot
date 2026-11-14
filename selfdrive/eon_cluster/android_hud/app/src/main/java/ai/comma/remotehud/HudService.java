@@ -1086,7 +1086,7 @@ public final class HudService extends Service {
                 "hud-road-preview");
         roadPreviewThread.start();
         lightDetector = new TrafficLightDetector(this);
-        cameraSignalThread = new Thread(() -> roadPreview.runSignal(running::get, this::cameraSignalWanted,
+        cameraSignalThread = new Thread(() -> roadPreview.runSignal(running::get, this::cameraSignalInterval,
                 HudService::roadPreviewAddress, this::onSignalPhoto), "hud-camera-signal");
         cameraSignalThread.start();
         receiverThread.start();
@@ -3577,16 +3577,31 @@ public final class HudService extends Service {
      * the upper road region costs Wi-Fi time next to the Bluetooth audio, so it is not
      * fetched on the highway.
      */
-    private boolean cameraSignalWanted() {
+    private long cameraSignalInterval() {
         JSONObject s = state.get();
-        return s != null && !eonStale() && s.optInt("camSig", 0) >= 1 && s.optInt("speed", 0) < 90;
+        if (s == null || eonStale() || s.optInt("camSig", 0) < 1 || s.optInt("speed", 0) >= 90) return 0L;
+        // Heat guard: the networks took the S20 to ~90 C at 3 fps on the CPU (2026-11-14).
+        float temp = freshStat(s9TempC, s9TempSampleElapsed, SystemClock.elapsedRealtime());
+        if (temp >= 80f || (cameraSignalHot && temp >= 72f)) {
+            cameraSignalHot = true;
+            return 0L;   // pause until the phone is back below 72 C
+        }
+        cameraSignalHot = false;
+        if (temp >= 70f) return 1000L;
+        if (temp >= 60f) return 600L;
+        // Standing still the detector reruns every 2 s and only the colour is re-read.
+        return s.optInt("speed", 0) < 3 ? 500L : 400L;
     }
+
+    private volatile boolean cameraSignalHot;
 
     /** Signal thread: run the networks and report the confirmed colour to the EON. */
     private void onSignalPhoto(RoadPreviewClient.Frame frame) {
         TrafficLightDetector detector = lightDetector;
         if (detector == null) return;
-        TrafficLightDetector.Result result = detector.detect(frame.bitmap, frame.crop, frame.eonTime);
+        JSONObject s = state.get();
+        boolean stopped = s != null && s.optInt("speed", 0) < 3;
+        TrafficLightDetector.Result result = detector.detect(frame.bitmap, frame.crop, frame.eonTime, stopped);
         cameraSignal = result;
         cameraSignalElapsed = SystemClock.elapsedRealtime();
         try {
@@ -3641,7 +3656,8 @@ public final class HudService extends Service {
         p.setColor(Color.WHITE);
         p.setTextSize(13f);
         p.setTextAlign(Paint.Align.CENTER);
-        c.drawText("카메라", cx, cy + 36f, p);
+        TrafficLightDetector detector = lightDetector;
+        c.drawText(detector != null && "CPU".equals(detector.backend) ? "카메라 CPU" : "카메라", cx, cy + 36f, p);
         p.setTextAlign(Paint.Align.LEFT);
     }
 

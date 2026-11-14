@@ -61,6 +61,8 @@ final class TrafficLightDetector {
     private static final float[] MEAN = {123.675f, 116.28f, 103.53f};
     private static final float[] STD = {58.395f, 57.12f, 57.375f};
     private static final long RETRY_MS = 10 * 60 * 1000L;
+    /** Stopped: the lights do not move, so the detector reruns only this often (classifier every photo). */
+    private static final long STOPPED_DETECT_MS = 2000L;
     private static final float ROI_CAMERA_CENTRE = (0.5f - 0.20f) / (0.85f - 0.20f);
 
     static final class Result {
@@ -91,6 +93,10 @@ final class TrafficLightDetector {
     private final FloatBuffer clsInput = FloatBuffer.allocate(3 * CLS * CLS);
     private int[] pixels = new int[0];
 
+    private List<float[]> lastBoxes = new ArrayList<>();   // detector boxes of the last photo
+    private int lastW, lastH;
+    private long lastDetectAt;
+    volatile String backend = "";
     private int lastRaw = NONE;
     private Result stable;
     private long stableAt;
@@ -112,10 +118,10 @@ final class TrafficLightDetector {
      * One upper-road photo -> the confirmed light, or null. crop is the photo's camera box
      * {u0, v0, u1, v1}. Runs on the signal thread; never throws.
      */
-    Result detect(Bitmap photo, int[] crop, long eonTime) {
+    Result detect(Bitmap photo, int[] crop, long eonTime, boolean stopped) {
         if (photo == null || photo.isRecycled() || crop == null || !ready()) return null;
         try {
-            Result raw = run(photo, crop, eonTime);
+            Result raw = run(photo, crop, eonTime, stopped);
             long now = SystemClock.elapsedRealtime();
             int color = raw == null ? NONE : raw.color;
             if (color != NONE && color == lastRaw) {
@@ -141,11 +147,21 @@ final class TrafficLightDetector {
             File det = model(dir, "detector.onnx", DETECTOR_URL, DETECTOR_SHA);
             File cls = model(dir, "classifier.onnx", CLASSIFIER_URL, CLASSIFIER_SHA);
             env = OrtEnvironment.getEnvironment();
-            OrtSession.SessionOptions options = new OrtSession.SessionOptions();
-            options.setIntraOpNumThreads(2);
-            detector = env.createSession(det.getAbsolutePath(), options);
-            classifier = env.createSession(cls.getAbsolutePath(), options);
-            status = "동작 중";
+            // The phone's neural accelerator (NNAPI, FP16) instead of the CPU: the CPU at 3 fps
+            // took the S20 to ~90 °C (2026-11-14). CPU, one thread, only if NNAPI is refused.
+            try {
+                detector = env.createSession(det.getAbsolutePath(), nnapiOptions());
+                classifier = env.createSession(cls.getAbsolutePath(), nnapiOptions());
+                backend = "NNAPI";
+            } catch (Throwable nnapi) {
+                Log.w(TAG, "NNAPI unavailable, CPU", nnapi);
+                OrtSession.SessionOptions cpu = new OrtSession.SessionOptions();
+                cpu.setIntraOpNumThreads(1);
+                detector = env.createSession(det.getAbsolutePath(), cpu);
+                classifier = env.createSession(cls.getAbsolutePath(), cpu);
+                backend = "CPU";
+            }
+            status = "동작 중 " + backend;
             return true;
         } catch (Throwable t) {
             detector = classifier = null;
@@ -153,6 +169,13 @@ final class TrafficLightDetector {
             Log.w(TAG, "traffic light models unavailable", t);
             return false;
         }
+    }
+
+    private static OrtSession.SessionOptions nnapiOptions() throws Exception {
+        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+        options.setIntraOpNumThreads(1);
+        options.addNnapi(java.util.EnumSet.of(ai.onnxruntime.providers.NNAPIFlags.USE_FP16));
+        return options;
     }
 
     /** The pinned model file, downloaded once and verified by SHA-256. */
@@ -193,11 +216,25 @@ final class TrafficLightDetector {
         return hex.toString();
     }
 
-    private Result run(Bitmap photo, int[] crop, long eonTime) throws Exception {
+    private Result run(Bitmap photo, int[] crop, long eonTime, boolean stopped) throws Exception {
         int w = photo.getWidth(), h = photo.getHeight();
         if (pixels.length < w * h) pixels = new int[w * h];
         photo.getPixels(pixels, 0, w, 0, 0, w, h);
+        long now = SystemClock.elapsedRealtime();
+        List<float[]> kept;
+        if (stopped && w == lastW && h == lastH && now - lastDetectAt < STOPPED_DETECT_MS) {
+            kept = lastBoxes;   // standing still: same lights, only re-read their colour
+        } else {
+            kept = detectBoxes(photo, w, h);
+            lastBoxes = kept;
+            lastW = w;
+            lastH = h;
+            lastDetectAt = now;
+        }
+        return choose(kept, w, h, crop, eonTime);
+    }
 
+    private List<float[]> detectBoxes(Bitmap photo, int w, int h) throws Exception {
         // Detector input: top-left letterbox, BGR 0-255, pad 114, NCHW.
         float scale = Math.min(DET / (float) w, DET / (float) h);
         int nw = Math.max(1, (int) (w * scale)), nh = Math.max(1, (int) (h * scale));
@@ -250,6 +287,10 @@ final class TrafficLightDetector {
             if (separate) kept.add(box);
             if (kept.size() >= MAX_BOXES) break;
         }
+        return kept;
+    }
+
+    private Result choose(List<float[]> kept, int w, int h, int[] crop, long eonTime) throws Exception {
 
         // Classify each light; pick the confident one nearest the middle of the road.
         float camW = crop[2] - crop[0], camH = crop[3] - crop[1];
