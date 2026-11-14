@@ -197,20 +197,19 @@ def lane_for_junction(lane, dist_m):
 
 
 def lane_side(turn_type, lane):
-  """Junction shape for a left/right turn from the navi's lane arrows at that junction, as
-  the AVN draws it: an arm for every direction some lane may take, plus the turn's own arm.
-  None (keep the crossroads) without usable lanes or when only the turn's own arm is known."""
+  """Junction shape for a left/right turn from the navi's lane arrows at that junction:
+  crossroads when any lane goes straight on, otherwise a T junction (2026-11-14, as asked:
+  the straight+turn shapes looked wrong next to the navi's lanes). None (keep the
+  crossroads) without usable lanes."""
   if turn_type not in TURN_ARM or not isinstance(lane, dict) or not isinstance(lane.get("dirs"), list):
     return None
   dirs = 0
   for d in lane["dirs"]:
     if isinstance(d, int) and not isinstance(d, bool):
       dirs |= d
-  side = TURN_ARM[turn_type]
-  for bit, arm in LANE_DIR_ARMS:
-    if dirs & bit:
-      side |= arm
-  return side if side != TURN_ARM[turn_type] else None
+  if not dirs & (1 | 2 | 4):
+    return None
+  return SIDE_TURN if dirs & 1 else SIDE_T_JUNCTION
 
 
 def show_turn(turn_type, dist_m, lane=None, after_exit=False):

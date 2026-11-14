@@ -212,19 +212,21 @@ def test_junction_shape_from_the_navi_lanes_like_avn():
   # lane "dirs": 1 straight, 2 left, 4 right
   assert lane_side(13, {"dirs": [2, 1, 5]}) == 0x0811        # crossroads (AVN 12:08:28)
   assert lane_side(12, {"dirs": [2, 2, 4]}) == 0x0810        # T junction, no straight lane (07:44)
-  assert lane_side(13, {"dirs": [1, 1, 5]}) == 0x0011        # straight + right (AVN 12:20, 12:26)
-  assert lane_side(12, {"dirs": [2, 1, 1]}) == 0x0801        # straight + left
-  assert lane_side(13, {"dirs": [4, 4]}) is None             # only the turn's own arm: crossroads
+  # Any straight lane: crossroads; no straight lane: T junction (2026-11-14)
+  assert lane_side(13, {"dirs": [1, 1, 5]}) == 0x0811
+  assert lane_side(12, {"dirs": [2, 1, 1]}) == 0x0811
+  assert lane_side(13, {"dirs": [4, 4]}) == 0x0810
+  assert lane_side(13, {"dirs": [10, 2, 2, 4]}) == 0x0810    # U-turn+left, left, left, right
   assert lane_side(13, {"dirs": []}) is None and lane_side(13, {"count": 2}) is None
   assert lane_side(14, {"dirs": [8, 1]}) is None             # U-turn keeps the AVN's U-turn picture
   hud = McanHud()
   state = nav(turn_type=13, dist=300.0, text="오산, 용인")
-  state["lane_current"] = {"distance_m": 310, "dirs": [1, 1, 5]}
+  state["lane_current"] = {"distance_m": 310, "dirs": [4, 4, 4]}
   msgs = run(hud, state, 5)
-  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d00110c"]
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d08100c"]
   # The lanes disappear near the junction: the shape stays.
   msgs = run(hud, nav(turn_type=13, dist=40.0, text="오산, 용인"), 5, start=5)
-  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d00110c"]
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d08100c"]
   # Lanes of another junction (distance off) do not shape this turn; a new turn starts over.
   state = nav(turn_type=12, dist=300.0, text="수원")
   state["lane_current"] = {"distance_m": 120, "dirs": [2, 2, 4]}
