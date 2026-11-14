@@ -1005,6 +1005,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "McanHudTbt", "STOCK HUD NAVER TBT (M-CAN)",
       "켜짐: 네이버 회전 안내(화살표·거리·방면)를 순정 HUD 에 보냅니다. 판다와 차 M-CAN 사이에 저속(내결함)↔고속 CAN 변환기가 있어야 합니다. 변환기 없이 켜지 마세요(판다가 저속 M-CAN 에 직접 신호를 냄). 순정 내비는 목적지 없이 두세요. 재부팅 후 적용.",
       "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudClock", "STOCK HUD CLOCK",
+      "켜짐: 순정 HUD 방향 글자 자리에 시계(오후 3:25)를 보여 줍니다. 다음 안내까지 1km 이상 남은 직진 구간과 정차 중에만 시계, 그 밖에는 방향 이름입니다. 카메라·구간단속·톨게이트·경로 탐색 중에는 바꾸지 않습니다.",
+      "../assets/offroad/icon_road.png", this));
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 

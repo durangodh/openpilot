@@ -17,6 +17,8 @@ Sending requires the panda's bus 1 to be live (McanHudTbt, through an MM-CAN
 low-speed/fault-tolerant <-> high-speed converter); the panda only lets these three
 IDs out on bus 1.
 """
+import time
+
 from selfdrive.car import make_can_msg
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
@@ -395,6 +397,19 @@ def isotp_frames(body):
   return frames
 
 
+# Keep-going pictures (plain straight and the previews of the next maneuver).
+CLOCK_STRAIGHT_DISPLAYS = (DISPLAY_STRAIGHT, 66, 67, 70, 72)
+CLOCK_FAR_M = 1000
+CLOCK_STOPPED_FRAMES = 100   # 1 s at 100 Hz
+
+
+def clock_text(now=None):
+  """'오후 3:25' (EON local time, Asia/Seoul via timezoned)."""
+  t = time.localtime(now)
+  hour = t.tm_hour % 12 or 12
+  return "%s %d:%02d" % ("오전" if t.tm_hour < 12 else "오후", hour, t.tm_min)
+
+
 class McanHud:
   # Wait this long after a first frame before the consecutive frames (the HUD's
   # flow control came back within a few ms in the logs).
@@ -405,7 +420,13 @@ class McanHud:
   # TG card (09:11 풍세상톨게이트). Start the text after the new 0x115 like the AVN.
   TEXT_DELAY_FRAMES = 12
 
-  def __init__(self):
+  def __init__(self, clock=None):
+    # McanHudClock: None reads the param (every 2 s), True/False fixes it (tests).
+    self.clock = clock
+    self.clock_enabled = bool(clock)
+    self.clock_read_frame = None
+    self._params = None
+    self.stopped_frames = 0
     self.text = None
     self.text_queue = []
     self.text_wait = 0
@@ -418,6 +439,20 @@ class McanHud:
     self.junction = None        # junction shape from the navi's lanes at this turn
     self.goal_frame = None      # last frame guidance was to the goal within ARRIVE_END_M
     self.arrived_until = -1     # arrived flag held after the guidance ended at the goal
+
+  def _clock_on(self, frame):
+    if self.clock is not None:
+      return bool(self.clock)
+    if self.clock_read_frame is None or frame - self.clock_read_frame >= 200:
+      self.clock_read_frame = frame
+      try:
+        if self._params is None:
+          from common.params import Params
+          self._params = Params()
+        self.clock_enabled = self._params.get_bool("McanHudClock")
+      except Exception:
+        self.clock_enabled = False
+    return self.clock_enabled
 
   def _queue_text(self, text):
     self.text = text
@@ -490,6 +525,19 @@ class McanHud:
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
       rerouting = True
+
+    # Clock on the text line (McanHudClock): on a long keep-going stretch (next maneuver
+    # >= 1 km) and while stopped; the direction name otherwise. It changes once per stretch
+    # or stop, then only its minute: alternating every few seconds would distract.
+    if v_ego < 0.3:
+      self.stopped_frames += 1
+    elif v_ego > 1.0:
+      self.stopped_frames = 0
+    if (payload is not None and not rerouting and not rear_camera and not in_section
+        and payload[0] not in (DISPLAY_TOLLGATE, DISPLAY_ARRIVED) and self._clock_on(frame)):
+      far_straight = payload[0] in CLOCK_STRAIGHT_DISPLAYS and dist >= CLOCK_FAR_M
+      if far_straight or self.stopped_frames >= CLOCK_STOPPED_FRAMES:
+        text = clock_text()
 
     if payload is not None and payload[0] in (DISPLAY_DEST_AHEAD, DISPLAY_ARRIVED) \
         and dist <= ARRIVE_END_M:

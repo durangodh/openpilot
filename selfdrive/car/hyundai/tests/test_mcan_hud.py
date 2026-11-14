@@ -416,3 +416,37 @@ def test_tmap_highway_codes_draw_like_the_naver_maneuvers():
   # TMAP left fork
   tbt = [d for a, d, _ in run(McanHud(), nav(turn_type=105, dist=200.0, text="서오산분기점"), 5) if a == TBT_ADDR]
   assert tbt and tbt[-1][:4] == tbt_payload(17, 200.0, "서오산분기점")[:4]
+
+
+def test_clock_text_format():
+  from selfdrive.car.hyundai.mcan_hud import clock_text
+  import time as _t
+  base = _t.mktime((2026, 11, 14, 15, 25, 0, 0, 0, -1))
+  assert clock_text(base) == "오후 3:25"
+  assert clock_text(base - 15 * 3600) == "오전 12:25"
+  assert clock_text(base - 3 * 3600) == "오후 12:25"
+
+
+def test_clock_on_long_straight_and_when_stopped_only():
+  from selfdrive.car.hyundai.mcan_hud import clock_text, text_payload
+  def texts(hud, state, frames, start=0, v=10.0):
+    out = []
+    for f in range(start, start + frames):
+      out += [bytes(m[2]) for m in hud.update(f, state, v) if m[0] == TEXT_ADDR]
+    return out
+  clock = text_payload(clock_text())[:1]
+  hud = McanHud(clock=True)
+  # keep going 3 km: the clock; within 1 km of the next maneuver: the direction name
+  far = texts(hud, nav(turn_type=11, dist=3000.0, text="오산"), 20)
+  assert far and far[0][:2] == isotp_frames(text_payload(clock_text()))[0][:2]
+  near = texts(hud, nav(turn_type=11, dist=900.0, text="오산"), 20, start=20)
+  assert near and near[0][:2] == isotp_frames(text_payload("오산"))[0][:2]
+  # a turn 200 m ahead: its name while moving, the clock after 1 s stopped
+  hud = McanHud(clock=True)
+  moving = texts(hud, nav(turn_type=13, dist=200.0, text="반석초"), 20)
+  assert moving and moving[0][:2] == isotp_frames(text_payload("반석초"))[0][:2]
+  stopped = texts(hud, nav(turn_type=13, dist=200.0, text="반석초"), 150, start=20, v=0.0)
+  assert stopped and stopped[0][:2] == isotp_frames(text_payload(clock_text()))[0][:2]
+  # off: never the clock
+  hud = McanHud(clock=False)
+  assert texts(hud, nav(turn_type=11, dist=3000.0, text="오산"), 20)[0][:2] == isotp_frames(text_payload("오산"))[0][:2]
