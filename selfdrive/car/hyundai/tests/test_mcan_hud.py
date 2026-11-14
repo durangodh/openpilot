@@ -212,10 +212,9 @@ def test_junction_shape_from_the_navi_lanes_like_avn():
   # lane "dirs": 1 straight, 2 left, 4 right
   assert lane_side(13, {"dirs": [2, 1, 5]}) == 0x0811        # crossroads (AVN 12:08:28)
   assert lane_side(12, {"dirs": [2, 2, 4]}) == 0x0810        # T junction, no straight lane (07:44)
-  # Any straight lane: crossroads; no straight lane: T junction (2026-11-14)
-  assert lane_side(13, {"dirs": [1, 1, 5]}) == 0x0811
-  assert lane_side(12, {"dirs": [2, 1, 1]}) == 0x0811
-  assert lane_side(13, {"dirs": [4, 4]}) == 0x0810
+  assert lane_side(13, {"dirs": [1, 1, 5]}) == 0x0011        # straight + right (AVN 12:20, 12:26)
+  assert lane_side(12, {"dirs": [2, 1, 1]}) == 0x0801        # straight + left
+  assert lane_side(13, {"dirs": [4, 4]}) == 0x0810           # no straight lane: T junction
   assert lane_side(13, {"dirs": [10, 2, 2, 4]}) == 0x0810    # U-turn+left, left, left, right
   assert lane_side(13, {"dirs": []}) is None and lane_side(13, {"count": 2}) is None
   assert lane_side(14, {"dirs": [8, 1]}) is None             # U-turn keeps the AVN's U-turn picture
