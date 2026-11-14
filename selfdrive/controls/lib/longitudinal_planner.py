@@ -21,6 +21,7 @@ from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, li
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.turn_accel import get_future_curvature, limit_accel_in_future_turns
 from selfdrive.controls.lib.events import Events
+from selfdrive.controls.lib.camera_signal import CameraSignalReader
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
                                                     E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
@@ -49,6 +50,9 @@ class LongitudinalPlanner:
     self.conditional_e2e = ConditionalE2EController(DT_MDL)
     # Navigation C-ITS signal (Naver/Kakao) assists traffic-stop detection.
     self.navigation_route = NavigationRouteData(GUIDE_FILE)
+    # HUD phone camera traffic light (CameraSignal 2 = control assist).
+    self.camera_signal = CameraSignalReader()
+    self.camera_signal_mode = 1
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
     self.e2e_stop_distance = 0.0
@@ -99,6 +103,10 @@ class LongitudinalPlanner:
     except (TypeError, ValueError):
       self.traffic_stop_mode = 2
     self.traffic_stop_mode = int(clip(self.traffic_stop_mode, 0, 3))
+    try:
+      self.camera_signal_mode = int(self.params.get('CameraSignal', encoding='utf8'))
+    except (TypeError, ValueError):
+      self.camera_signal_mode = 1
     self.traffic_stop_accel_factor = scaled('TrafficStopAccel', 80, 0.1, 1.2)
     traffic_stop_distance_adjust = self.params.get_int('TrafficStopDistanceAdjust')
     self.traffic_stop_distance_adjust = float(clip(traffic_stop_distance_adjust * 0.01, -10.0, 10.0))
@@ -150,6 +158,7 @@ class LongitudinalPlanner:
       signal = self.navigation_route.update().get("signal")
     except Exception:
       signal = None
+    camera_red = self.camera_signal_mode == 2 and self.camera_signal.update() == "red"
 
     mode = self.conditional_e2e.update(
       available=active and self.auto_e2e_enabled,
@@ -172,7 +181,8 @@ class LongitudinalPlanner:
       vision_lead_present=vision_lead_present,
       signal_phase=signal["phase"] if signal else None,
       signal_distance=signal["distance"] if signal else -1.0,
-      signal_remaining=signal["remaining"] if signal else -1.0)
+      signal_remaining=signal["remaining"] if signal else -1.0,
+      camera_red=camera_red)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance

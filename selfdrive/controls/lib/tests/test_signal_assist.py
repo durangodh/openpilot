@@ -108,3 +108,43 @@ def test_route_file_signal_is_parsed_and_expires(tmp_path):
   }))
   route = NavigationRouteData(str(path))
   assert route.update()["signal"] == {"phase": "red", "distance": 120.0, "remaining": 25.0}
+
+
+# ---- HUD phone camera traffic light (camera_signal.py, CameraSignal=2) ----
+
+def test_camera_red_turns_weak_model_slowdown_into_a_stop():
+  controller = ConditionalE2EController(DT_MDL)
+  weak_slowdown(controller, 20, camera_red=True)
+  assert controller.stopping
+
+
+def test_camera_red_holds_the_model_departure_but_not_the_gas():
+  from selfdrive.controls.lib.tests.test_conditional_e2e import enter_stop
+  controller = ConditionalE2EController(DT_MDL)
+  enter_stop(controller, distance=10.0, v_ego=1.0)
+  for _ in range(30):
+    update(controller, model_x=100.0, model_v0=10.0, model_v_end=8.0, v_ego=1.0, camera_red=True)
+  assert controller.stopping and not controller.prepare
+  # the red goes away: the model departure is confirmed as before
+  for _ in range(10):
+    update(controller, model_x=100.0, model_v0=10.0, model_v_end=8.0, v_ego=1.0)
+  assert controller.prepare
+  # the driver's gas departs even under a camera red
+  controller.reset()
+  enter_stop(controller, distance=30.0)
+  update(controller, model_x=30.0, model_v0=10.0, model_v_end=1.0, gas_pressed=True, camera_red=True)
+  assert controller.prepare
+
+
+def test_camera_signal_file_round_trip_and_expiry(tmp_path):
+  import json
+  from selfdrive.controls.lib.camera_signal import CameraSignalReader, store_hud_signal
+  path = str(tmp_path / "sig.json")
+  now = time.time()
+  assert store_hud_signal(json.dumps({"t": int(now * 1000), "color": "red", "label": "red", "score": 0.9}), path)
+  reader = CameraSignalReader(path)
+  assert reader.update(now) == "red"
+  assert reader.update(now + 2.0) == "none"          # stale photo
+  assert not store_hud_signal(b"not json", path)
+  assert not store_hud_signal(json.dumps({"t": 1, "color": "purple"}), path)
+  assert CameraSignalReader(str(tmp_path / "missing.json")).update(now) == "none"

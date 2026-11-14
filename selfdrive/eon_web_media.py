@@ -45,6 +45,18 @@ def road_path_color(status_color, engaged, lead_detected, accel):
   return (255, 0, 0, 120)
 
 
+SIGNAL_MAX_WIDTH = 640
+SIGNAL_JPEG_QUALITY = 75
+
+
+def signal_roi(camera_size):
+  """carrot-wip's upper traffic light region (x 20-85 %, y 4-60 %), even-aligned."""
+  w, h = camera_size
+  x0, y0 = int(0.20 * w) & ~1, int(0.04 * h) & ~1
+  x1, y1 = int(0.85 * w) & ~1, int(0.60 * h) & ~1
+  return (x0, y0, x1, y1)
+
+
 def eon_view(camera_size, view_size, focal):
   """Camera crop of the EON screen region a HUD pane of view_size shows.
 
@@ -463,6 +475,33 @@ class RoadPreview:
       image.save(data, "JPEG", quality=60)
       self.images[variant] = (data.getvalue(), box, self.captured_ms)
     return self.images[variant]
+
+  def signal_camera(self):
+    """Upper road region for the HUD phone's traffic light networks (camera_signal.py).
+
+    carrot-wip's ROI (x 20-85 %, y 4-60 %) at native camera resolution, capped at
+    SIGNAL_MAX_WIDTH: far lights are only a few pixels, and the 384x535 preview loses
+    them. Returns (jpeg, camera crop box, capture time in epoch ms) or None.
+    """
+    now = time.monotonic()
+    self.requested = now
+    if now - self.updated >= FRAME_INTERVAL:
+      self.updated = now
+      self.frame_array = None
+      self.images.clear()
+      self._capture()
+    if self.frame_array is None:
+      return None
+    if "signal" not in self.images:
+      from PIL import Image
+      box = signal_roi(self.camera_size)
+      image = self._image(box)
+      if image.width > SIGNAL_MAX_WIDTH:
+        image = image.resize((SIGNAL_MAX_WIDTH, round(image.height * SIGNAL_MAX_WIDTH / image.width)), Image.BILINEAR)
+      data = io.BytesIO()
+      image.save(data, "JPEG", quality=SIGNAL_JPEG_QUALITY)
+      self.images["signal"] = (data.getvalue(), box, self.captured_ms)
+    return self.images["signal"]
 
   def frame(self, hud=False, path_end=1000, view_size=None):
     now = time.monotonic()

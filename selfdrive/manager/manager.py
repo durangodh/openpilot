@@ -84,6 +84,7 @@ def manager_init() -> None:
     ("AutoLaneChangeEnabled", "0"),
     ("ExperimentalMode", "0"),
     ("TrafficStopMode", "2"),
+    ("CameraSignal", "1"),
     ("MixRadarInfo", "0"),
     ("PathOffset", "0"),
     ("UseLaneLineSpeed", "0"),

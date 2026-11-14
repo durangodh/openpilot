@@ -58,8 +58,6 @@ final class RoadPreviewClient {
         final int[] crop;
         /** EON capture time (epoch ms), matched against telemetry "t". */
         final long eonTime;
-        /** Display-only traffic light test result for this photo, or null. */
-        volatile TrafficLightDetector.Result light;
 
         Frame(Connection connection, Bitmap bitmap, long timestamp, int[] crop, long eonTime) {
             this.connection = connection;
@@ -74,11 +72,9 @@ final class RoadPreviewClient {
     private static Connection savedConnection;
     private static boolean restored;
     private volatile Frame latest;
-    private volatile TrafficLightDetector lightDetector;
-
-    void setLightDetector(TrafficLightDetector detector) {
-        lightDetector = detector;
-    }
+    /** Upper road region for the traffic light networks, ~3 fps (TrafficLightDetector). */
+    private static final long SIGNAL_INTERVAL_MS = 333;
+    private static final int MAX_SIGNAL_JPEG_BYTES = 256 * 1024;
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -199,8 +195,6 @@ final class RoadPreviewClient {
                     Frame frame = fetch(target, start, pathEnd.getAsInt(), view);
                     if (frame != null && connection == target && requested.getAsBoolean()
                             && target.address.equals(telemetryAddress.get())) {
-                        TrafficLightDetector detector = lightDetector;
-                        if (detector != null && frame.crop != null) frame.light = detector.detect(frame.bitmap);
                         latest = frame;
                     } else {
                         interval = 1000;
@@ -214,6 +208,79 @@ final class RoadPreviewClient {
             Thread.currentThread().interrupt();
         } finally {
             latest = null;
+        }
+    }
+
+    /**
+     * Fetches the EON's upper road region at native resolution (/api/road.jpg?signal=1) and
+     * hands each photo to sink on this thread (the traffic light networks run there). Shares
+     * the road preview's EON address and password.
+     */
+    void runSignal(BooleanSupplier active, BooleanSupplier wanted, Supplier<String> telemetryAddress,
+                   java.util.function.Consumer<Frame> sink) {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        try {
+            while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
+                Connection target = connection;
+                if (target == null || !wanted.getAsBoolean() || !target.address.equals(telemetryAddress.get())) {
+                    Thread.sleep(500);
+                    continue;
+                }
+                long start = SystemClock.elapsedRealtime();
+                long interval = SIGNAL_INTERVAL_MS;
+                try {
+                    Frame frame = fetchSignal(target, start);
+                    if (frame != null && connection == target) {
+                        sink.accept(frame);
+                        frame.bitmap.recycle();
+                    } else {
+                        interval = 1000;
+                    }
+                } catch (IOException e) {
+                    interval = 1000;
+                }
+                Thread.sleep(Math.max(0L, interval - (SystemClock.elapsedRealtime() - start)));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private Frame fetchSignal(Connection target, long start) throws IOException {
+        URL url = new URL("http", target.address, 7000, "/api/road.jpg?signal=1");
+        HttpURLConnection request = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
+        try {
+            request.setConnectTimeout(500);
+            request.setReadTimeout(800);
+            request.setInstanceFollowRedirects(false);
+            request.setUseCaches(false);
+            request.setRequestProperty("Authorization", target.authorization);
+            if (request.getResponseCode() != HttpURLConnection.HTTP_OK
+                    || !"image/jpeg".equalsIgnoreCase(request.getContentType())
+                    || request.getContentLength() > MAX_SIGNAL_JPEG_BYTES) return null;
+            int[] crop = parseCrop(request.getHeaderField("X-EON-View"));
+            long eonTime;
+            try {
+                String time = request.getHeaderField("X-Frame-Time");
+                eonTime = time == null ? 0L : Long.parseLong(time.trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            if (crop == null || eonTime <= 0L) return null;   // an older EON without the region
+            try (InputStream input = request.getInputStream();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream(64 * 1024)) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (output.size() + count > MAX_SIGNAL_JPEG_BYTES) return null;
+                    output.write(buffer, 0, count);
+                }
+                byte[] bytes = output.toByteArray();
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                return bitmap == null ? null : new Frame(target, bitmap, start, crop, eonTime);
+            }
+        } finally {
+            request.disconnect();
         }
     }
 

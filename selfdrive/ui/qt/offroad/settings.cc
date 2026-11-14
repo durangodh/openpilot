@@ -266,6 +266,9 @@ void ParamValueControlF::refresh() {
   if (param_ == "TrafficStopMode") {
     static const QStringList modes = {"ACC", "AUTO", "APILOT", "VISION"};
     value_label->setText(modes[v]);
+  } else if (param_ == "CameraSignal") {
+    static const QStringList modes = {"OFF", "SHOW", "ASSIST"};
+    value_label->setText(modes[v]);
   } else if (param_ == "InitMyDrivingMode") {
     static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
     value_label->setText(modes[v - 1]);
@@ -1615,6 +1618,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "TrafficStopMode", "E2E / ACC MODE",
       "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: 신호정지는 ACC, 출발준비에서만 E2E / 3 VISION: 신호정지 끔, 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서만 E2E.",
       "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
+
+  list->addItem(new ParamValueControlF(
+      "CameraSignal", "CAMERA TRAFFIC LIGHT",
+      "0 끔 / 1 표시만: S20 이 이온 카메라로 신호등 색을 읽어 HUD 도로화면에 표시 / 2 표시+보조: 카메라 빨간불이면 모델의 약한 감속도 신호정지로 인정하고, 정지 중 모델 출발을 막습니다(가속 페달 출발은 그대로). 정지 위치는 바꾸지 않습니다. 실험 기능.",
+      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 1, this));
 
   list->addItem(new ParamControl(
       "MixRadarInfo", "RADAR / VISION ACCEL BLEND",

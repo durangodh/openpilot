@@ -23,6 +23,7 @@ from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
 from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 from selfdrive.eon_cluster import voice_system
+from selfdrive.controls.lib.camera_signal import store_hud_signal
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1357,6 +1358,7 @@ def main():
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   path_style = _path_style(params)
+  camera_signal = _param_int(params, "CameraSignal", 1, 0, 2)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = _telemetry_fps(configured_fps)
   # The asset thread checks for a new map file at the telemetry rate and
@@ -1382,6 +1384,7 @@ def main():
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
       path_style = _path_style(params)
+      camera_signal = _param_int(params, "CameraSignal", 1, 0, 2)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
       telemetry_fps = _telemetry_fps(configured_fps)
       map_server.set_poll_fps(telemetry_fps)
@@ -1390,6 +1393,8 @@ def main():
     try:
       packet = _packet(sm, noo_enabled, path_offset, path_style)
       packet.update(nav_selection.telemetry())
+      # HUD phone camera traffic light: 0 off, 1 display, 2 display + planner assist.
+      packet["camSig"] = camera_signal
       # EON Bluetooth remote (bt_remote): link state and the last command.
       remote = remote_status()
       if remote is not None:
@@ -1416,6 +1421,10 @@ def main():
             hud_ip = address[0]
           elif reply.startswith(b"GPSL"):
             pass  # S9 GPS 지연 보고. 기록하지 않는다.
+          elif reply.startswith(b"HUDSIG1 "):
+            # S20 이 이온 카메라 사진에서 읽은 신호등 색(camera_signal.py). 계획기가 읽는다.
+            if camera_signal > 0:
+              store_hud_signal(reply[len(b"HUDSIG1 "):])
           elif reply.startswith(b"HUDPRM1 "):
             # S20 음성 비서의 설정 조회·변경. 범위·주행 중 제한은 voice_params 가 강제한다.
             car = sm["carState"]

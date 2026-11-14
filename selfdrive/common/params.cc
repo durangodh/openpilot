@@ -343,6 +343,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"SoftHoldMode", PERSISTENT},
     {"McanHudTbt", PERSISTENT},
     {"TrafficStopMode", PERSISTENT},         // 0: ACC, 1: E2E for far stop + departure, 2: E2E for departure only (aPilot), 3: ACC + vision-lead E2E
+    {"CameraSignal", PERSISTENT},            // HUD phone camera traffic light: 0 off, 1 display, 2 display + stop/departure assist
     {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent
     {"TrafficStopDistanceAdjust", PERSISTENT}, // traffic-stop line adjustment (cm), default +400
 
