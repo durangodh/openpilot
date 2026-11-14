@@ -464,3 +464,67 @@ def test_camera_and_section_distance_texts():
   state.update(speed_fresh=True, speed={"sdi": {"type": 1, "distance_m": 350, "speed_limit_kph": 50}})
   sent = b"".join(d for a, d, _ in run(McanHud(), state, 20) if a == TEXT_ADDR)
   assert "카메".encode("utf-16-le") in sent
+
+
+def _texts(hud, state, frames, start=0, v=10.0, lead=None):
+  """The texts sent, reassembled from their ISO-TP frames."""
+  texts, body, need = [], b"", 0
+  for f in range(start, start + frames):
+    for m in hud.update(f, state, v, lead):
+      if m[0] != TEXT_ADDR:
+        continue
+      d = bytes(m[2])
+      if d[0] >> 4 == 0:
+        texts.append(d[2:1 + d[0]].decode("utf-16-le", "replace"))
+      elif d[0] >> 4 == 1:
+        need, body = ((d[0] & 0xF) << 8) | d[1], d[2:]
+      else:
+        body += d[1:]
+        if len(body) >= need:
+          texts.append(body[1:need].decode("utf-16-le", "replace"))
+  return texts
+
+
+def test_signal_time_lead_departed_and_eta_texts():
+  from selfdrive.car.hyundai.mcan_hud import eta_text
+  on = {"signal_time": True, "lead_go": True, "eta": True, "clock": True}
+  # stopped at a red with 23 s left
+  state = dict(nav(turn_type=13, dist=80.0, text="반석초"),
+               signal={"phase": "red", "distance": 60.0, "remaining": 22.4})
+  sent = _texts(McanHud(options=on), state, 150, v=0.0)
+  assert "신호 23초" in sent
+  # the car ahead moves off while ego still stands
+  hud = McanHud(options=on)
+  _texts(hud, nav(turn_type=13, dist=80.0, text="반석초"), 150, v=0.0, lead=6.0)
+  sent = _texts(hud, nav(turn_type=13, dist=80.0, text="반석초"), 50, start=150, v=0.0, lead=10.0)
+  assert "앞차 출발" in sent
+  # long straight: arrival time
+  state = dict(nav(turn_type=11, dist=5000.0, text="오산"), route_fresh=True, route={"remain_time_sec": 1200})
+  sent = _texts(McanHud(options=on), state, 20)
+  assert any(t.startswith("도착 ") for t in sent)
+  assert eta_text(600, 0)[:3] == "도착 "
+
+
+def test_each_feature_switches_off():
+  # junction off: always the crossroads
+  hud = McanHud(options={"junction": False})
+  state = dict(nav(turn_type=13, dist=200.0, text="오산"), lane_current={"distance_m": 200, "dirs": [2, 2, 4]})
+  tbt = [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR]
+  assert tbt[-1][1:3] == bytes([0x08, 0x11])
+  # tmap exit off: TMAP code 104 not drawn
+  assert not any(a == TBT_ADDR for a, _, _ in run(McanHud(options={"tmap_exit": False}),
+                                                  nav(turn_type=104, dist=500.0, text="IC"), 5))
+  # uturn off: a left turn named 유턴 stays a left turn
+  tbt = [d for a, d, _ in run(McanHud(options={"uturn": False}), nav(turn_type=12, dist=150.0, text="유턴"), 5)
+         if a == TBT_ADDR]
+  assert tbt[-1][0] == 13
+  # arrive off: no held flag after Naver stops near the goal
+  hud = McanHud(options={"arrive": False})
+  run(hud, nav(turn_type=2, dist=60.0, text="목적지"), 50)
+  assert not any(a == TBT_ADDR for a, _, _ in run(hud, nav(fresh=False), 100, start=50))
+  # camera text off: the plain labels
+  state = dict(nav(turn_type=11, dist=11400, text=""), speed_fresh=True,
+               speed={"section": {"active": True, "speed_limit_kph": 100, "remaining_distance_m": 10000,
+                                  "average_speed_kph": 89}})
+  msgs = run(McanHud(options={"camera_text": False}), state, 30)
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]

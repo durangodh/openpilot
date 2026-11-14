@@ -1009,6 +1009,38 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "McanHudClock", "STOCK HUD CLOCK",
       "켜짐: 순정 HUD 방향 글자 자리에 시계(오후 3:25)를 보여 줍니다. 다음 안내까지 1km 이상 남은 직진 구간과 정차 중에만 시계, 그 밖에는 방향 이름입니다. 카메라·구간단속·톨게이트·경로 탐색 중에는 바꾸지 않습니다.",
       "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudEta", "STOCK HUD ETA",
+      "켜짐: 다음 안내까지 1km 이상 남은 직진 구간에서 방향 이름 대신 도착 예정 시각(도착 오후 3:40)을 보여 줍니다. 꺼지면 시계 설정에 따릅니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudSignalTime", "STOCK HUD SIGNAL TIME",
+      "켜짐: 정차 중 앞 신호가 빨간불이고 네이버 신호 정보(C-ITS)가 있으면 남은 시간(신호 23초)을 보여 줍니다. 없으면 시계.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudLeadGo", "STOCK HUD LEAD DEPARTED",
+      "켜짐: 정차 중 앞차가 출발했는데 내 차가 서 있으면 '앞차 출발'을 보여 줍니다(최대 10초).",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudCameraText", "STOCK HUD CAMERA DISTANCE",
+      "켜짐: 카메라350m, 후면단속300m, 구간3.2km 89처럼 남은 거리(구간은 평균속도)를 보여 줍니다. 꺼짐: 후면단속·구간단속 글자만.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudJunction", "STOCK HUD JUNCTION SHAPE",
+      "켜짐: 네비 차로 화살표로 교차로 모양(십자/T/├/┤)을 정합니다. 꺼짐: 항상 십자.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudArrive", "STOCK HUD ARRIVED FLAG",
+      "켜짐: 네이버가 목적지 200m 안에서 안내를 끝내면 도착 깃발을 5초 보여 줍니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudUturn", "STOCK HUD U-TURN",
+      "켜짐: '유턴' 문구이거나 추천 차로가 모두 유턴 차로인 좌회전 안내를 유턴 그림으로 보여 줍니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudTmapExit", "STOCK HUD TMAP EXIT",
+      "켜짐: 티맵 고속도로 진입·출구·분기 코드를 네이버와 같은 분기/출구 그림으로 보여 줍니다.",
+      "../assets/offroad/icon_road.png", this));
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 

@@ -440,6 +440,31 @@ def clock_text(now=None):
   return "%s %d:%02d" % ("오전" if t.tm_hour < 12 else "오후", hour, t.tm_min)
 
 
+# Per-feature switches (Params, default on). When Params cannot be read (tests, PC) the
+# value here is used: the long-standing guidance behaviour on, the text-line extras off.
+HUD_OPTIONS = {
+  "clock": ("McanHudClock", False),           # clock while stopped / on long straights
+  "eta": ("McanHudEta", False),               # 도착 오후 3:40 on long straights
+  "signal_time": ("McanHudSignalTime", False),  # 신호 23초 while stopped at a red (C-ITS)
+  "lead_go": ("McanHudLeadGo", False),        # 앞차 출발 while stopped
+  "camera_text": ("McanHudCameraText", True),  # 카메라350m / 구간3.2km 89 / 후면단속300m
+  "junction": ("McanHudJunction", True),       # T / ├ / ┤ / crossroads from the navi's lanes
+  "arrive": ("McanHudArrive", True),           # arrived flag when Naver stops near the goal
+  "uturn": ("McanHudUturn", True),             # U-turn picture for left turns guided as U-turns
+  "tmap_exit": ("McanHudTmapExit", True),      # TMAP highway exits/forks as Naver's pictures
+}
+SIGNAL_TEXT_MAX_M = 150      # a red this far ahead belongs to the junction ego waits at
+LEAD_GO_STOP_MAX_M = 20.0    # a lead this close when ego stopped is the car ahead
+LEAD_GO_GAP_M = 2.5          # it moved this much further: it departed
+LEAD_GO_HOLD_FRAMES = 1000   # shown up to 10 s while ego stays
+
+
+def eta_text(remain_sec, now=None):
+  """'도착 오후 3:40' from the navi's remaining time."""
+  now = time.time() if now is None else now
+  return "도착 " + clock_text(now + remain_sec)
+
+
 class McanHud:
   # Wait this long after a first frame before the consecutive frames (the HUD's
   # flow control came back within a few ms in the logs).
@@ -450,13 +475,19 @@ class McanHud:
   # TG card (09:11 풍세상톨게이트). Start the text after the new 0x115 like the AVN.
   TEXT_DELAY_FRAMES = 12
 
-  def __init__(self, clock=None):
-    # McanHudClock: None reads the param (every 2 s), True/False fixes it (tests).
-    self.clock = clock
-    self.clock_enabled = bool(clock)
-    self.clock_read_frame = None
+  def __init__(self, clock=None, options=None):
+    # options: fixed feature switches (tests); None reads the Params every 2 s (HUD_OPTIONS).
+    # clock: shorthand for options["clock"].
+    self.fixed = dict(options or {})
+    if clock is not None:
+      self.fixed["clock"] = bool(clock)
+    self.opts = {k: v[1] for k, v in HUD_OPTIONS.items()}
+    self.opts.update(self.fixed)
+    self.opts_read_frame = None
     self._params = None
     self.stopped_frames = 0
+    self.stop_lead_d = None      # lead distance when ego stopped
+    self.lead_go_frame = None    # frame the lead was seen departing
     self.text = None
     self.text_queue = []
     self.text_wait = 0
@@ -470,28 +501,35 @@ class McanHud:
     self.goal_frame = None      # last frame guidance was to the goal within ARRIVE_END_M
     self.arrived_until = -1     # arrived flag held after the guidance ended at the goal
 
-  def _clock_on(self, frame):
-    if self.clock is not None:
-      return bool(self.clock)
-    if self.clock_read_frame is None or frame - self.clock_read_frame >= 200:
-      self.clock_read_frame = frame
-      try:
-        if self._params is None:
-          from common.params import Params
-          self._params = Params()
-        self.clock_enabled = self._params.get_bool("McanHudClock")
-      except Exception:
-        self.clock_enabled = False
-    return self.clock_enabled
+  def _read_options(self, frame):
+    if self.opts_read_frame is not None and frame - self.opts_read_frame < 200:
+      return
+    self.opts_read_frame = frame
+    try:
+      if self._params is None:
+        from common.params import Params
+        self._params = Params()
+      for key, (name, default) in HUD_OPTIONS.items():
+        if key in self.fixed:
+          continue
+        raw = self._params.get(name)
+        if isinstance(raw, bytes):
+          raw = raw.decode("utf-8", "replace")
+        self.opts[key] = default if raw is None else raw.strip() not in ("", "0")
+    except Exception:
+      pass
 
   def _queue_text(self, text):
     self.text = text
     self.text_queue = isotp_frames(text_payload(text))
     self.text_wait = self.TEXT_DELAY_FRAMES
 
-  def update(self, frame, nav_state, v_ego=0.0):
-    """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update()."""
+  def update(self, frame, nav_state, v_ego=0.0, lead_d=None):
+    """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update().
+    lead_d: radar lead distance (m), None without a lead."""
     msgs = []
+    self._read_options(frame)
+    opts = self.opts
     events = NavigationRouteData.speed_events(nav_state) if isinstance(nav_state, dict) else {}
     camera = events.get("camera")
     section = events.get("section")
@@ -518,10 +556,11 @@ class McanHud:
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):
       nxt = nav_state.get("next") or {}
-      turn_type = hud_turn_type(nav_state.get("turn_type", -1))
+      raw_turn = nav_state.get("turn_type", -1)
+      turn_type = hud_turn_type(raw_turn) if opts["tmap_exit"] else int(raw_turn)
       dist = float(nav_state.get("distance", -1.0))
       text = str(nav_state.get("text", "") or "")
-      if uturn_guidance(turn_type, text, nav_state.get("lane_current"), dist):
+      if opts["uturn"] and uturn_guidance(turn_type, text, nav_state.get("lane_current"), dist):
         turn_type = 14   # the AVN's U-turn picture, not a left-turn junction
       ahead = next_tollgate(nav_state)
       if ahead is not None:
@@ -534,7 +573,7 @@ class McanHud:
         self.shown = False
         self.junction = None
       lane = nav_state.get("lane_current")
-      if lane_for_junction(lane, dist):
+      if opts["junction"] and lane_for_junction(lane, dist):
         # Kept for the rest of the maneuver: the lanes go away close to the junction.
         self.junction = lane_side(turn_type, lane) or self.junction
       # Far turns keep going with their preview until the AVN would draw them; once drawn
@@ -557,31 +596,64 @@ class McanHud:
       payload = REROUTE_PAYLOAD
       rerouting = True
 
-    # Clock on the text line (McanHudClock): on a long keep-going stretch (next maneuver
-    # >= 1 km) and while stopped; the direction name otherwise. It changes once per stretch
-    # or stop, then only its minute: alternating every few seconds would distract.
+    # Text line extras (each its own switch, HUD_OPTIONS). Changes come once per stretch, stop
+    # or step, never as a rotation every few seconds.
     if v_ego < 0.3:
       self.stopped_frames += 1
     elif v_ego > 1.0:
       self.stopped_frames = 0
-    # Camera / section distance on the text line (the AVN's 0x1E5 has no distance): rear
-    # cameras and section zones always, front cameras only on a keep-going picture so a turn
-    # keeps its direction name.
+    stopped = self.stopped_frames >= CLOCK_STOPPED_FRAMES
+    # 앞차 출발: the car ahead when ego stopped moved on while ego still stands.
+    if not stopped:
+      self.stop_lead_d = None
+      self.lead_go_frame = None
+    elif lead_d is None:
+      pass
+    elif self.stop_lead_d is None:
+      if lead_d <= LEAD_GO_STOP_MAX_M:
+        self.stop_lead_d = lead_d
+    elif self.lead_go_frame is None and lead_d - self.stop_lead_d >= LEAD_GO_GAP_M:
+      self.lead_go_frame = frame
+    lead_departed = (self.lead_go_frame is not None and frame - self.lead_go_frame <= LEAD_GO_HOLD_FRAMES)
+
+    # Camera / section distance (the AVN's 0x1E5 has no distance): rear cameras and section
+    # zones always, front cameras only on a keep-going picture so a turn keeps its name.
     alert_text = None
     if payload is not None and not rerouting:
       if rear_camera:
-        alert_text = camera_text(camera, True)
+        alert_text = camera_text(camera, True) if opts["camera_text"] else REAR_CAMERA_TEXT
       elif in_section:
-        alert_text = section_text(section)
-      elif front_camera and payload[0] in CLOCK_STRAIGHT_DISPLAYS:
+        alert_text = section_text(section) if opts["camera_text"] else SECTION_TEXT
+      elif front_camera and opts["camera_text"] and payload[0] in CLOCK_STRAIGHT_DISPLAYS:
         alert_text = camera_text(camera, False)
+    status_text = None
     if (payload is not None and not rerouting and alert_text is None
-        and payload[0] not in (DISPLAY_TOLLGATE, DISPLAY_ARRIVED) and self._clock_on(frame)):
-      far_straight = payload[0] in CLOCK_STRAIGHT_DISPLAYS and dist >= CLOCK_FAR_M
-      if far_straight or self.stopped_frames >= CLOCK_STOPPED_FRAMES:
-        text = clock_text()
+        and payload[0] not in (DISPLAY_TOLLGATE, DISPLAY_ARRIVED)):
+      if stopped:
+        signal = nav_state.get("signal") if isinstance(nav_state, dict) else None
+        remaining = float(signal.get("remaining", -1.0) or -1.0) if isinstance(signal, dict) else -1.0
+        red_here = (isinstance(signal, dict) and signal.get("phase") == "red" and remaining > 0.0
+                    and 0.0 <= float(signal.get("distance", -1.0) or -1.0) <= SIGNAL_TEXT_MAX_M)
+        if opts["lead_go"] and lead_departed:
+          status_text = "앞차 출발"
+        elif opts["signal_time"] and red_here:
+          status_text = "신호 %d초" % math.ceil(remaining)
+        elif opts["clock"]:
+          status_text = clock_text()
+      elif payload[0] in CLOCK_STRAIGHT_DISPLAYS and dist >= CLOCK_FAR_M:
+        route = nav_state.get("route") if isinstance(nav_state, dict) else None
+        remain = float(route.get("remain_time_sec", 0) or 0) if isinstance(route, dict) else 0.0
+        if opts["eta"] and remain > 0.0 and nav_state.get("route_fresh"):
+          status_text = eta_text(remain)
+        elif opts["clock"]:
+          status_text = clock_text()
+    if status_text is not None:
+      text = status_text
 
-    if payload is not None and payload[0] in (DISPLAY_DEST_AHEAD, DISPLAY_ARRIVED) \
+    if not opts["arrive"]:
+      self.goal_frame = None
+      self.arrived_until = -1
+    elif payload is not None and payload[0] in (DISPLAY_DEST_AHEAD, DISPLAY_ARRIVED) \
         and dist <= ARRIVE_END_M:
       self.goal_frame = frame
       self.arrived_until = -1
