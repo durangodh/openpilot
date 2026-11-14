@@ -170,6 +170,24 @@ def is_highway_exit(turn_type, text):
   return turn_type == 18 and any(word in (text or "") for word in ("IC", "JC", "분기점", "출구"))
 
 
+def uturn_guidance(turn_type, text, lane, dist_m):
+  """A left turn the navi guides as a U-turn: its text says 유턴, or every lane it recommends
+  at this junction is a U-turn-only lane. The AVN draws those with its U-turn picture."""
+  if turn_type != 12:
+    return False
+  if "유턴" in (text or ""):
+    return True
+  if not lane_matches(lane, dist_m) and not (isinstance(lane, dict) and float(lane.get("distance_m", -1) or -1) <= 0
+                                             and 0.0 < dist_m <= TURN_SHOW_M):
+    return False
+  lanes = lane.get("lanes") if isinstance(lane, dict) else None
+  dirs = lane.get("dirs") if isinstance(lane, dict) else None
+  if not isinstance(lanes, list) or not isinstance(dirs, list) or len(lanes) != len(dirs):
+    return False
+  picked = [d for item, d in zip(lanes, dirs) if isinstance(item, dict) and item.get("recommended")]
+  return bool(picked) and all(isinstance(d, int) and d == 8 for d in picked)
+
+
 def lane_matches(lane, dist_m):
   """The navi's lane guidance is for this maneuver (its distance agrees with the turn's)."""
   if not isinstance(lane, dict):
@@ -420,6 +438,8 @@ class McanHud:
       turn_type = int(nav_state.get("turn_type", -1))
       dist = float(nav_state.get("distance", -1.0))
       text = str(nav_state.get("text", "") or "")
+      if uturn_guidance(turn_type, text, nav_state.get("lane_current"), dist):
+        turn_type = 14   # the AVN's U-turn picture, not a left-turn junction
       ahead = next_tollgate(nav_state)
       if ahead is not None:
         dist, text = ahead

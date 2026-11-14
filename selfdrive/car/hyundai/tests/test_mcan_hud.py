@@ -379,3 +379,25 @@ def test_t_junction_from_lanes_without_a_lane_distance():
                lane_current={"distance_m": 0, "dirs": [1, 2, 4]})
   run(hud, state, 10)
   assert hud.junction is None
+
+
+def test_left_turn_guided_as_uturn_shows_the_uturn_picture():
+  # Naver code 6/7 already maps to 14; a left turn whose text or recommended lanes say U-turn too.
+  hud = McanHud()
+  tbt = [d for a, d, _ in run(hud, nav(turn_type=12, dist=150.0, text="유턴"), 5) if a == TBT_ADDR]
+  assert tbt and tbt[-1][0] == 31
+  hud = McanHud()
+  state = dict(nav(turn_type=12, dist=150.0, text="반석초"),
+               lane_current={"distance_m": 150, "dirs": [8, 2, 1, 1],
+                             "lanes": [{"recommended": True}, {"recommended": False},
+                                       {"recommended": False}, {"recommended": False}]})
+  tbt = [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR]
+  assert tbt and tbt[-1][0] == 31
+  # a left turn from a U-turn+left lane stays a left turn
+  hud = McanHud()
+  state["lane_current"] = {"distance_m": 150, "dirs": [10, 2, 1, 1],
+                           "lanes": [{"recommended": True}, {"recommended": True},
+                                     {"recommended": False}, {"recommended": False}]}
+  tbt = [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR]
+  assert tbt and tbt[-1][0] == 13
+  assert tbt_payload(14, 150.0)[0] == 31
