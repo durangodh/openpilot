@@ -192,10 +192,6 @@ def manager_init() -> None:
     ("McanHudSignalTime", "1"),
     ("McanHudLeadGo", "1"),
     ("McanHudCameraText", "1"),
-    ("McanHudJunction", "1"),
-    ("McanHudArrive", "1"),
-    ("McanHudUturn", "1"),
-    ("McanHudTmapExit", "1"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))

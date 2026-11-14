@@ -505,23 +505,7 @@ def test_signal_time_lead_departed_and_eta_texts():
   assert eta_text(600, 0)[:3] == "도착 "
 
 
-def test_each_feature_switches_off():
-  # junction off: always the crossroads
-  hud = McanHud(options={"junction": False})
-  state = dict(nav(turn_type=13, dist=200.0, text="오산"), lane_current={"distance_m": 200, "dirs": [2, 2, 4]})
-  tbt = [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR]
-  assert tbt[-1][1:3] == bytes([0x08, 0x11])
-  # tmap exit off: TMAP code 104 not drawn
-  assert not any(a == TBT_ADDR for a, _, _ in run(McanHud(options={"tmap_exit": False}),
-                                                  nav(turn_type=104, dist=500.0, text="IC"), 5))
-  # uturn off: a left turn named 유턴 stays a left turn
-  tbt = [d for a, d, _ in run(McanHud(options={"uturn": False}), nav(turn_type=12, dist=150.0, text="유턴"), 5)
-         if a == TBT_ADDR]
-  assert tbt[-1][0] == 13
-  # arrive off: no held flag after Naver stops near the goal
-  hud = McanHud(options={"arrive": False})
-  run(hud, nav(turn_type=2, dist=60.0, text="목적지"), 50)
-  assert not any(a == TBT_ADDR for a, _, _ in run(hud, nav(fresh=False), 100, start=50))
+def test_camera_text_switches_off():
   # camera text off: the plain labels
   state = dict(nav(turn_type=11, dist=11400, text=""), speed_fresh=True,
                speed={"section": {"active": True, "speed_limit_kph": 100, "remaining_distance_m": 10000,
