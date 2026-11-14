@@ -7,8 +7,10 @@
 // high-speed CAN converter. Wiring on this panda's own harness box (no car harness on it):
 //   car side (AVN, cluster, ...): 26-pin car-harness connector pin 4 CAN0_H / pin 6 CAN0_L
 //     (comma open_pinout; CAN2 would be pins 22/24)
-//   HUD side (HUD + the main panda's bus 1): 8-pin power connector pin 8 CAN3-H / 7 CAN3-L
-//   power: 8-pin pin 1 (12 V), pin 4 GND
+//   HUD side (HUD + the main panda's bus 1): 26-pin CAN1, pin 8 H / pin 10 L (or 18 / 20).
+//     Since 2026-11-14 the gateway build keeps bus 1 on the harness CAN1 (boards/black.h);
+//     the 8-pin's CAN3 (8/7, OBD) no longer carries it.
+//   power: 26-pin pin 12 (12 V), pin 1 GND
 //   The 8-pin's pins 5/6 are NOT CAN0: 0 V with the panda powered, and no frame reached
 //   the panda through them (2026-11-11 diagnostic build: rx 0, ACK errors on CAN0/CAN2).
 //   Which panda bus each pair lands on depends on the OBD-C cable orientation; the

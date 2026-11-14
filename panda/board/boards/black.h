@@ -100,7 +100,11 @@ void black_set_gps_mode(uint8_t mode) {
 }
 
 void black_set_can_mode(uint8_t mode){
+#ifndef MCAN_GATEWAY
   mode = CAN_MODE_OBD_CAN2;
+#endif
+  // MM-CAN gateway: bus 1 stays on the harness CAN1 (26-pin 8/10 or 18/20) in either OBD-C
+  // orientation, so the whole gateway can be wired on the 26-pin connector (2026-11-14).
   switch (mode) {
     case CAN_MODE_NORMAL:
     case CAN_MODE_OBD_CAN2:
