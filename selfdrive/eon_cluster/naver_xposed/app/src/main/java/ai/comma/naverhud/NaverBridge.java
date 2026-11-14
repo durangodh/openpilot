@@ -242,8 +242,10 @@ final class NaverBridge {
     private void publish(Object s) {
         Object mode = value(NaverStore.get(s, "NaviState"));
         boolean guiding = mode != null && "Guiding".equals(String.valueOf(mode));
+        boolean offRoute = offRoute(mode, s);
         send("navigation_status", "{\"source\":\"NAVER\",\"active\":" + guiding
-                + ",\"state\":" + quote(String.valueOf(mode)) + "}");
+                + ",\"state\":" + quote(String.valueOf(mode))
+                + ",\"off_route\":" + offRoute + "}");
         send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
 
         Object directions = value(NaverStore.get(s, "TbtData"));
@@ -579,6 +581,46 @@ final class NaverBridge {
 
     private static boolean laneFieldsLogged;
     private boolean signalLogged;
+    private String lastRerouteSignature = "";
+
+    /**
+     * Naver is recalculating after the car left the route (the stock HUD then shows the AVN's
+     * "경로 탐색 중"). Unverified on the road (2026-11-14): a NaviState or a reroute-type
+     * LiveData value whose name says rerouting / off route / route search, or a reroute-type
+     * Boolean that is true. Every change of these is logged ("reroute-state") to confirm it.
+     */
+    private boolean offRoute(Object mode, Object store) {
+        String state = String.valueOf(mode);
+        // NaviState prints as a bare name ("Guiding"); only such a name counts, never an
+        // object dump that might carry a class name.
+        String modeName = mode instanceof Enum ? ((Enum<?>) mode).name() : state;
+        boolean off = modeName.matches("[A-Za-z_]{1,40}") && REROUTE_WORDS.matcher(modeName).find();
+        StringBuilder sig = new StringBuilder("mode=").append(state);
+        for (Object[] item : NaverStore.rerouteValues(store)) {
+            Object v = item[1];
+            sig.append(' ').append(item[0]).append('=').append(v);
+            // Only a reroute-type Boolean or enum decides: an object's text carries its class
+            // name ("RerouteInfo{...}") and would read as rerouting all the time.
+            if (v instanceof Boolean) {
+                off |= (Boolean) v;
+            } else if (v instanceof Enum) {
+                String name = ((Enum<?>) v).name();
+                off |= REROUTE_WORDS.matcher(name).find() && !REROUTE_IDLE.matcher(name).find();
+            }
+        }
+        String signature = sig.toString();
+        if (!signature.equals(lastRerouteSignature)) {
+            lastRerouteSignature = signature;
+            NaverHudLog.line("reroute-state off=" + off + " " + (signature.length() > 1500
+                    ? signature.substring(0, 1500) : signature));
+        }
+        return off;
+    }
+
+    private static final java.util.regex.Pattern REROUTE_WORDS = java.util.regex.Pattern.compile(
+            "(?i)re-?rout|offroute|off_route|deviat|research|recalc|routesearch|searching");
+    private static final java.util.regex.Pattern REROUTE_IDLE = java.util.regex.Pattern.compile(
+            "(?i)\\b(none|idle|complete|completed|done|finish|finished|success|fail|failed)\\b");
 
     /** 폰이 표시하는 신호(없으면 직진·유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
     private void publishSignalImage(Object item) {

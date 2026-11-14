@@ -155,6 +155,35 @@ final class NaverStore {
         return out.toString();
     }
 
+    /**
+     * Rerouting candidates: LiveData getters whose value type name says reroute / off route /
+     * route search (type names are not obfuscated). "type(getter)=value" per getter, values
+     * through describe(); the off-route decision reads the raw values from rerouteValues().
+     */
+    static java.util.List<Object[]> rerouteValues(Object store) {
+        java.util.List<Object[]> out = new ArrayList<>();
+        if (store == null) return out;
+        for (Method m : store.getClass().getDeclaredMethods()) {
+            int mod = m.getModifiers();
+            if (!Modifier.isPublic(mod) || Modifier.isStatic(mod) || m.getParameterTypes().length != 0) continue;
+            String key = keyOf(m);
+            if (key == null || !REROUTE_TYPE.matcher(key).find()) continue;
+            Object value;
+            try {
+                m.setAccessible(true);
+                value = m.invoke(store);
+                if (value != null) value = value.getClass().getMethod("getValue").invoke(value);
+            } catch (Throwable ignored) {
+                value = null;
+            }
+            out.add(new Object[]{key + "(" + m.getName() + ")", value});
+        }
+        return out;
+    }
+
+    private static final java.util.regex.Pattern REROUTE_TYPE =
+            java.util.regex.Pattern.compile("(?i)re-?rout|offroute|off_route|deviat|research|recalc|routesearch|routerequest");
+
     private static final java.util.regex.Pattern TOLL_TYPE =
             java.util.regex.Pattern.compile("(?i)toll|fee|charge|fare|cost|price|payment");
 
