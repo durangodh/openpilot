@@ -1342,7 +1342,13 @@ class Handler(BaseHTTPRequestHandler):
         if view is not None and min(view) < 32:
           view = None
         headers = ()
-        if target.query == "hud=1" and self.headers.get("X-HUD-Overlay") == "0":
+        if target.query == "signal=1":
+          # S20 신호등 인식용 위쪽 영역(원본 해상도, camera_signal.py).
+          camera = self.server.road_preview.signal_camera()
+          frame = camera[0] if camera else None
+          if camera:
+            headers = (("X-EON-View", ",".join(map(str, camera[1]))), ("X-Frame-Time", str(camera[2])))
+        elif target.query == "hud=1" and self.headers.get("X-HUD-Overlay") == "0":
           # S9 가 선을 직접 그린다: 선 없는 EON 화면 크롭과 그 위치·촬영 시각만 보낸다.
           camera = self.server.road_preview.hud_camera(view)
           frame = camera[0] if camera else None

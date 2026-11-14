@@ -13,6 +13,8 @@ android {
     targetSdk 35
     versionCode remoteHudVersionCode
     versionName remoteHudVersionName
+    // The HUD phones are arm64; other ABIs would only add ONNX Runtime libraries.
+    ndk { abiFilters "arm64-v8a" }
   }
   signingConfigs {
     remoteHudStable {
@@ -38,12 +40,9 @@ android {
     sourceCompatibility JavaVersion.VERSION_11
     targetCompatibility JavaVersion.VERSION_11
   }
-  // The traffic light model is memory-mapped from the APK (TrafficLightDetector).
-  androidResources {
-    noCompress "tflite"
-  }
 }
 
 dependencies {
-  implementation "org.tensorflow:tensorflow-lite:2.14.0"
+  // Autoware traffic light networks (TrafficLightDetector); the models are downloaded at run time.
+  implementation "com.microsoft.onnxruntime:onnxruntime-android:1.17.3"
 }

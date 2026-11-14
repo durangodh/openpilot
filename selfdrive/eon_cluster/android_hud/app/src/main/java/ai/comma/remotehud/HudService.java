@@ -363,6 +363,11 @@ public final class HudService extends Service {
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
     private Thread roadPreviewThread;
+    /** EON upper road region -> traffic light networks -> HUDSIG1 to the EON (camera_signal.py). */
+    private Thread cameraSignalThread;
+    private TrafficLightDetector lightDetector;
+    private volatile TrafficLightDetector.Result cameraSignal;
+    private volatile long cameraSignalElapsed;
     private final RoadPreviewClient roadPreview = new RoadPreviewClient();
     private final RoadOverlay roadOverlay = new RoadOverlay();
     private final RectF roadPreviewRect = new RectF();
@@ -701,6 +706,13 @@ public final class HudService extends Service {
     private long nextOpenStallRecoverElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
+    // 기어 팝업(EON NvgWindow::ctTextAnimStart/drawTextAnim 과 같은 동작).
+    private final Matrix gearBoxMatrix = new Matrix();
+    private final float[] gearBoxPoint = new float[2];
+    private String gearLast = "";
+    private String gearAnimText = "";
+    private long gearAnimStart = 0L;
+    private float gearAnimX, gearAnimY, gearAnimSize;
     private final RectF scratchRect = new RectF();
     private final Rect scratchIRect = new Rect();
     private final Path scratchPath = new Path();
@@ -1067,13 +1079,16 @@ public final class HudService extends Service {
         int pathEnd = egoCar == null ? 1000 : Math.max(0, Math.round(1000f
                 * (NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() - NAVI_ROAD_PREVIEW_TOP)
                 / (HEIGHT - NAVI_ROAD_PREVIEW_TOP)));
-        roadPreview.setLightDetector(new TrafficLightDetector(this));
         roadPreviewThread = new Thread(() -> roadPreview.run(running::get,
                 () -> roadPreviewRequested && !eonStale(), HudService::roadPreviewAddress,
                 () -> naverMapOwnsEgo(state.get()) ? 1000 : pathEnd,
                 (WIDTH - NAVI_DRIVE_LEFT) + "x" + Math.round(HEIGHT - NAVI_ROAD_PREVIEW_TOP)),
                 "hud-road-preview");
         roadPreviewThread.start();
+        lightDetector = new TrafficLightDetector(this);
+        cameraSignalThread = new Thread(() -> roadPreview.runSignal(running::get, this::cameraSignalInterval,
+                HudService::roadPreviewAddress, this::onSignalPhoto), "hud-camera-signal");
+        cameraSignalThread.start();
         receiverThread.start();
         mapThread.start();
         localMapThread.start();
@@ -3126,6 +3141,7 @@ public final class HudService extends Service {
             drawNaviWeatherPanel(c, p, s);
             drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
+            drawGearPopup(c, p, NAVI_MAP_RIGHT / 2f);
             drawOemWarningPopup(c, p, s);
             return;
         }
@@ -3153,9 +3169,42 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
+        drawGearPopup(c, p, WIDTH / 2f);
         // 순정 계기판 경고는 주행패널 오른쪽 EON HUD 박스 자리에 흰색 팝업으로 덮는다.
         // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
         drawOemWarningPopup(c, p, s);
+    }
+
+    /**
+     * EON drawTextAnim: 기어가 바뀌면 새 기어가 화면 가운데 아래쪽에 크게(EON 350px, 1080 높이
+     * 기준) 0.3초 떠 있다가 1초 동안 기어칸으로 날아가며 작아진다. 처음 0.3초는 검은 그림자로 강조.
+     */
+    private void drawGearPopup(Canvas c, Paint p, float centerX) {
+        if (gearAnimStart == 0L || gearAnimText.isEmpty()) return;
+        long elapsed = SystemClock.elapsedRealtime() - gearAnimStart;
+        if (elapsed >= 1300L) {
+            gearAnimStart = 0L;
+            return;
+        }
+        float t = Math.min(1f, (1300L - elapsed) / 1000f);   // 1 = 시작, 0 = 도착
+        float startY = HEIGHT * (1080f - 400f) / 1080f;
+        float startSize = 350f * HEIGHT / 1080f;
+        float x = centerX * t + gearAnimX * (1f - t);
+        float y = startY * t + gearAnimY * (1f - t);
+        float size = startSize * t + gearAnimSize * (1f - t);
+        if (size < 1f) return;
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.setTextSize(size);
+        p.setTextAlign(Paint.Align.CENTER);
+        if (elapsed < 300L) {
+            p.setColor(Color.argb(200, 0, 0, 0));
+            c.drawText(gearAnimText, x + 3f, y + 4f, p);
+        }
+        p.setColor(Color.WHITE);
+        c.drawText(gearAnimText, x, y, p);
     }
 
     private boolean eonStale() {
@@ -3506,7 +3555,7 @@ public final class HudService extends Service {
             boolean ego = !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled();
             float pathBottom = ego ? NAVI_PREVIEW_CAR_BOTTOM - roadPreviewCarHeight() : Float.NaN;
             roadOverlay.draw(c, roadPreviewRect, preview.crop, telemetryAt(preview.eonTime, s), pathBottom);
-            drawTrafficLightTest(c, p, roadPreviewRect, preview.light);
+            drawCameraSignal(c, p, roadPreviewRect, preview.crop);
         }
 
         p.setShader(null);
@@ -3524,32 +3573,91 @@ public final class HudService extends Service {
     }
 
     /**
-     * Display-only traffic light test: the box the S20 found on the road photo and a badge
-     * with the colour it read. Never used for control.
+     * The EON's CameraSignal (0 off, 1 display, 2 display + planner assist) and city speeds:
+     * the upper road region costs Wi-Fi time next to the Bluetooth audio, so it is not
+     * fetched on the highway.
      */
-    private void drawTrafficLightTest(Canvas c, Paint p, RectF photo, TrafficLightDetector.Result light) {
-        if (light == null || light.color == TrafficLightDetector.NONE) return;
+    private long cameraSignalInterval() {
+        JSONObject s = state.get();
+        if (s == null || eonStale() || s.optInt("camSig", 0) < 1 || s.optInt("speed", 0) >= 90) return 0L;
+        // Heat guard: the networks took the S20 to ~90 C at 3 fps on the CPU (2026-11-14).
+        float temp = freshStat(s9TempC, s9TempSampleElapsed, SystemClock.elapsedRealtime());
+        if (temp >= 80f || (cameraSignalHot && temp >= 72f)) {
+            cameraSignalHot = true;
+            return 0L;   // pause until the phone is back below 72 C
+        }
+        cameraSignalHot = false;
+        if (temp >= 70f) return 1000L;
+        if (temp >= 60f) return 600L;
+        // Standing still the detector reruns every 2 s and only the colour is re-read.
+        return s.optInt("speed", 0) < 3 ? 500L : 400L;
+    }
+
+    private volatile boolean cameraSignalHot;
+
+    /** Signal thread: run the networks and report the confirmed colour to the EON. */
+    private void onSignalPhoto(RoadPreviewClient.Frame frame) {
+        TrafficLightDetector detector = lightDetector;
+        if (detector == null) return;
+        JSONObject s = state.get();
+        boolean stopped = s != null && s.optInt("speed", 0) < 3;
+        TrafficLightDetector.Result result = detector.detect(frame.bitmap, frame.crop, frame.eonTime, stopped);
+        cameraSignal = result;
+        cameraSignalElapsed = SystemClock.elapsedRealtime();
+        try {
+            JSONObject body = new JSONObject()
+                    .put("t", frame.eonTime)
+                    .put("color", TrafficLightDetector.colorName(result == null ? TrafficLightDetector.NONE : result.color))
+                    .put("label", result == null ? "" : result.label)
+                    .put("score", result == null ? 0.0 : (double) result.score);
+            byte[] data = ("HUDSIG1 " + body).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            DatagramSocket socket = receiverSocket;
+            InetAddress address = eonAddress.get();
+            int port = lastEonPort;
+            if (socket != null && address != null && port > 0) {
+                socket.send(new DatagramPacket(data, data.length, address, port));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * The light the S20 read, on the road preview: its box (camera pixels mapped through the
+     * preview's crop) and a colour badge. What the EON may use depends on CameraSignal.
+     */
+    private void drawCameraSignal(Canvas c, Paint p, RectF photo, int[] crop) {
+        TrafficLightDetector.Result light = cameraSignal;
+        if (light == null || light.color == TrafficLightDetector.NONE || crop == null
+                || SystemClock.elapsedRealtime() - cameraSignalElapsed > 1200L) return;
         int color = light.color == TrafficLightDetector.RED ? Color.rgb(255, 59, 48)
                 : light.color == TrafficLightDetector.YELLOW ? Color.rgb(255, 196, 0) : Color.rgb(0, 214, 160);
+        float sx = photo.width() / (crop[2] - crop[0]), sy = photo.height() / (crop[3] - crop[1]);
+        float l = photo.left + (light.box[0] - crop[0]) * sx, t = photo.top + (light.box[1] - crop[1]) * sy;
+        float r = photo.left + (light.box[2] - crop[0]) * sx, b = photo.top + (light.box[3] - crop[1]) * sy;
         p.setShader(null);
         p.setColorFilter(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(3f);
         p.setColor(color);
-        float l = photo.left + light.box[0] * photo.width(), t = photo.top + light.box[1] * photo.height();
-        float r = photo.left + light.box[2] * photo.width(), b = photo.top + light.box[3] * photo.height();
         c.drawRect(l - 3f, t - 3f, r + 3f, b + 3f, p);
-        // Badge in the pane's top-right corner.
         float cx = WIDTH - 34f, cy = NAVI_ROAD_PREVIEW_TOP + 34f;
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.argb(170, 0, 0, 0));
         c.drawRoundRect(cx - 28f, cy - 28f, cx + 28f, cy + 44f, 10f, 10f, p);
         p.setColor(color);
         c.drawCircle(cx, cy, 18f, p);
+        if (light.label.contains("left") || light.label.contains("right") || light.label.contains("straight")
+                || light.label.contains("up_")) {
+            p.setColor(Color.WHITE);
+            p.setTextSize(16f);
+            p.setTextAlign(Paint.Align.CENTER);
+            c.drawText("↗", cx, cy + 6f, p);
+        }
         p.setColor(Color.WHITE);
         p.setTextSize(13f);
         p.setTextAlign(Paint.Align.CENTER);
-        c.drawText("카메라", cx, cy + 36f, p);
+        TrafficLightDetector detector = lightDetector;
+        c.drawText(detector != null && "CPU".equals(detector.backend) ? "카메라 CPU" : "카메라", cx, cy + 36f, p);
         p.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -5479,6 +5587,19 @@ public final class HudService extends Service {
         }
         eonBoxRect(c, p, 370f, 245f, 90f, 100f, Color.argb(210, 0, 203, 0), 3f, white);
         eonTextIn(c, p, gear, 370f, 245f, 90f, 100f, 76f, white);
+        // 팝업이 날아와 앉을 자리: 기어칸 글자 자리(화면 좌표)와 그때의 글자 크기.
+        c.getMatrix(gearBoxMatrix);
+        gearBoxPoint[0] = 415f;
+        gearBoxPoint[1] = 245f + 100f / 2f + 76f * 0.36f;
+        gearBoxMatrix.mapPoints(gearBoxPoint);
+        gearAnimX = gearBoxPoint[0];
+        gearAnimY = gearBoxPoint[1];
+        gearAnimSize = gearBoxMatrix.mapRadius(76f);
+        if (!gearLast.isEmpty() && !gearLast.equals(gear) && s.optInt("gearAnim", 1) != 0) {
+            gearAnimText = gear;
+            gearAnimStart = SystemClock.elapsedRealtime();
+        }
+        gearLast = gear;
 
         // 주행모드
         int mode = s.optInt("drivingMode", 3);
@@ -8263,6 +8384,7 @@ public final class HudService extends Service {
         }
         interrupt(receiverThread);
         interrupt(roadPreviewThread);
+        interrupt(cameraSignalThread);
         interrupt(mapThread);
         interrupt(localMapThread);
         interrupt(renderThread);
@@ -8276,7 +8398,7 @@ public final class HudService extends Service {
     /** Wait off the Android main thread, then release objects no worker can still touch. */
     private void cleanupAfterWorkers() {
         if (display != null) display.close();
-        Thread[] workers = {receiverThread, roadPreviewThread, mapThread, renderThread,
+        Thread[] workers = {receiverThread, roadPreviewThread, cameraSignalThread, mapThread, renderThread,
                 statsThread, logUploadThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
         long deadline = SystemClock.elapsedRealtime() + 15_000L;
         boolean stopped = true;

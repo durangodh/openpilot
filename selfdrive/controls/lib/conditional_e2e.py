@@ -175,7 +175,11 @@ class ConditionalE2EController:
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
              vision_lead_present, signal_phase=None, signal_distance=-1.0,
-             signal_remaining=-1.0):
+             signal_remaining=-1.0, camera_red=False):
+    # camera_red: a fresh red read by the HUD phone from the road camera (camera_signal.py,
+    # CameraSignal=2 only). Like the C-ITS red it only accepts a weaker model slowing as a
+    # signal stop and holds a model departure; it never sets the stop point or grants
+    # acceleration, and the driver's gas still departs.
     if not available:
       self.reset()
       return 'acc'
@@ -226,6 +230,8 @@ class ConditionalE2EController:
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
       signal_stop = signal_requires_stop(signal_phase, signal_distance, signal_remaining, v_ego)
+      # Camera red has no distance: it keeps the normal distance cap.
+      camera_stop = bool(camera_red) and not signal_stop
       if signal_stop:
         distance_cap = max(distance_cap, min(SIGNAL_ASSIST_MAX_DISTANCE,
                                              signal_distance + SIGNAL_ASSIST_MODEL_MARGIN))
@@ -234,8 +240,8 @@ class ConditionalE2EController:
         in_range = in_range and model_x < signal_distance + SIGNAL_ASSIST_MODEL_MARGIN
       straight_stop = (abs(model_y) < 5.0 and
                        (model_v < 3.0 or model_v < model_v0 * 0.7 or
-                        (signal_stop and (model_v < SIGNAL_ASSIST_MODEL_V or
-                                          model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
+                        ((signal_stop or camera_stop) and (model_v < SIGNAL_ASSIST_MODEL_V or
+                                                           model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
       curve_stop = (model_v < 3.0 and
                     abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
       raw_stop_sign = in_range and (straight_stop or curve_stop)
@@ -254,6 +260,9 @@ class ConditionalE2EController:
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker
     start_sign = self.start_sign_count * self.dt >= E2E_START_CONFIRM_TIME
+    # carrot-wip signal supervision: a camera red never lets the model depart.
+    if camera_red:
+      start_sign = False
 
     # Confirm both acquisition and release. Radar/vision classification can
     # flicker for a frame near standstill; dropping E2E immediately creates a
