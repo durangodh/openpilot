@@ -23,17 +23,34 @@
 //   board -> EON  UDP 7291 broadcast every second and after each request:
 //                 {"t":"dhbl","v":1,"rssi":-55,"bcan":1,"lamp":0,"err":0,"seq":3,"res":"ok"}
 //
-// Serial 115200 (USB, for checking): l = LEFT tap   r = RIGHT tap   s = status   h = help
+// Hotspots (no new upload when the phone changes): up to 4 networks are saved in the board's flash and
+// tried in turn. When none connects for 30 s the board opens its own setup Wi-Fi "DH-Blinker-Setup"
+// (password dhblinker); join it with the phone and the setup page (http://192.168.4.1) adds or deletes
+// networks. The page also opens on demand with the serial command "wp".
+//
+// Serial 115200 (USB, one command per line, "New Line" ending):
+//   l = LEFT tap   r = RIGHT tap   s = status   h = help
+//   w NAME|PASSWORD = save a hotspot   wl = list   wd N = delete number N   wp = open the setup Wi-Fi
 #include <Arduino.h>
 #include <stdarg.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
 #include <driver/twai.h>
 
-// ===== change these =====
+// ===== first hotspot, used only while nothing is saved yet (optional) =====
 #define WIFI_SSID "G80"
 #define WIFI_PASS "PUT_HOTSPOT_PASSWORD_HERE"
-// ========================
+// ==========================================================================
+#define SETUP_AP_SSID "DH-Blinker-Setup"
+#define SETUP_AP_PASS "dhblinker"
+#define MAX_NETS 4
+#define NET_TRY_MS 12000          // per saved network
+#define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
+#define PORTAL_AFTER_MS 30000
+#define PORTAL_IDLE_MS 120000     // closes this long after the last page view once connected
 
 #define CAN_TX_PIN 15
 #define CAN_RX_PIN 16
@@ -58,6 +75,17 @@ static twai_timing_config_t gTiming = TWAI_TIMING_CONFIG_100KBITS();
 static twai_message_t gRx;
 static twai_message_t gTx;
 static WiFiUDP gUdp;
+static WebServer gWeb(80);
+static DNSServer gDns;
+static Preferences gPrefs;
+
+static char netSsid[MAX_NETS][33];
+static char netPass[MAX_NETS][65];
+static int netCount = 0, netIdx = -1;
+static uint32_t netTryMs = 0, wifiDownMs = 0, portalUseMs = 0;
+static bool portalOn = false, webStarted = false, netTryNow = true;  // try the first saved hotspot at once
+static char lineBuf[120];
+static int lineLen = 0;
 
 static bool installed = false;
 static bool txMode = false;
@@ -254,16 +282,265 @@ void pollUdp(uint32_t now) {
   handleRequest(side, now);
 }
 
+// ---------- saved hotspots ----------
+void saveNets() {
+  gPrefs.begin("dhbl", false);
+  gPrefs.putInt("n", netCount);
+  char key[4];
+  for (int i = 0; i < MAX_NETS; i++) {
+    snprintf(key, sizeof(key), "s%d", i);
+    if (i < netCount) gPrefs.putString(key, netSsid[i]); else gPrefs.remove(key);
+    snprintf(key, sizeof(key), "p%d", i);
+    if (i < netCount) gPrefs.putString(key, netPass[i]); else gPrefs.remove(key);
+  }
+  gPrefs.end();
+}
+
+void loadNets() {
+  gPrefs.begin("dhbl", true);
+  netCount = gPrefs.getInt("n", 0);
+  if (netCount < 0 || netCount > MAX_NETS) netCount = 0;
+  char key[4];
+  for (int i = 0; i < netCount; i++) {
+    snprintf(key, sizeof(key), "s%d", i);
+    netSsid[i][0] = 0;
+    gPrefs.getString(key, netSsid[i], sizeof(netSsid[i]));
+    snprintf(key, sizeof(key), "p%d", i);
+    netPass[i][0] = 0;
+    gPrefs.getString(key, netPass[i], sizeof(netPass[i]));
+  }
+  gPrefs.end();
+  if (netCount == 0 && strlen(WIFI_SSID) && strcmp(WIFI_PASS, "PUT_HOTSPOT_PASSWORD_HERE")) {
+    strncpy(netSsid[0], WIFI_SSID, 32);
+    netSsid[0][32] = 0;
+    strncpy(netPass[0], WIFI_PASS, 64);
+    netPass[0][64] = 0;
+    netCount = 1;
+  }
+}
+
+// Saves (or updates) a hotspot as the first one to try. Returns "" or the reason it was refused.
+const char *addNet(const char *ssid, const char *pass) {
+  size_t ls = strlen(ssid), lp = strlen(pass);
+  if (ls < 1 || ls > 32) return "name must be 1-32 characters";
+  if (lp && (lp < 8 || lp > 63)) return "password must be 8-63 characters (or empty)";
+  int found = -1;
+  for (int i = 0; i < netCount; i++) if (!strcmp(netSsid[i], ssid)) found = i;
+  int last = found >= 0 ? found : (netCount < MAX_NETS ? netCount++ : MAX_NETS - 1);
+  for (int i = last; i > 0; i--) {
+    memcpy(netSsid[i], netSsid[i - 1], sizeof(netSsid[i]));
+    memcpy(netPass[i], netPass[i - 1], sizeof(netPass[i]));
+  }
+  strncpy(netSsid[0], ssid, 32);
+  netSsid[0][32] = 0;
+  strncpy(netPass[0], pass, 64);
+  netPass[0][64] = 0;
+  saveNets();
+  netIdx = -1;
+  netTryNow = true;  // switch to it right away, even if another hotspot is connected
+  return "";
+}
+
+bool deleteNet(int i) {
+  if (i < 0 || i >= netCount) return false;
+  for (int k = i; k < netCount - 1; k++) {
+    memcpy(netSsid[k], netSsid[k + 1], sizeof(netSsid[k]));
+    memcpy(netPass[k], netPass[k + 1], sizeof(netPass[k]));
+  }
+  netCount--;
+  saveNets();
+  netIdx = -1;
+  return true;
+}
+
+void listNets() {
+  outf("saved hotspots (%d/%d):\n", netCount, MAX_NETS);
+  for (int i = 0; i < netCount; i++) outf("  %d: %s%s\n", i + 1, netSsid[i], i == netIdx ? "  <- current" : "");
+  if (!netCount) out("  none: w NAME|PASSWORD, or join the setup Wi-Fi " SETUP_AP_SSID "\n");
+}
+
+void startNextNet(uint32_t now) {
+  netTryMs = now;
+  if (!netCount) return;
+  netIdx = (netIdx + 1) % netCount;
+  WiFi.disconnect(false, false);
+  WiFi.begin(netSsid[netIdx], netPass[netIdx]);
+  outf("%9lu  Wi-Fi: trying \"%s\"\n", (unsigned long)now, netSsid[netIdx]);
+}
+
+// ---------- setup Wi-Fi and page ----------
+void htmlEsc(String &o, const char *s) {
+  for (; *s; s++) {
+    if (*s == '<') o += "&lt;";
+    else if (*s == '>') o += "&gt;";
+    else if (*s == '&') o += "&amp;";
+    else if (*s == '"') o += "&quot;";
+    else o += *s;
+  }
+}
+
+void sendPage(const char *msg) {
+  portalUseMs = millis();
+  String o;
+  o.reserve(3000);
+  o += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+       "<title>DH 깜빡이 설정</title><style>body{font-family:sans-serif;margin:16px;max-width:480px}"
+       "input{width:100%;padding:10px;margin:4px 0 12px;font-size:16px;box-sizing:border-box}"
+       "button{padding:10px 16px;font-size:16px}li{margin:8px 0}.m{padding:10px;background:#e8f5e9;border-radius:6px}"
+       "</style></head><body><h2>DH 깜빡이 Wi-Fi 설정</h2>";
+  if (msg && *msg) {
+    o += "<p class='m'>";
+    htmlEsc(o, msg);
+    o += "</p>";
+  }
+  o += "<p>현재: ";
+  if (WiFi.status() == WL_CONNECTED) {
+    o += "<b>";
+    htmlEsc(o, WiFi.SSID().c_str());
+    o += "</b> 연결됨 (";
+    o += WiFi.RSSI();
+    o += " dBm)";
+  } else {
+    o += "핫스팟 연결 안 됨";
+  }
+  o += "<br>B-CAN: ";
+  o += stockFresh(millis()) ? "수신 중" : "없음";
+  o += "</p><h3>저장된 핫스팟</h3><ol>";
+  for (int i = 0; i < netCount; i++) {
+    o += "<li>";
+    htmlEsc(o, netSsid[i]);
+    o += " &nbsp;<a href='/del?i=";
+    o += i;
+    o += "'>삭제</a></li>";
+  }
+  if (!netCount) o += "<li>없음</li>";
+  o += "</ol><h3>핫스팟 추가</h3><form method='post' action='/add'>"
+       "이름(SSID)<input name='ssid' maxlength='32' autocapitalize='none' autocorrect='off'>"
+       "비밀번호<input name='pass' type='password' maxlength='63'>"
+       "<button type='submit'>저장하고 연결</button></form>"
+       "<p>휴대폰 핫스팟은 <b>2.4GHz</b>로 설정하세요. 최대 4개, 새로 저장한 것을 먼저 연결합니다.</p>"
+       "</body></html>";
+  gWeb.send(200, "text/html; charset=utf-8", o);
+}
+
+void webRoot() { sendPage(""); }
+
+void webAdd() {
+  const char *why = addNet(gWeb.arg("ssid").c_str(), gWeb.arg("pass").c_str());
+  outf("setup page: save \"%s\": %s\n", gWeb.arg("ssid").c_str(), *why ? why : "ok");
+  sendPage(*why ? why : "저장했습니다. 연결을 시도합니다. 잠시 뒤 휴대폰 핫스팟을 켜 두세요.");
+}
+
+void webDel() {
+  int i = gWeb.arg("i").toInt();
+  sendPage(deleteNet(i) ? "삭제했습니다." : "없는 번호입니다.");
+}
+
+void webOther() {  // captive portal: every other address shows the setup page
+  gWeb.sendHeader("Location", "http://192.168.4.1/", true);
+  gWeb.send(302, "text/plain", "");
+}
+
+void startPortal(uint32_t now) {
+  if (portalOn) return;
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(SETUP_AP_SSID, SETUP_AP_PASS);
+  gDns.start(53, "*", WiFi.softAPIP());
+  if (!webStarted) {
+    gWeb.on("/", webRoot);
+    gWeb.on("/add", HTTP_POST, webAdd);
+    gWeb.on("/del", webDel);
+    gWeb.onNotFound(webOther);
+    gWeb.begin();
+    webStarted = true;
+  }
+  portalOn = true;
+  portalUseMs = now;
+  outf("%9lu  setup Wi-Fi open: \"%s\" password %s, page http://192.168.4.1\n", (unsigned long)now, SETUP_AP_SSID,
+       SETUP_AP_PASS);
+}
+
+void stopPortal() {
+  if (!portalOn) return;
+  gDns.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  portalOn = false;
+  out("setup Wi-Fi closed\n");
+}
+
+void wifiTick(uint32_t now) {
+  bool up = WiFi.status() == WL_CONNECTED;
+  if (up != wifiUp) {
+    wifiUp = up;
+    if (up) {
+      outf("%9lu  Wi-Fi connected: \"%s\" %s, rssi %d dBm\n", (unsigned long)now, WiFi.SSID().c_str(),
+           WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+    } else {
+      out("Wi-Fi disconnected\n");
+      wifiDownMs = now;
+    }
+  }
+  if (netTryNow || (!up && now - netTryMs >= (portalOn ? NET_TRY_PORTAL_MS : NET_TRY_MS))) {
+    netTryNow = false;
+    startNextNet(now);
+  }
+  if (!up && !portalOn && now - wifiDownMs >= (netCount ? PORTAL_AFTER_MS : 3000)) startPortal(now);
+  if (portalOn) {
+    gDns.processNextRequest();
+    gWeb.handleClient();
+    if (up && now - portalUseMs > PORTAL_IDLE_MS) stopPortal();
+  }
+}
+
+// ---------- serial ----------
+void serialLine(char *line, uint32_t now) {
+  while (*line == ' ') line++;
+  if (!*line) return;
+  if (line[0] == 'w') {
+    if (line[1] == ' ') {
+      char *sep = strchr(line + 2, '|');
+      if (!sep) {
+        out("use: w NAME|PASSWORD\n");
+        return;
+      }
+      *sep = 0;
+      const char *why = addNet(line + 2, sep + 1);
+      outf("save \"%s\": %s\n", line + 2, *why ? why : "ok, connecting");
+    } else if (line[1] == 'l') {
+      listNets();
+    } else if (line[1] == 'd') {
+      outf(deleteNet(atoi(line + 2) - 1) ? "deleted\n" : "no such number (wl lists them)\n");
+      listNets();
+    } else if (line[1] == 'p') {
+      startPortal(now);
+    } else {
+      help();
+    }
+    return;
+  }
+  if (line[1]) {
+    help();
+    return;
+  }
+  if (line[0] == 'l' || line[0] == 'r') handleRequest(line[0] == 'l' ? 'L' : 'R', now);
+  else if (line[0] == 's') status(now);
+  else help();
+}
+
 void help() {
   out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request)\n"
-      "  l = LEFT tap   r = RIGHT tap   s = status   h = help\n");
-  outf("  Wi-Fi \"%s\", UDP in %d / status %d, CAN pins TX %d RX %d 100k\n\n", WIFI_SSID, COMMAND_PORT,
-       STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);
+      "  l = LEFT tap   r = RIGHT tap   s = status   h = help\n"
+      "  w NAME|PASSWORD = save hotspot   wl = list   wd N = delete   wp = open setup Wi-Fi\n");
+  outf("  UDP in %d / status %d, CAN pins TX %d RX %d 100k\n", COMMAND_PORT, STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);
+  listNets();
+  out("\n");
 }
 
 void status(uint32_t now) {
   outf("\nWi-Fi: %s", wifiUp ? "connected " : "NOT connected\n");
-  if (wifiUp) outf("%s  rssi %d dBm\n", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+  if (wifiUp) outf("\"%s\" %s  rssi %d dBm\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+  if (portalOn) outf("setup Wi-Fi open: \"%s\" password %s\n", SETUP_AP_SSID, SETUP_AP_PASS);
   outf("stock 0x138: %s", stockValid ? "" : "none yet\n");
   if (stockValid) {
     outf("%02X %02X %02X %02X %02X %02X %02X %02X  (%lu ms ago)\n", stock[0], stock[1], stock[2], stock[3],
@@ -280,11 +557,12 @@ void setup() {
 #endif
   delay(1000);
   startCan(false);
+  loadNets();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // no power-save delay on incoming requests
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.setAutoReconnect(false);  // wifiTick() rotates through the saved hotspots
   gUdp.begin(COMMAND_PORT);
+  wifiDownMs = millis();
   help();
 }
 
@@ -310,18 +588,17 @@ void loop() {
     }
   }
 
-  bool up = WiFi.status() == WL_CONNECTED;
-  if (up != wifiUp) {
-    wifiUp = up;
-    if (up) outf("Wi-Fi connected: %s, rssi %d dBm\n", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
-    else out("Wi-Fi disconnected\n");
-  }
+  if (tap == TAP_IDLE) wifiTick(now);  // nothing slow during the 0.16 s tap
   if (wifiUp && tap == TAP_IDLE) pollUdp(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);
 
-  int c = readCmd();
-  if (c < 0 || c == '\n' || c == '\r') return;
-  if (c == 'l' || c == 'r') handleRequest(c == 'l' ? 'L' : 'R', now);
-  else if (c == 's') status(now);
-  else help();
+  for (int c = readCmd(); c >= 0; c = readCmd()) {
+    if (c == '\n' || c == '\r') {
+      lineBuf[lineLen] = 0;
+      lineLen = 0;
+      serialLine(lineBuf, now);
+    } else if (lineLen < (int)sizeof(lineBuf) - 1) {
+      lineBuf[lineLen++] = (char)c;
+    }
+  }
 }
