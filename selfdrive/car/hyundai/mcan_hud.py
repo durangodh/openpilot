@@ -105,6 +105,23 @@ TURN_CODES = {
   21: (DISPLAY_TURN, 4, SIDE_TURN),     # lane change right
 }
 TURN_STRAIGHT = 11
+# TMAP sends its own codes for highway/city-highway entries, exits and forks (TmapAssets icons:
+# road_02/05 left, road_03/06 right, road_01/04 straight; arrow_08/09 left/right forks). The
+# Naver module already maps these to 17/18/11; without this TMAP left the HUD to the AVN there.
+TMAP_TURN_ALIASES = {
+  **{code: 18 for code in (6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124, 195, 196)},
+  **{code: 17 for code in (7, 44, 75, 76, 102, 105, 112, 115, 118)},
+  **{code: TURN_STRAIGHT for code in (103, 106, 113, 116, 119, 120, 121, 122, 175)},
+}
+
+
+def hud_turn_type(turn_type):
+  """The navi's turn code in the codes this file draws (TMAP aliases folded in)."""
+  try:
+    turn_type = int(turn_type)
+  except (TypeError, ValueError):
+    return -1
+  return TMAP_TURN_ALIASES.get(turn_type, turn_type)
 # Turns the AVN announces as "keep going + preview" until close: it draws the intersection
 # only from 300-400 m in town (11-02 12:08 700 m 67 -> 400 m 13, 12:14 700 m -> 300 m), when
 # the navi's lane guidance for that turn comes up; right after a highway exit, on the ramp,
@@ -308,13 +325,13 @@ def next_tollgate(nav_state):
   """(distance from the car, name) of a tollgate that is the navi's next item after a keep-going
   one (e.g. a rest area), or None. The AVN does not stop at rest areas: on 2026-11-04 it showed
   풍세톨게이트 while Naver's current item was 이인휴게소."""
-  if int(nav_state.get("turn_type", -1)) != TURN_STRAIGHT or nav_state.get("tollgate"):
+  if hud_turn_type(nav_state.get("turn_type", -1)) != TURN_STRAIGHT or nav_state.get("tollgate"):
     return None
   nxt = nav_state.get("next")
   if not isinstance(nxt, dict):
     return None
   text = str(nxt.get("text", "") or "")
-  if not (nxt.get("tollgate") or (int(nxt.get("turn_type", -1)) == TURN_STRAIGHT and
+  if not (nxt.get("tollgate") or (hud_turn_type(nxt.get("turn_type", -1)) == TURN_STRAIGHT and
                                   any(w in text for w in TOLL_WORDS))):
     return None
   # The next item's distance after the current one (carrot_navi_server makes Naver's
@@ -435,7 +452,7 @@ class McanHud:
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):
       nxt = nav_state.get("next") or {}
-      turn_type = int(nav_state.get("turn_type", -1))
+      turn_type = hud_turn_type(nav_state.get("turn_type", -1))
       dist = float(nav_state.get("distance", -1.0))
       text = str(nav_state.get("text", "") or "")
       if uturn_guidance(turn_type, text, nav_state.get("lane_current"), dist):
@@ -465,7 +482,7 @@ class McanHud:
       if (shown and not self.shown) or dist > self.maneuver_start + 100.0:
         self.maneuver_start = dist
       self.shown = shown
-      payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
+      payload = tbt_payload(turn_type, dist, text, hud_turn_type(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
                             tollgate=tollgate, preview=not shown, underpass=underpass,
                             junction=self.junction)

@@ -401,3 +401,18 @@ def test_left_turn_guided_as_uturn_shows_the_uturn_picture():
   tbt = [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR]
   assert tbt and tbt[-1][0] == 13
   assert tbt_payload(14, 150.0)[0] == 31
+
+
+def test_tmap_highway_codes_draw_like_the_naver_maneuvers():
+  from selfdrive.car.hyundai.mcan_hud import hud_turn_type
+  assert hud_turn_type(104) == 18 and hud_turn_type(101) == 18 and hud_turn_type(117) == 18
+  assert hud_turn_type(105) == 17 and hud_turn_type(102) == 17 and hud_turn_type(118) == 17
+  assert hud_turn_type(103) == 11 and hud_turn_type(120) == 11
+  assert hud_turn_type(12) == 12 and hud_turn_type("x") == -1
+  # TMAP right exit at 600 m: the AVN's EXIT sign like Naver's 18
+  tbt = [d for a, d, _ in run(McanHud(), nav(turn_type=104, dist=1500.0, text="기흥동탄IC"), 5) if a == TBT_ADDR]
+  naver = [d for a, d, _ in run(McanHud(), nav(turn_type=18, dist=1500.0, text="기흥동탄IC"), 5) if a == TBT_ADDR]
+  assert tbt and tbt == naver
+  # TMAP left fork
+  tbt = [d for a, d, _ in run(McanHud(), nav(turn_type=105, dist=200.0, text="서오산분기점"), 5) if a == TBT_ADDR]
+  assert tbt and tbt[-1][:4] == tbt_payload(17, 200.0, "서오산분기점")[:4]
