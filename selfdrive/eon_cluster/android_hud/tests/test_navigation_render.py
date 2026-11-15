@@ -226,6 +226,17 @@ def main():
     assert "boolean stale = linkStale || !drivingValid;" in driving
     assert 'lang("차량 데이터 대기", "WAITING FOR VEHICLE")' in driving
     assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
+    # Navigation always uses rendered road geometry and keeps the car over the map.
+    frame = source.split("private void drawFrame(", 1)[1]
+    navigation = frame.split("if (naviLayout) {", 1)[1].split("return;", 1)[0]
+    assert "drawNaverMapCar(c, p, s, mapForLayout(map));" in navigation
+    assert "drawDriving(c, p, s);" in navigation
+    assert "drawDrivingWorld(c, p, s, l, stale, worldValid, enabled);" in driving
+    assert "drawRoadPreview" not in source
+    camera_client = (Path(__file__).resolve().parents[1] /
+                     "app/src/main/java/ai/comma/remotehud/RoadPreviewClient.java").read_text(encoding="utf-8")
+    assert "/api/road.jpg?hud=1" not in camera_client
+    assert "/api/road.jpg?signal=1" in camera_client
     # Match navigation apps: any partial remaining minute is shown rounded up.
     assert 'Integer.toString((remainTime + 59) / 60)' in source
     # Duplicate route heartbeats must preserve their original arrival clock.

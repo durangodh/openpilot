@@ -363,7 +363,7 @@ public final class MainActivity extends Activity {
         weatherCard.addView(weatherButtons);
         root.addView(weatherCard, cardParams());
         updateWeatherKeyStatus();
-        root.addView(buildRoadPreviewCard(), cardParams());
+        root.addView(buildCameraSignalCard(), cardParams());
         root.addView(buildVoiceCard(), cardParams());
 
         LinearLayout autoCard = card();
@@ -824,29 +824,29 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private LinearLayout buildRoadPreviewCard() {
+    private LinearLayout buildCameraSignalCard() {
         RoadPreviewClient.restore(this);
         LinearLayout panel = card();
         Switch toggle = new Switch(this);
-        toggle.setText("네비모드 전방 영상");
+        toggle.setText("EON 카메라 신호등 인식");
         toggle.setTextColor(Color.WHITE);
         toggle.setChecked(RoadPreviewClient.enabled());
         panel.addView(toggle);
-        panel.addView(text("오른쪽 주행 칸에 EON 카메라 표시", 14f,
+        panel.addView(text("카메라 신호등 인식용 EON 연결", 14f,
                 Color.rgb(190, 200, 210), Typeface.NORMAL));
         toggle.setOnClickListener(v -> {
             if (!RoadPreviewClient.setEnabled(this, toggle.isChecked())) {
                 toggle.setChecked(false);
-                editRoadPreviewConnection(toggle);
+                editCameraSignalConnection(toggle);
             }
         });
-        Button edit = button("전방 영상 연결 정보 변경", Color.rgb(40, 92, 132));
-        edit.setOnClickListener(v -> editRoadPreviewConnection(toggle));
+        Button edit = button("카메라 연결 정보 변경", Color.rgb(40, 92, 132));
+        edit.setOnClickListener(v -> editCameraSignalConnection(toggle));
         panel.addView(edit);
         return panel;
     }
 
-    private void editRoadPreviewConnection(Switch toggle) {
+    private void editCameraSignalConnection(Switch toggle) {
         LinearLayout fields = new LinearLayout(this);
         fields.setOrientation(LinearLayout.VERTICAL);
         fields.setPadding(dp(24), 0, dp(24), 0);
@@ -863,8 +863,8 @@ public final class MainActivity extends Activity {
                 | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         fields.addView(password);
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("네비모드 전방 영상")
-                .setMessage("주소와 비밀번호를 저장하고 전방 영상을 켭니다.")
+                .setTitle("EON 카메라 신호등 인식")
+                .setMessage("신호등 인식에 사용할 EON 주소와 웹 비밀번호를 저장합니다.")
                 .setView(fields)
                 .setNegativeButton("취소", null)
                 .setPositiveButton("저장하고 켜기", null)

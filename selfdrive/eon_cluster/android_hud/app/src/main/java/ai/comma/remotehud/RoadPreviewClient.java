@@ -19,7 +19,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.util.function.BooleanSupplier;
-import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 import javax.crypto.Cipher;
@@ -28,13 +27,6 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class RoadPreviewClient {
-    // 4 fps, as the EON now serves it. At 10 fps the phone's Wi-Fi traffic broke up its
-    // Bluetooth audio (navi voice, music; 2026-11-14). The HUD phone draws the lines
-    // (RoadOverlay) from telemetry matched to each photo, so they stay smooth.
-    private static final long FRAME_INTERVAL_MS = 250;
-    private static final long MAX_FRAME_AGE_MS = 1200;
-    private static final int MAX_JPEG_BYTES = 256 * 1024;
-    private static final int MAX_FRAME_SIDE = 640;
     private static final String PREFS = "road_preview";
     private static final String KEY_ALIAS = "remote_hud_road_preview";
     private static final String CIPHER = "AES/GCM/NoPadding";
@@ -51,18 +43,14 @@ final class RoadPreviewClient {
     }
 
     static final class Frame {
-        final Connection connection;
         final Bitmap bitmap;
-        final long timestamp;
-        /** Camera crop {u0, v0, u1, v1}; null when the EON drew the lines itself. */
+        /** Camera crop {u0, v0, u1, v1}. */
         final int[] crop;
-        /** EON capture time (epoch ms), matched against telemetry "t". */
+        /** EON capture time (epoch ms). */
         final long eonTime;
 
-        Frame(Connection connection, Bitmap bitmap, long timestamp, int[] crop, long eonTime) {
-            this.connection = connection;
+        Frame(Bitmap bitmap, int[] crop, long eonTime) {
             this.bitmap = bitmap;
-            this.timestamp = timestamp;
             this.crop = crop;
             this.eonTime = eonTime;
         }
@@ -71,7 +59,6 @@ final class RoadPreviewClient {
     private static volatile Connection connection;
     private static Connection savedConnection;
     private static boolean restored;
-    private volatile Frame latest;
     /** Upper road region for the traffic light networks; the HUD sets the rate (heat). */
     private static final int MAX_SIGNAL_JPEG_BYTES = 256 * 1024;
 
@@ -168,52 +155,9 @@ final class RoadPreviewClient {
                 || (first == 192 && second == 168);
     }
 
-    Frame currentFrame() {
-        Frame frame = latest;
-        if (frame == null || frame.connection != connection
-                || SystemClock.elapsedRealtime() - frame.timestamp >= MAX_FRAME_AGE_MS) return null;
-        return frame;
-    }
-
-    /** view is the HUD pane size; the EON sends its own screen cropped to that shape. */
-    void run(BooleanSupplier active, BooleanSupplier requested, Supplier<String> telemetryAddress, IntSupplier pathEnd,
-             String view) {
-        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-        try {
-            while (active.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
-                Connection target = connection;
-                if (target == null || !requested.getAsBoolean() || !target.address.equals(telemetryAddress.get())) {
-                    latest = null;
-                    Thread.sleep(FRAME_INTERVAL_MS);
-                    continue;
-                }
-
-                long start = SystemClock.elapsedRealtime();
-                long interval = FRAME_INTERVAL_MS;
-                try {
-                    Frame frame = fetch(target, start, pathEnd.getAsInt(), view);
-                    if (frame != null && connection == target && requested.getAsBoolean()
-                            && target.address.equals(telemetryAddress.get())) {
-                        latest = frame;
-                    } else {
-                        interval = 1000;
-                    }
-                } catch (IOException e) {
-                    interval = 1000;
-                }
-                Thread.sleep(Math.max(0L, interval - (SystemClock.elapsedRealtime() - start)));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            latest = null;
-        }
-    }
-
     /**
      * Fetches the EON's upper road region at native resolution (/api/road.jpg?signal=1) and
-     * hands each photo to sink on this thread (the traffic light networks run there). Shares
-     * the road preview's EON address and password.
+     * hands each photo to the traffic light detector on this thread.
      */
     void runSignal(BooleanSupplier active, java.util.function.LongSupplier intervalMs, Supplier<String> telemetryAddress,
                    java.util.function.Consumer<Frame> sink) {
@@ -228,7 +172,7 @@ final class RoadPreviewClient {
                 }
                 long start = SystemClock.elapsedRealtime();
                 try {
-                    Frame frame = fetchSignal(target, start);
+                    Frame frame = fetchSignal(target);
                     if (frame != null && connection == target) {
                         sink.accept(frame);
                         frame.bitmap.recycle();
@@ -245,7 +189,7 @@ final class RoadPreviewClient {
         }
     }
 
-    private Frame fetchSignal(Connection target, long start) throws IOException {
+    private Frame fetchSignal(Connection target) throws IOException {
         URL url = new URL("http", target.address, 7000, "/api/road.jpg?signal=1");
         HttpURLConnection request = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
         try {
@@ -276,7 +220,7 @@ final class RoadPreviewClient {
                 }
                 byte[] bytes = output.toByteArray();
                 Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                return bitmap == null ? null : new Frame(target, bitmap, start, crop, eonTime);
+                return bitmap == null ? null : new Frame(bitmap, crop, eonTime);
             }
         } finally {
             request.disconnect();
@@ -296,54 +240,4 @@ final class RoadPreviewClient {
         return crop[2] > crop[0] && crop[3] > crop[1] ? crop : null;
     }
 
-    private Frame fetch(Connection target, long start, int pathEnd, String view) throws IOException {
-        URL url = new URL("http", target.address, 7000, "/api/road.jpg?hud=1");
-        HttpURLConnection request = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
-        try {
-            request.setConnectTimeout(500);
-            request.setReadTimeout(500);
-            request.setInstanceFollowRedirects(false);
-            request.setUseCaches(false);
-            request.setRequestProperty("Authorization", target.authorization);
-            request.setRequestProperty("X-HUD-Path-End", Integer.toString(pathEnd));
-            request.setRequestProperty("X-HUD-View", view);
-            request.setRequestProperty("X-HUD-Overlay", "0");
-            if (request.getResponseCode() != HttpURLConnection.HTTP_OK
-                    || !"image/jpeg".equalsIgnoreCase(request.getContentType())
-                    || request.getContentLength() > MAX_JPEG_BYTES) return null;
-
-            try (InputStream input = request.getInputStream();
-                 ByteArrayOutputStream output = new ByteArrayOutputStream(32 * 1024)) {
-                byte[] buffer = new byte[8192];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    if (output.size() + count > MAX_JPEG_BYTES || connection != target
-                            || SystemClock.elapsedRealtime() - start >= MAX_FRAME_AGE_MS) return null;
-                    output.write(buffer, 0, count);
-                }
-                byte[] bytes = output.toByteArray();
-                BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inJustDecodeBounds = true;
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                if (options.outWidth <= 0 || options.outWidth > MAX_FRAME_SIDE
-                        || options.outHeight <= 0 || options.outHeight > MAX_FRAME_SIDE) return null;
-                options.inJustDecodeBounds = false;
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                if (bitmap == null) return null;
-                // An older EON ignores X-HUD-Overlay and sends lines already drawn,
-                // without these headers; then the HUD must not draw them again.
-                int[] crop = parseCrop(request.getHeaderField("X-EON-View"));
-                long eonTime = 0L;
-                try {
-                    String time = request.getHeaderField("X-Frame-Time");
-                    if (time != null) eonTime = Long.parseLong(time.trim());
-                } catch (NumberFormatException ignored) {
-                    crop = null;
-                }
-                return new Frame(target, bitmap, start, crop, eonTime);
-            }
-        } finally {
-            request.disconnect();
-        }
-    }
 }
