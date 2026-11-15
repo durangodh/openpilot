@@ -157,6 +157,17 @@ class TestRemoteLaneLatch(TestNooLaneChangeFsm):
     self.assertEqual(self.helper.remote_direction, 0)
     self.assertEqual(self.helper.lane_change_state, OFF)
 
+  def test_short_auto_timer_still_signals_one_second(self):
+    self.helper.auto_lane_change_timer_setting = 1   # 0.1 s for the lever
+    c = car(60)
+    self.press(c)
+    for _ in range(8):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, PRE)
+    for _ in range(8):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, STARTING)
+
   def test_request_that_never_starts_times_out(self):
     c = car(60)
     c.leftBlindspot = True
