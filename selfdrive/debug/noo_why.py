@@ -1,102 +1,75 @@
 #!/usr/bin/env python3
-"""NOO(내비 차선변경)가 왜 동작 안 하는지 관문별로 찍어보는 진단기.
+"""EON의 실제 NOO 판정과 최신 내비 안내를 SSH에서 확인한다.
 
-EON 에서 주행/정차 중 그대로 실행:
     cd /data/openpilot && python selfdrive/debug/noo_why.py
-
-각 줄의 [X] 가 처음 나오는 곳이 그 프레임에서 NOO 를 막은 조건이다.
 """
 import time
 
 import cereal.messaging as messaging
+from common.conversions import Conversions as CV
 from common.params import Params
-from selfdrive.controls.lib import lane_count
+from selfdrive.controls.lib.desire_helper import (
+  NOO_LANE_CHANGE_SPEED_DEFAULT_KPH,
+  NOO_LANE_CHANGE_SPEED_RANGE_KPH,
+)
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
-from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
-from selfdrive.controls.lib.desire_helper import DesireHelper
 
 
-def mark(ok):
-  return "O" if ok else "X"
-
-
-def camera_reason(md):
-  """camera_lane_position 결과와, None 이면 그 이유 (HUD 와 같은 판정)."""
-  return lane_count.estimate(md)
+def noo_lane_change_speed(params):
+  try:
+    speed = int(params.get("NooLaneChangeSpeed", encoding="utf8") or NOO_LANE_CHANGE_SPEED_DEFAULT_KPH)
+  except (TypeError, ValueError):
+    speed = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH
+  low, high = NOO_LANE_CHANGE_SPEED_RANGE_KPH
+  return max(low, min(speed, high))
 
 
 def main():
   params = Params()
   route = NavigationRouteData()
-  ctrl = NavigationLaneChangeController()
-  dh = DesireHelper()
-  sm = messaging.SubMaster(['modelV2', 'carState'])
+  sm = messaging.SubMaster(['lateralPlan', 'carState'], poll=['lateralPlan'])
+  previous_status = None
+  next_report = 0.0
 
   while True:
-    sm.update(0)
-    if not sm.updated['modelV2']:
-      time.sleep(0.05)
+    sm.update()
+    if not (sm.alive['lateralPlan'] and sm.valid['lateralPlan']):
+      if previous_status != "waiting":
+        print("유효한 lateralPlan 대기 중", flush=True)
+        previous_status = "waiting"
+      continue
+    if not sm.updated['lateralPlan']:
       continue
 
-    md = sm['modelV2']
-    cs = sm['carState']
-    v_ego = cs.vEgo
+    plan = sm['lateralPlan']
+    reason = plan.nooLaneChangeReason or "-"
+    desire = str(plan.desire)
+    status = (reason, plan.nooTurnDirection, plan.nooLaneChangeDirection, desire,
+              plan.nooCurrentLane, plan.nooTargetLane)
+    now = time.monotonic()
+    if status == previous_status and now < next_report:
+      continue
+    previous_status = status
+    next_report = now + 0.5
 
-    noo_on = params.get_bool('NavigationOnOpenpilot')
-    lc_on = params.get_bool('LaneChangeEnabled')
-    mode = int(params.get('NooMode', encoding='utf8') or '0')
-    lc_min = int(params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
+    guidance = route.update()
+    kind = guidance.get('kind') or "-"
+    direction = guidance.get('direction', 0)
+    distance = guidance.get('distance', -1.0)
+    minimum_speed = noo_lane_change_speed(params)
+    speed = "-"
+    if sm.alive['carState'] and sm.valid['carState']:
+      speed = f"{sm['carState'].vEgo * CV.MS_TO_KPH:.1f}"
 
-    st = route.update()
-    cam, cam_msg = camera_reason(md)
-
-    lines = []
-    lines.append("[%s] 파라미터  NOO=%s NooMode=%d(차선변경 0/2) LaneChange=%s 최저속도=%dkm/h" %
-                 (mark(noo_on and lc_on and mode in (0, 2)), noo_on, mode, lc_on, lc_min))
-    lines.append("[%s] 속도       %.1f km/h" % (mark(v_ego * 3.6 >= lc_min), v_ego * 3.6))
-    guidance_fresh = bool(st.get('route_fresh') or st.get('lane_fresh') or st.get('fresh'))
-    lines.append("[%s] 안내스트림 route_fresh=%s lane_fresh=%s ahead=%s off_route=%s kind=%s dir=%s dist=%.0f" %
-                 (mark(guidance_fresh and not st.get('off_route')),
-                  st.get('route_fresh'), st.get('lane_fresh'), st.get('lane_ahead_fresh'),
-                  st.get('off_route'), st.get('kind'), st.get('direction'),
-                  st.get('distance', -1.0)))
-
-    lane_cur = st.get('lane_current')
-    map_count = int(lane_cur.get('count', 0)) if isinstance(lane_cur, dict) else 0
-    avail = lane_cur.get('available') if isinstance(lane_cur, dict) else None
-    source = lane_cur.get('source', 'MAP') if isinstance(lane_cur, dict) else 'MAP'
-    lines.append("[%s] 지도차로   source=%s count=%d available=%s" %
-                 (mark(map_count >= 2), source, map_count, avail))
-    lines.append("[%s] 카메라차로 %s" % (mark(cam is not None), cam_msg))
-
-    if cam is not None and map_count:
-      resolved = NavigationLaneChangeController._resolve_current_lane(cam, map_count)
-      lines.append("[%s] 차로수정합 cam %d vs map %d -> %s" %
-                   (mark(resolved is not None), cam['count'], map_count, resolved))
-
-    plan = ctrl.lane_plan(st, cam, v_ego) if cam is not None else None
-    lines.append("[%s] lane_plan  %s" % (mark(plan is not None), plan))
-
-    if plan is not None:
-      dist = plan['distance']
-      delta = abs(plan['target'] - plan['current'])
-      if plan.get('source') in ('carrot_prepare', 'next_prepare'):
-        lo = NavigationLaneChangeController.CARROT_PREPARE_MIN_DISTANCE
-        hi = NavigationLaneChangeController.carrot_prepare_distance(st, v_ego)
-      else:
-        lo = NavigationLaneChangeController.MIN_DISTANCE
-        hi = min(NavigationLaneChangeController.MAX_DISTANCE, max(300.0, v_ego * 20.0, 200.0 * delta))
-      lines.append("[%s] 거리창      %.0fm (허용 %.0f~%.0f, source=%s)" %
-                   (mark(lo <= dist <= hi), dist, lo, hi, plan.get('source')))
-
-    lb = dh._road_edge_detected(md, -1)
-    rb = dh._road_edge_detected(md, 1)
-    lines.append("[%s] 좌측여유   roadEdge막힘=%s BSD=%s" % (mark(not lb and not cs.leftBlindspot), lb, cs.leftBlindspot))
-    lines.append("[%s] 우측여유   roadEdge막힘=%s BSD=%s" % (mark(not rb and not cs.rightBlindspot), rb, cs.rightBlindspot))
-
-    print("\n" + time.strftime("%H:%M:%S"))
-    print("\n".join(lines))
-    time.sleep(0.5)
+    print(f"{time.strftime('%H:%M:%S')} plan={sm.logMonoTime['lateralPlan'] / 1e9:.3f}s "
+          f"내비 {kind} dir={direction:+d} dist={distance:.0f}m "
+          f"안내유효={bool(guidance.get('guidance_fresh'))} 차로안내유효={bool(guidance.get('lane_fresh'))} "
+          f"경로이탈={bool(guidance.get('off_route'))} | "
+          f"속도={speed}km/h NOO차선변경기준={minimum_speed}km/h | "
+          f"회전요청={plan.nooTurnDirection:+d} 차선변경요청={plan.nooLaneChangeDirection:+d} "
+          f"desire={desire} 차로={plan.nooCurrentLane}>{plan.nooTargetLane} "
+          f"카메라/지도={plan.nooCameraLaneCount}/{plan.nooRouteLaneCount} 판정={reason}",
+          flush=True)
 
 
 if __name__ == "__main__":
