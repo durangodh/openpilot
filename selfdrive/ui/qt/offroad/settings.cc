@@ -1215,6 +1215,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
+  toggleLayout->addWidget(new ParamControl("LeadDepartHaptic", "LEAD DEPARTED HAPTIC",
+                                            "켜짐: 정차 중 앞차가 출발했는데 내 차가 그대로 서 있으면 핸들을 1초 진동시킵니다(차선이탈 경고 진동). 소리 없음.",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
 
   toggleLayout->addWidget(horizontal_line());
 
