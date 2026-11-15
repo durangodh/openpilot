@@ -1342,6 +1342,16 @@
    "unit": 1
   },
   {
+   "group": "\ucee4\ube0c\ub0b4\ube44",
+   "name": "DhBcanBlinkerCancel",
+   "title": "DH BLINKER STOP AFTER LANE CHANGE",
+   "descr": "\ucf1c\uc9d0: \ub9ac\ubaa8\ucee8\u00b7NOO \ucc28\ub85c\ubcc0\uacbd\uc774 \ub05d\ub098\uba74(laneChangeFinishing) ESP32\uac00 \ubc18\ub300\ucabd\uc73c\ub85c \ub808\ubc84\ub97c \uc9e7\uac8c \uccd0\uc11c \ub0a8\uc740 \uc6d0\ud130\uce58 \uc810\uba78\uc744 \ub055\ub2c8\ub2e4. 5\ubc88 \ub2e4 \uae5c\ube61\uc774\uba74 \ub4a4\ucc28\uac00 \ud55c \ubc88 \ub354 \ubc14\uafb8\ub294 \uc904 \uc54c \uc218 \uc788\uc5b4\uc11c\uc785\ub2c8\ub2e4. ESP32 \ud38c\uc6e8\uc5b4 2026-11-15 \uc774\ud6c4 \ud544\uc694. P\ub2e8\uc5d0\uc11c \uc2dc\ub9ac\uc5bc l \ud6c4 c\ub85c \ubc18\ub300\ucabd\uc774 \ucf1c\uc9c0\uc9c0 \uc54a\uace0 \uaebc\uc9c0\ub294\uc9c0 \uba3c\uc800 \ud655\uc778\ud558\uc138\uc694.",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
    "group": "S9HUD",
    "name": "EonClusterHudFps",
    "title": "S9 HUD FPS",

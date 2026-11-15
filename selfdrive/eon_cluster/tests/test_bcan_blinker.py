@@ -112,3 +112,21 @@ def test_lane_direction_from_enum_names():
   assert lane_direction(Enum("right")) == "R"
   assert lane_direction(Enum("none")) is None
   assert lane_direction(None) is None
+
+
+def test_cancel_once_when_our_lane_change_finishes():
+  from selfdrive.eon_cluster.bcan_blinker_core import BlinkCancelPlanner, command_packet
+  c = BlinkCancelPlanner()
+  assert not c.update("preLaneChange", "L")
+  assert not c.update("laneChangeStarting", None)
+  assert c.update("laneChangeFinishing", None)
+  assert not c.update("laneChangeFinishing", None)      # once
+  # a lane change we did not tap for (driver's lever) is never cancelled
+  c = BlinkCancelPlanner()
+  assert not any(c.update(s, None) for s in ("preLaneChange", "laneChangeStarting", "laneChangeFinishing"))
+  # back to off before finishing (cancelled lane change): nothing pending
+  c = BlinkCancelPlanner()
+  c.update("preLaneChange", "R")
+  c.update("off", None)
+  assert not c.update("laneChangeFinishing", None)
+  assert command_packet(7, "C") == b"DHBL1 7 C"

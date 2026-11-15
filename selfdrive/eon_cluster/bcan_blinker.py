@@ -16,7 +16,7 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
-                                                     STATUS_FILE, STATUS_PORT, LaneTapPlanner, command_packet, lane_direction,
+                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
@@ -59,6 +59,9 @@ def main():
   rx = open_status_socket()
   tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   planner = LaneTapPlanner()
+  canceller = BlinkCancelPlanner()
+  cancel_enabled = False
+  cancel_seq = None
 
   enabled = False
   next_param_check = 0.0
@@ -78,6 +81,7 @@ def main():
     now = time.monotonic()
     if now >= next_param_check:
       enabled = params.get_bool("DhBcanBlinker")
+      cancel_enabled = params.get_bool("DhBcanBlinkerCancel")
       next_param_check = now + PARAM_CHECK_S
       if enabled != prev_enabled:
         dlog.write(f"DhBcanBlinker {'on' if enabled else 'off'}")
@@ -94,6 +98,9 @@ def main():
       if parsed is None:
         continue
       status, status_mono, esp_ip = parsed, now, addr[0]
+      if cancel_seq is not None and parsed["seq"] == cancel_seq and parsed["res"]:
+        dlog.write(f"ESP32 answer cancel seq {cancel_seq}: {parsed['res']} (lamp {parsed['lamp']})")
+        cancel_seq = None
       if event is not None and event.get("pending") and parsed["seq"] == event["seq"] and parsed["res"]:
         event["pending"] = False
         event["ok"] = parsed["res"] == "ok"
@@ -132,6 +139,7 @@ def main():
       prev_lc = lc
     except Exception as e:  # pylint: disable=broad-except
       dlog.write(f"log error {e!r}")
+    tap_sent = None
     if side is not None:
       seq = (seq % 30000) + 1
       wall = time.time()
@@ -145,10 +153,28 @@ def main():
           time.sleep(0.02)
         event = {"seq": seq, "dir": side, "wall": wall, "ok": False, "why": "응답 대기", "pending": True}
         dlog.write(f"tap {side} seq {seq} sent to {esp_ip}")
+        tap_sent = side
       else:
         why = "ESP32 없음" if link == LINK_NONE else "B-CAN 없음" if link != LINK_OK else "주소 없음"
         event = {"seq": seq, "dir": side, "wall": wall, "ok": False, "why": why, "pending": False}
         dlog.write(f"tap {side} seq {seq} NOT sent: {why}")
+
+    # Lane change done: stop the remaining flashes of our one-touch (DhBcanBlinkerCancel).
+    state_name = str(plan.laneChangeState) if sm.alive['lateralPlan'] else "off"
+    if canceller.update(state_name, tap_sent) and cancel_enabled:
+      if link == LINK_OK and esp_ip:
+        seq = (seq % 30000) + 1
+        packet = command_packet(seq, "C")
+        for _ in range(COMMAND_REPEATS):
+          try:
+            tx.sendto(packet, (esp_ip, COMMAND_PORT))
+          except OSError:
+            pass
+          time.sleep(0.02)
+        cancel_seq = seq  # the screens keep showing the tap; the answer goes to the log only
+        dlog.write(f"cancel seq {seq} sent to {esp_ip} (lane change finishing)")
+      else:
+        dlog.write(f"cancel NOT sent: link {link}")
 
     if now >= next_status_write:
       next_status_write = now + STATUS_WRITE_S

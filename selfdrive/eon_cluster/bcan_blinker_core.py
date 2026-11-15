@@ -38,11 +38,12 @@ OWN_LAMP_S = 5.0
 COMMAND_REPEATS = 3
 
 RESULT_TEXT = {"ok": "", "busy": "처리 중", "cooldown": "대기", "lever": "레버 사용 중",
-               "lamp": "깜빡이 켜짐", "nobcan": "B-CAN 없음", "abort": "버스 오류", "notx": "송신 불가"}
+               "lamp": "깜빡이 켜짐", "nobcan": "B-CAN 없음", "abort": "버스 오류", "notx": "송신 불가",
+               "nothing": "끌 깜빡이 없음", "nolamp": "이미 꺼짐"}
 
 
 def command_packet(seq, side):
-  if side not in ("L", "R"):
+  if side not in ("L", "R", "C"):
     raise ValueError(side)
   return f"{COMMAND_MAGIC} {int(seq) & 0xffff} {side}".encode()
 
@@ -107,6 +108,28 @@ class LaneTapPlanner:
     self.taps += 1
     self.last_tap = now
     return direction
+
+
+class BlinkCancelPlanner:
+  """Ends our own 5-flash one-touch once the lane change is done (DhBcanBlinkerCancel).
+
+  The tap gives 5 flashes (~3.5 s) but a single lane change is usually over after 2-3, and the
+  extra flashes look like another lane change to the car behind. When a lane change we tapped for
+  reaches laneChangeFinishing, ask the ESP32 once for a cancel ('C': a short tap the other way)."""
+
+  def __init__(self):
+    self.tapped = False
+
+  def update(self, state, tapped_side):
+    """state: laneChangeState name; tapped_side: 'L'/'R' when a tap was just sent. True = cancel now."""
+    if tapped_side in ("L", "R"):
+      self.tapped = True
+    if state == "off":
+      self.tapped = False
+    if self.tapped and state == "laneChangeFinishing":
+      self.tapped = False
+      return True
+    return False
 
 
 def write_status(path, payload):

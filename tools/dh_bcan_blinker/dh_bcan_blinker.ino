@@ -19,7 +19,7 @@
 //   - Any bus error / error-passive / bus-off / failed frame aborts at once.
 //
 // Network (phone hotspot, 2.4 GHz):
-//   EON -> board  UDP 7290 "DHBL1 <seq> L|R" (sent 3 times, same seq)
+//   EON -> board  UDP 7290 "DHBL1 <seq> L|R|C" (sent 3 times, same seq; C = cancel our own blinking)
 //   board -> EON  UDP 7291 broadcast every second and after each request:
 //                 {"t":"dhbl","v":1,"rssi":-55,"bcan":1,"lamp":0,"err":0,"seq":3,"res":"ok"}
 //
@@ -68,6 +68,11 @@
 #define LAMP_QUIET_MS 800
 #define STATUS_MS 1000
 #define ERR_HOLD_MS 60000
+// Cancel (C): end our own one-touch early with a short tap the other way, like a driver flicking the
+// lever back. Only within CANCEL_WINDOW_MS of our tap, at least CANCEL_MIN_MS after it, and only if
+// the driver has not touched the lever since. Test at P first: serial 'l', then 'c' after ~1.5 s.
+#define CANCEL_WINDOW_MS 6000
+#define CANCEL_MIN_MS 300
 
 // Arduino IDE puts prototypes for every function above the includes, so no function takes or
 // returns a TWAI or Wi-Fi type and none is static; those values live in these globals.
@@ -99,6 +104,10 @@ static TapState tap = TAP_IDLE;
 static uint8_t tapBits = 0;
 static uint32_t cmdMs = 0, tapStart = 0, lastSend = 0, lastTapEnd = 0;
 static uint32_t tapFrames = 0, txFail = 0;
+static char tapSide = 0;          // side of the tap in progress
+static char ownSide = 0;          // side of our last successful one-touch (0: none / cancelled)
+static uint32_t ownEndMs = 0, driverLeverMs = 0;
+static bool cancelTap = false;
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -200,17 +209,21 @@ void endTap(const char *res) {
     errSeen = true;
     errMs = now;
   }
-  outf("=== tap end (%s): %lu frames, tx fail %lu ===\n", res, (unsigned long)tapFrames, (unsigned long)txFail);
+  if (done && !cancelTap) {
+    ownSide = tapSide;
+    ownEndMs = now;
+  } else {
+    ownSide = 0;  // a cancel (or a failed tap) leaves nothing to cancel
+  }
+  outf("=== %s end (%s): %lu frames, tx fail %lu ===\n", cancelTap ? "cancel" : "tap", res,
+       (unsigned long)tapFrames, (unsigned long)txFail);
+  cancelTap = false;
   finish(res, now);
 }
 
 // Returns "" when the tap started, else the refusal reason.
-const char *requestTap(char side, uint32_t now) {
-  if (tap != TAP_IDLE) return "busy";
-  if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
-  if (!stockFresh(now)) return "nobcan";
-  if (stock[0] & LEVER_MASK) return "lever";
-  if (lampRecent(now)) return "lamp";
+const char *startTap(char side, uint32_t now) {
+  tapSide = side;
   tapBits = side == 'L' ? LEFT_BITS : RIGHT_BITS;
   tapFrames = 0;
   txFail = 0;
@@ -220,14 +233,41 @@ const char *requestTap(char side, uint32_t now) {
   }
   tap = TAP_WAIT_STOCK;
   cmdMs = now;
-  outf("\n=== %s tap: waiting for the next stock 0x138 ===\n", side == 'L' ? "LEFT" : "RIGHT");
+  outf("\n=== %s %s: waiting for the next stock 0x138 ===\n", side == 'L' ? "LEFT" : "RIGHT",
+       cancelTap ? "cancel tap" : "tap");
   return "";
 }
 
+const char *requestTap(char side, uint32_t now) {
+  if (tap != TAP_IDLE) return "busy";
+  if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
+  if (!stockFresh(now)) return "nobcan";
+  if (stock[0] & LEVER_MASK) return "lever";
+  if (lampRecent(now)) return "lamp";
+  cancelTap = false;
+  return startTap(side, now);
+}
+
+// Ends our own one-touch: a tap the other way. Refused unless our tap is still blinking.
+const char *requestCancel(uint32_t now) {
+  if (tap != TAP_IDLE) return "busy";
+  if (!ownSide || now - ownEndMs > CANCEL_WINDOW_MS) return "nothing";
+  if (now - ownEndMs < CANCEL_MIN_MS) return "cooldown";
+  if (driverLeverMs && driverLeverMs > ownEndMs) return "lever";  // the driver took over
+  if (!stockFresh(now)) return "nobcan";
+  if (stock[0] & LEVER_MASK) return "lever";
+  if (!lampRecent(now)) return "nolamp";  // already finished blinking
+  cancelTap = true;
+  const char *why = startTap(ownSide == 'L' ? 'R' : 'L', now);
+  if (*why) cancelTap = false;
+  return why;
+}
+
 void handleRequest(char side, uint32_t now) {
-  const char *why = requestTap(side, now);
+  const char *why = side == 'C' ? requestCancel(now) : requestTap(side, now);
   if (*why) {
-    outf("%9lu  %s tap refused: %s\n", (unsigned long)now, side == 'L' ? "LEFT" : "RIGHT", why);
+    outf("%9lu  %s refused: %s\n", (unsigned long)now,
+         side == 'C' ? "cancel" : side == 'L' ? "LEFT tap" : "RIGHT tap", why);
     finish(why, now);
   } else {
     lastRes[0] = 0;  // the result follows when the tap ends
@@ -241,6 +281,7 @@ void onFrame(uint32_t now) {  // frame in gRx
     memcpy(stock, m.data, 8);
     stockValid = true;
     stockMs = now;
+    if (tap == TAP_IDLE && (m.data[0] & LEVER_MASK)) driverLeverMs = now;  // the driver's lever
     if (m.data[0] != last138) {
       outf("%9lu  0x138 lever  %02X\n", (unsigned long)now, m.data[0]);
       last138 = m.data[0];
@@ -280,7 +321,7 @@ void pollUdp(uint32_t now) {
   buf[len] = 0;
   int seq = -1;
   char side = 0;
-  if (sscanf(buf, "DHBL1 %d %c", &seq, &side) != 2 || seq < 0 || (side != 'L' && side != 'R')) return;
+  if (sscanf(buf, "DHBL1 %d %c", &seq, &side) != 2 || seq < 0 || (side != 'L' && side != 'R' && side != 'C')) return;
   if (seq == lastSeq) return;  // repeats of the same request
   lastSeq = seq;
   outf("%9lu  EON request %d %c from %s\n", (unsigned long)now, seq, side, gUdp.remoteIP().toString().c_str());
@@ -529,13 +570,14 @@ void serialLine(char *line, uint32_t now) {
     return;
   }
   if (line[0] == 'l' || line[0] == 'r') handleRequest(line[0] == 'l' ? 'L' : 'R', now);
+  if (line[0] == 'c') handleRequest('C', now);
   else if (line[0] == 's') status(now);
   else help();
 }
 
 void help() {
   out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request)\n"
-      "  l = LEFT tap   r = RIGHT tap   s = status   h = help\n"
+      "  l = LEFT tap   r = RIGHT tap   c = cancel our blinking (tap the other way)   s = status   h = help\n"
       "  w NAME|PASSWORD = save hotspot   wl = list   wd N = delete   wp = open setup Wi-Fi\n");
   outf("  UDP in %d / status %d, CAN pins TX %d RX %d 100k\n", COMMAND_PORT, STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);
   listNets();

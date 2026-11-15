@@ -1262,6 +1262,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamControl("DhBcanBlinker", "DH B-CAN BLINKER (ESP32)",
       "켜짐: 리모컨·NOO 차로변경 때 B-CAN ESP32(휴대폰 핫스팟 2.4GHz로 연결)에 원터치 깜빡이를 요청해 외부 램프를 5번 깜빡입니다. 레버로 시작한 차로변경에는 보내지 않습니다. 연결 상태는 주행 화면과 S9 HUD에 표시됩니다.",
       "../assets/offroad/icon_openpilot.png", this));
+  toggleLayout->addWidget(new ParamControl("DhBcanBlinkerCancel", "DH BLINKER STOP AFTER LANE CHANGE",
+      "켜짐: 리모컨·NOO 차로변경이 끝나면(laneChangeFinishing) ESP32가 반대쪽으로 레버를 짧게 쳐서 남은 원터치 점멸을 끕니다. 5번 다 깜빡이면 뒤차가 한 번 더 바꾸는 줄 알 수 있어서입니다. ESP32 펌웨어 2026-11-15 이후 필요. P단에서 시리얼 l 후 c로 반대쪽이 켜지지 않고 꺼지는지 먼저 확인하세요.",
+      "../assets/offroad/icon_openpilot.png", this));
   auto remoteLearningAllowed = []() {
     if (Params().getBool("IsOffroad")) return true;
     const SubMaster &sm = *(uiState()->sm);
