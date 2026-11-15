@@ -93,6 +93,7 @@ def manager_init() -> None:
 
     ("SccSmootherSyncGasPressed", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
+    ("LeadDepartHaptic", "1"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),

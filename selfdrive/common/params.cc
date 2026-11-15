@@ -319,6 +319,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LatCurveIDeadzone", PERSISTENT},         // 커브 구간 적분 정지 기준 토크 x0.001
     {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속 목표곡률 저역통과 시간상수 ms (0=끔)
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
+    {"LeadDepartHaptic", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
     {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
     {"AutoCurveSpeedLowerLimit", PERSISTENT},   // minimum vision/map curve speed, km/h
