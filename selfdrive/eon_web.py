@@ -1335,33 +1335,13 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(segments())
     elif path == "/api/road.jpg":
       try:
-        path_end = self.headers.get("X-HUD-Path-End", "1000")
-        path_end = min(1000, int(path_end)) if re.fullmatch(r"[0-9]{1,4}", path_end) else 1000
-        view = re.fullmatch(r"([0-9]{2,3})x([0-9]{2,3})", self.headers.get("X-HUD-View", ""))
-        view = (min(640, int(view.group(1))), min(640, int(view.group(2)))) if view else None
-        if view is not None and min(view) < 32:
-          view = None
-        headers = ()
-        if target.query == "signal=1":
-          # S20 신호등 인식용 위쪽 영역(원본 해상도, camera_signal.py).
-          camera = self.server.road_preview.signal_camera()
-          frame = camera[0] if camera else None
-          if camera:
-            headers = (("X-EON-View", ",".join(map(str, camera[1]))), ("X-Frame-Time", str(camera[2])))
-        elif target.query == "hud=1" and self.headers.get("X-HUD-Overlay") == "0":
-          # S9 가 선을 직접 그린다: 선 없는 EON 화면 크롭과 그 위치·촬영 시각만 보낸다.
-          camera = self.server.road_preview.hud_camera(view)
-          frame = camera[0] if camera else None
-          if camera:
-            headers = (("X-EON-View", ",".join(map(str, camera[1]))), ("X-Frame-Time", str(camera[2])))
-        else:
-          frame = self.server.road_preview.frame(hud=target.query == "hud=1", path_end=path_end, view_size=view)
+        frame = self.server.road_preview.frame()
       except (ImportError, OSError, ValueError):
         frame = None
       if frame is None:
         self.send_json({"output": "전방 카메라 준비 중"}, 503)
       else:
-        self.begin(200, "image/jpeg", len(frame), extra_headers=headers)
+        self.begin(200, "image/jpeg", len(frame))
         self.wfile.write(frame)
     elif path.startswith("/api/replay/"):
       segment = path.rsplit("/", 1)[-1]

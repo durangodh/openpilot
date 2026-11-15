@@ -3514,7 +3514,8 @@ public final class HudService extends Service {
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
-            if (glDrawn && !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled() && frameDark
+            // 내 차는 네비모드에서도(네이버 지도에 차가 따로 있어도) 주행 칸에 그린다(2026-11-15).
+            if (glDrawn && egoCar != null && !egoCar.isRecycled() && frameDark
                     && s.optInt("hudHeadlights", 1) != 0) {
                 // 야간에는 자차 전조등 불빛을 도로 위에 깐다. 앞차·자차 그림이 위에 덮인다.
                 float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
@@ -3543,7 +3544,7 @@ public final class HudService extends Service {
                     }
                 }
             }
-            if (glDrawn && !naverMapOwnsEgo(s) && egoCar != null && !egoCar.isRecycled()) {
+            if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // Preserve the approved ego-car artwork in the GL preview.
                 float carWidth = EGO_CAR_WIDTH;
                 float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();

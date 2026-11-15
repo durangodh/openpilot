@@ -233,6 +233,9 @@ def main():
     assert "drawDriving(c, p, s);" in navigation
     assert "drawDrivingWorld(c, p, s, l, stale, worldValid, enabled);" in driving
     assert "drawRoadPreview" not in source
+    # The driving panel keeps its own ego car in navigation mode too (Naver map car stays).
+    assert "glDrawn && !naverMapOwnsEgo(s)" not in source
+    assert "drawNaverMapCar(c, p, s, mapForLayout(map));" in navigation
     assert "drawMapOverlays(c, p, s, lane, trafficSignal);" in navigation
     assert "HUDSIG1" not in source
     gradle = (Path(__file__).resolve().parents[1] / "app/build.gradle").read_text(encoding="utf-8")
