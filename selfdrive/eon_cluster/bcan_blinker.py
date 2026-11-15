@@ -16,11 +16,10 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
-                                                     STATUS_FILE, STATUS_PORT, LaneTapPlanner, command_packet,
+                                                     STATUS_FILE, STATUS_PORT, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
-LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 CHANGING = (LaneChangeState.preLaneChange, LaneChangeState.laneChangeStarting)
 LOOP_S = 0.05
 STATUS_WRITE_S = 0.5
@@ -122,7 +121,7 @@ def main():
     car = sm['carState']
     changing = (sm['controlsState'].enabled and sm.alive['lateralPlan'] and
                 plan.laneChangeState in CHANGING)
-    direction = {LaneChangeDirection.left: "L", LaneChangeDirection.right: "R"}.get(plan.laneChangeDirection)
+    direction = lane_direction(plan.laneChangeDirection)
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)
     try:  # the log must never take the process down
       lc = (str(plan.laneChangeState), direction) if sm.alive['lateralPlan'] else None

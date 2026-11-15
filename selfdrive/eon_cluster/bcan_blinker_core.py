@@ -23,7 +23,9 @@ STATUS_FILE = "/dev/shm/dh_bcan_blinker.json"
 
 # ESP32 link for the HUD: 0 no ESP32, 1 ESP32 without B-CAN, 2 ready, 3 B-CAN error.
 LINK_NONE, LINK_NO_BCAN, LINK_OK, LINK_ERROR = 0, 1, 2, 3
-LINK_STALE_S = 3.0
+# The ESP32 broadcasts every second, but the phone hotspot drops broadcasts now and then
+# (2026-11-15 road log: 3 s gaps every few seconds while driving), so allow 6 s.
+LINK_STALE_S = 6.0
 STATUS_STALE_S = 3.0
 EVENT_SHOW_S = 3.0
 
@@ -60,6 +62,13 @@ def parse_status(data):
   res = status.get("res")
   out["res"] = res if isinstance(res, str) and len(res) <= 16 else ""
   return out
+
+
+def lane_direction(value):
+  """lateralPlan.laneChangeDirection (capnp enum, its name, or None) -> 'L' / 'R' / None.
+  A capnp enum read from a message does not hash like the schema constants, so a dict keyed
+  by LaneChangeDirection.left never matched (2026-11-15 road log: dir None, no tap)."""
+  return {"left": "L", "right": "R"}.get(str(value))
 
 
 def link_state(status, status_age):

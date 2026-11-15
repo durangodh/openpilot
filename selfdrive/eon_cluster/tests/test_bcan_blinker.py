@@ -24,7 +24,7 @@ def test_parse_status():
 def test_link_state():
   ok = parse_status(STATUS)
   assert link_state(ok, 0.5) == LINK_OK
-  assert link_state(ok, 5.0) == LINK_NONE
+  assert link_state(ok, 7.0) == LINK_NONE
   assert link_state(None, None) == LINK_NONE
   assert link_state(dict(ok, bcan=0), 0.5) == LINK_NO_BCAN
   assert link_state(dict(ok, err=1), 0.5) == LINK_ERROR
@@ -96,3 +96,19 @@ def test_hud_status(tmp_path):
   with open(path, "w") as f:
     json.dump([1, 2], f)
   assert hud_status(path, clock=lambda: 1000.0) is None
+
+
+def test_lane_direction_from_enum_names():
+  from selfdrive.eon_cluster.bcan_blinker_core import lane_direction
+
+  class Enum:  # stands in for a capnp _DynamicEnum, which str()s to its name
+    def __init__(self, name):
+      self.name = name
+
+    def __str__(self):
+      return self.name
+
+  assert lane_direction(Enum("left")) == "L"
+  assert lane_direction(Enum("right")) == "R"
+  assert lane_direction(Enum("none")) is None
+  assert lane_direction(None) is None
