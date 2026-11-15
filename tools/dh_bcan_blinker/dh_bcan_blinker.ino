@@ -111,10 +111,15 @@ static char lastRes[12] = "";
 static uint32_t lastStatus = 0;
 static bool wifiUp = false;
 
+// Never block on the serial log. In the car nothing reads the USB port: once its small buffer is
+// full every print waited for the USB timeout, the loop stalled for seconds, the CAN queue overflowed
+// ("bcan 0") and requests and status packets were held up (2026-11-15 road log: the lamps came on
+// only as the lane change finished, status gaps of 3-10 s). A line that does not fit is dropped.
 void out(const char *s) {
-  Serial.print(s);
+  int n = (int)strlen(s);
+  if (Serial && Serial.availableForWrite() >= n) Serial.print(s);
 #if ARDUINO_USB_CDC_ON_BOOT
-  Serial0.print(s);
+  if (Serial0.availableForWrite() >= n) Serial0.print(s);
 #endif
 }
 void outf(const char *fmt, ...) {
@@ -552,6 +557,9 @@ void status(uint32_t now) {
 
 void setup() {
   Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  Serial.setTxTimeoutMs(0);  // hardware USB CDC: never wait for a host that is not there (see out())
+#endif
 #if ARDUINO_USB_CDC_ON_BOOT
   Serial0.begin(115200);
 #endif
