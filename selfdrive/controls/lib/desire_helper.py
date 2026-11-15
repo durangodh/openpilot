@@ -16,6 +16,8 @@ ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
 # (BSD, road edge, speed gate) and never held longer than MAX_TIME.
 REMOTE_LANE_START_TIMEOUT = 3.0
 REMOTE_LANE_MAX_TIME = 12.0
+# Remote lane change: signal this long before moving when AutoLaneChangeTimer is 0.
+REMOTE_LANE_WAIT_S = 1.0
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
@@ -509,8 +511,10 @@ class DesireHelper:
     remote_raw = self.remote_lane.poll() if (self.lane_change_enabled and
                                              self.lane_change_need_torque >= 0) else 0
     self.remote_direction = self._latch_remote_lane(remote_raw, carstate, lateral_active)
+    remote_request = False
     if noo_direction == 0 and self.remote_direction != 0 and lateral_active and not carstate.brakePressed:
       noo_direction = self.remote_direction
+      remote_request = True
     navigation_lane_direction = noo_direction
     left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
     right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
@@ -552,6 +556,10 @@ class DesireHelper:
           (carstate.steeringTorque > 0 and noo_direction < 0) or
           (carstate.steeringTorque < 0 and noo_direction > 0))
         torque_applied = noo_nudge
+      elif noo_auto_request and remote_request:
+        # Remote: wait like a lever lane change (AutoLaneChangeTimer, 1 s when that is 0) so the
+        # exterior blinker (B-CAN tap) is on before the car moves. 2026-11-15: it moved at once.
+        torque_applied = self.lane_change_wait_timer >= (lane_change_auto_timer or REMOTE_LANE_WAIT_S)
       else:
         torque_applied = noo_auto_request or (manual_or_auto_torque and not noo_turn_matches_blinker)
 

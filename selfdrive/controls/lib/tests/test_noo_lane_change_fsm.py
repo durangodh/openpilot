@@ -139,6 +139,13 @@ class TestRemoteLaneLatch(TestNooLaneChangeFsm):
   def test_single_press_holds_through_the_lane_change(self):
     c = car(60)
     self.press(c)
+    # Signals first (preLaneChange) like a lever lane change, moves after REMOTE_LANE_WAIT_S.
+    self.assertEqual(self.helper.lane_change_state, PRE)
+    for _ in range(8):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, PRE)
+    for _ in range(8):
+      self.helper.update(c, True, 0.5)
     self.assertEqual(self.helper.lane_change_state, STARTING)
     for _ in range(10):
       self.helper.update(c, True, 0.5)
