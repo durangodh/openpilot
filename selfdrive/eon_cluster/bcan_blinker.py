@@ -124,12 +124,15 @@ def main():
                 plan.laneChangeState in CHANGING)
     direction = {LaneChangeDirection.left: "L", LaneChangeDirection.right: "R"}.get(plan.laneChangeDirection)
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)
-    lc = (int(plan.laneChangeState), direction) if sm.alive['lateralPlan'] else None
-    if lc != prev_lc and lc is not None and lc[0] != LaneChangeState.off:
-      dlog.write(f"lane change state {lc[0]} dir {direction} engaged {sm['controlsState'].enabled} "
-                 f"lamps L{int(car.leftBlinker)} R{int(car.rightBlinker)} link {link} -> "
-                 f"{'tap ' + side if side else 'driver lever (no tap)' if planner.driver_owned else 'no tap'}")
-    prev_lc = lc
+    try:  # the log must never take the process down
+      lc = (str(plan.laneChangeState), direction) if sm.alive['lateralPlan'] else None
+      if lc != prev_lc and lc is not None and lc[0] != "off":
+        dlog.write(f"lane change {lc[0]} dir {direction} engaged {sm['controlsState'].enabled} "
+                   f"lamps L{int(car.leftBlinker)} R{int(car.rightBlinker)} link {link} -> "
+                   f"{'tap ' + side if side else 'driver lever (no tap)' if planner.driver_owned else 'no tap'}")
+      prev_lc = lc
+    except Exception as e:  # pylint: disable=broad-except
+      dlog.write(f"log error {e!r}")
     if side is not None:
       seq = (seq % 30000) + 1
       wall = time.time()
