@@ -233,10 +233,10 @@ def main():
     assert "drawDriving(c, p, s);" in navigation
     assert "drawDrivingWorld(c, p, s, l, stale, worldValid, enabled);" in driving
     assert "drawRoadPreview" not in source
-    camera_client = (Path(__file__).resolve().parents[1] /
-                     "app/src/main/java/ai/comma/remotehud/RoadPreviewClient.java").read_text(encoding="utf-8")
-    assert "/api/road.jpg?hud=1" not in camera_client
-    assert "/api/road.jpg?signal=1" in camera_client
+    assert "drawMapOverlays(c, p, s, lane, trafficSignal);" in navigation
+    assert "HUDSIG1" not in source
+    gradle = (Path(__file__).resolve().parents[1] / "app/build.gradle").read_text(encoding="utf-8")
+    assert "onnxruntime" not in gradle
     # Match navigation apps: any partial remaining minute is shown rounded up.
     assert 'Integer.toString((remainTime + 59) / 60)' in source
     # Duplicate route heartbeats must preserve their original arrival clock.

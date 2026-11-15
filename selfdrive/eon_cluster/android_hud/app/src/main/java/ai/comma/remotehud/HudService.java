@@ -360,12 +360,6 @@ public final class HudService extends Service {
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
-    /** EON upper road region -> traffic light networks -> HUDSIG1 to the EON (camera_signal.py). */
-    private Thread cameraSignalThread;
-    private TrafficLightDetector lightDetector;
-    private volatile TrafficLightDetector.Result cameraSignal;
-    private volatile long cameraSignalElapsed;
-    private final RoadPreviewClient cameraSignalClient = new RoadPreviewClient();
     private Thread mapThread;
     private Thread renderThread;
     private volatile Thread bootNavigationThread;
@@ -843,10 +837,6 @@ public final class HudService extends Service {
     private GpsSourceMonitor gpsSourceMonitor;
     private GpsSourceIcons gpsSourceIcons;
 
-    static String roadPreviewAddress() {
-        return "--".equals(lastEonAddress) ? "" : lastEonAddress;
-    }
-
     static String gpsSourceLabel() {
         HudService instance = activeInstance;
         return instance == null || instance.gpsSourceMonitor == null
@@ -1063,11 +1053,6 @@ public final class HudService extends Service {
         }, "hud-stats");
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
         logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
-        RoadPreviewClient.restore(this);
-        lightDetector = new TrafficLightDetector(this);
-        cameraSignalThread = new Thread(() -> cameraSignalClient.runSignal(running::get, this::cameraSignalInterval,
-                HudService::roadPreviewAddress, this::onSignalPhoto), "hud-camera-signal");
-        cameraSignalThread.start();
         receiverThread.start();
         mapThread.start();
         localMapThread.start();
@@ -3478,85 +3463,6 @@ public final class HudService extends Service {
         c.restoreToCount(save);
     }
 
-    /**
-     * The EON's CameraSignal (0 off, 1 display, 2 display + planner assist) and city speeds:
-     * the upper road region costs Wi-Fi time next to the Bluetooth audio, so it is not
-     * fetched on the highway.
-     */
-    private long cameraSignalInterval() {
-        JSONObject s = state.get();
-        if (s == null || eonStale() || s.optInt("camSig", 0) < 1 || s.optInt("speed", 0) >= 90) return 0L;
-        // Heat guard: the networks took the S20 to ~90 C at 3 fps on the CPU (2026-11-14).
-        float temp = freshStat(s9TempC, s9TempSampleElapsed, SystemClock.elapsedRealtime());
-        if (temp >= 80f || (cameraSignalHot && temp >= 72f)) {
-            cameraSignalHot = true;
-            return 0L;   // pause until the phone is back below 72 C
-        }
-        cameraSignalHot = false;
-        if (temp >= 70f) return 1000L;
-        if (temp >= 60f) return 600L;
-        // Standing still the detector reruns every 2 s and only the colour is re-read.
-        return s.optInt("speed", 0) < 3 ? 500L : 400L;
-    }
-
-    private volatile boolean cameraSignalHot;
-
-    /** Signal thread: run the networks and report the confirmed colour to the EON. */
-    private void onSignalPhoto(RoadPreviewClient.Frame frame) {
-        TrafficLightDetector detector = lightDetector;
-        if (detector == null) return;
-        JSONObject s = state.get();
-        boolean stopped = s != null && s.optInt("speed", 0) < 3;
-        TrafficLightDetector.Result result = detector.detect(frame.bitmap, frame.crop, frame.eonTime, stopped);
-        cameraSignal = result;
-        cameraSignalElapsed = SystemClock.elapsedRealtime();
-        try {
-            JSONObject body = new JSONObject()
-                    .put("t", frame.eonTime)
-                    .put("color", TrafficLightDetector.colorName(result == null ? TrafficLightDetector.NONE : result.color))
-                    .put("label", result == null ? "" : result.label)
-                    .put("score", result == null ? 0.0 : (double) result.score);
-            byte[] data = ("HUDSIG1 " + body).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            DatagramSocket socket = receiverSocket;
-            InetAddress address = eonAddress.get();
-            int port = lastEonPort;
-            if (socket != null && address != null && port > 0) {
-                socket.send(new DatagramPacket(data, data.length, address, port));
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** Show the camera signal result over the navigation driving panel. */
-    private void drawCameraSignalBadge(Canvas c, Paint p) {
-        TrafficLightDetector.Result light = cameraSignal;
-        if (light == null || light.color == TrafficLightDetector.NONE
-                || SystemClock.elapsedRealtime() - cameraSignalElapsed > 1200L) return;
-        int color = light.color == TrafficLightDetector.RED ? Color.rgb(255, 59, 48)
-                : light.color == TrafficLightDetector.YELLOW ? Color.rgb(255, 196, 0) : Color.rgb(0, 214, 160);
-        p.setShader(null);
-        p.setColorFilter(null);
-        float cx = WIDTH - 34f, cy = 219f;
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(170, 0, 0, 0));
-        c.drawRoundRect(cx - 28f, cy - 28f, cx + 28f, cy + 44f, 10f, 10f, p);
-        p.setColor(color);
-        c.drawCircle(cx, cy, 18f, p);
-        if (light.label.contains("left") || light.label.contains("right") || light.label.contains("straight")
-                || light.label.contains("up_")) {
-            p.setColor(Color.WHITE);
-            p.setTextSize(16f);
-            p.setTextAlign(Paint.Align.CENTER);
-            c.drawText("↗", cx, cy + 6f, p);
-        }
-        p.setColor(Color.WHITE);
-        p.setTextSize(13f);
-        p.setTextAlign(Paint.Align.CENTER);
-        TrafficLightDetector detector = lightDetector;
-        c.drawText(detector != null && "CPU".equals(detector.backend) ? "카메라 CPU" : "카메라", cx, cy + 36f, p);
-        p.setTextAlign(Paint.Align.LEFT);
-    }
-
     private void drawDrivingWorld(Canvas c, Paint p, JSONObject s, JSONObject l,
                                   boolean stale, boolean worldValid, boolean enabled) {
         p.setShader(null);
@@ -3686,9 +3592,6 @@ public final class HudService extends Service {
         // 네비모드에서는 복원된 전체 화면 좌표에 하늘을 한 번 얹어 지도와
         // 오른쪽 주행 장면의 상단이 끊기지 않고 같은 하늘로 이어지게 한다.
         drawSkyBand(c, p);
-        if (naviLayout) {
-            drawCameraSignalBadge(c, p);
-        }
 
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
@@ -8336,7 +8239,6 @@ public final class HudService extends Service {
             }
         }
         interrupt(receiverThread);
-        interrupt(cameraSignalThread);
         interrupt(mapThread);
         interrupt(localMapThread);
         interrupt(renderThread);
@@ -8350,7 +8252,7 @@ public final class HudService extends Service {
     /** Wait off the Android main thread, then release objects no worker can still touch. */
     private void cleanupAfterWorkers() {
         if (display != null) display.close();
-        Thread[] workers = {receiverThread, cameraSignalThread, mapThread, renderThread,
+        Thread[] workers = {receiverThread, mapThread, renderThread,
                 statsThread, logUploadThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
         long deadline = SystemClock.elapsedRealtime() + 15_000L;
         boolean stopped = true;

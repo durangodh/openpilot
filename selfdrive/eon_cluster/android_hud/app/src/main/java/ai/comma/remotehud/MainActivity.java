@@ -363,7 +363,6 @@ public final class MainActivity extends Activity {
         weatherCard.addView(weatherButtons);
         root.addView(weatherCard, cardParams());
         updateWeatherKeyStatus();
-        root.addView(buildCameraSignalCard(), cardParams());
         root.addView(buildVoiceCard(), cardParams());
 
         LinearLayout autoCard = card();
@@ -822,68 +821,6 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) {
             return "?";
         }
-    }
-
-    private LinearLayout buildCameraSignalCard() {
-        RoadPreviewClient.restore(this);
-        LinearLayout panel = card();
-        Switch toggle = new Switch(this);
-        toggle.setText("EON 카메라 신호등 인식");
-        toggle.setTextColor(Color.WHITE);
-        toggle.setChecked(RoadPreviewClient.enabled());
-        panel.addView(toggle);
-        panel.addView(text("카메라 신호등 인식용 EON 연결", 14f,
-                Color.rgb(190, 200, 210), Typeface.NORMAL));
-        toggle.setOnClickListener(v -> {
-            if (!RoadPreviewClient.setEnabled(this, toggle.isChecked())) {
-                toggle.setChecked(false);
-                editCameraSignalConnection(toggle);
-            }
-        });
-        Button edit = button("카메라 연결 정보 변경", Color.rgb(40, 92, 132));
-        edit.setOnClickListener(v -> editCameraSignalConnection(toggle));
-        panel.addView(edit);
-        return panel;
-    }
-
-    private void editCameraSignalConnection(Switch toggle) {
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(dp(24), 0, dp(24), 0);
-        EditText address = new EditText(this);
-        address.setSingleLine(true);
-        address.setHint("EON 주소 (예: 192.168.0.17)");
-        String detected = HudService.roadPreviewAddress();
-        address.setText(detected.isEmpty() ? RoadPreviewClient.savedAddress(this) : detected);
-        fields.addView(address);
-        EditText password = new EditText(this);
-        password.setSingleLine(true);
-        password.setHint("EON 웹 비밀번호");
-        password.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        fields.addView(password);
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("EON 카메라 신호등 인식")
-                .setMessage("신호등 인식에 사용할 EON 주소와 웹 비밀번호를 저장합니다.")
-                .setView(fields)
-                .setNegativeButton("취소", null)
-                .setPositiveButton("저장하고 켜기", null)
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(button -> {
-                    String host = address.getText().toString().trim();
-                    if (!RoadPreviewClient.validAddress(host)) {
-                        address.setError("EON의 내부 IPv4 주소를 입력하세요.");
-                    } else if (password.length() == 0) {
-                        password.setError("EON 웹 비밀번호를 입력하세요.");
-                    } else if (RoadPreviewClient.saveAndEnable(this, host, password.getText().toString())) {
-                        toggle.setChecked(true);
-                        dialog.dismiss();
-                    } else {
-                        password.setError("로그인 정보를 저장하지 못했습니다. 다시 시도하세요.");
-                    }
-                }));
-        dialog.show();
     }
 
     /** 리모컨 음성 비서: Claude API 키, 마이크 권한, 답변 읽기. */

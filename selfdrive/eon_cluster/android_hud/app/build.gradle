@@ -13,8 +13,6 @@ android {
     targetSdk 35
     versionCode remoteHudVersionCode
     versionName remoteHudVersionName
-    // The HUD phones are arm64; other ABIs would only add ONNX Runtime libraries.
-    ndk { abiFilters "arm64-v8a" }
   }
   signingConfigs {
     remoteHudStable {
@@ -40,9 +38,4 @@ android {
     sourceCompatibility JavaVersion.VERSION_11
     targetCompatibility JavaVersion.VERSION_11
   }
-}
-
-dependencies {
-  // Autoware traffic light networks (TrafficLightDetector); the models are downloaded at run time.
-  implementation "com.microsoft.onnxruntime:onnxruntime-android:1.17.3"
 }
