@@ -28,6 +28,9 @@
 // (password dhblinker); join it with the phone and the setup page (http://192.168.4.1) adds or deletes
 // networks. The page also opens on demand with the serial command "wp".
 //
+// Firmware update without a laptop: phone on the same hotspot, http://<board IP>/update (user "dh",
+// password "dhblinker"), pick dh_bcan_blinker.ino.bin from tools/dh_bcan_blinker/bin. Only at P.
+//
 // Serial 115200 (USB, one command per line, "New Line" ending):
 //   l = LEFT tap   r = RIGHT tap   s = status   h = help
 //   w NAME|PASSWORD = save a hotspot   wl = list   wd N = delete number N   wp = open the setup Wi-Fi
@@ -38,6 +41,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <driver/twai.h>
 
 // ===== first hotspot, used only while nothing is saved yet (optional) =====
@@ -46,6 +50,9 @@
 // ==========================================================================
 #define SETUP_AP_SSID "DH-Blinker-Setup"
 #define SETUP_AP_PASS "dhblinker"
+// Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
+#define OTA_USER "dh"
+#define FW_VERSION "2026-11-15"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -483,8 +490,72 @@ void webDel() {
 }
 
 void webOther() {  // captive portal: every other address shows the setup page
+  if (!portalOn) {
+    gWeb.send(404, "text/plain", "not found");
+    return;
+  }
   gWeb.sendHeader("Location", "http://192.168.4.1/", true);
   gWeb.send(302, "text/plain", "");
+}
+
+// ---------- firmware update (phone browser) ----------
+static bool otaAuthed = false, otaStarted = false;
+
+void webUpdatePage() {
+  if (!gWeb.authenticate(OTA_USER, SETUP_AP_PASS)) return gWeb.requestAuthentication();
+  String o = "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,"
+             "initial-scale=1'><title>DH Blinker update</title><style>body{font-family:sans-serif;margin:16px}"
+             "input,button{font-size:18px;margin:8px 0;width:100%}</style></head><body>"
+             "<h2>DH Blinker 펌웨어 업데이트</h2><p>현재 버전: " FW_VERSION "</p>"
+             "<p><b>P단에서</b> 하세요. 업로드 중(10~30초)에는 깜빡이 요청을 처리하지 않습니다.</p>"
+             "<form method='post' action='/update' enctype='multipart/form-data'>"
+             "<input type='file' name='fw' accept='.bin'><button type='submit'>올리기</button></form>"
+             "</body></html>";
+  gWeb.send(200, "text/html; charset=utf-8", o);
+}
+
+void webUpdateDone() {
+  bool ok = otaAuthed && otaStarted && !Update.hasError();
+  if (!otaAuthed) return gWeb.requestAuthentication();
+  gWeb.send(200, "text/html; charset=utf-8",
+            ok ? "<meta charset='utf-8'><h2>완료. 보드를 다시 시작합니다.</h2>"
+               : "<meta charset='utf-8'><h2>실패. 기존 펌웨어 그대로입니다.</h2><a href='/update'>다시</a>");
+  if (ok) {
+    out("firmware update done, restarting\n");
+    delay(500);
+    ESP.restart();
+  }
+}
+
+void webUpdateUpload() {
+  HTTPUpload &u = gWeb.upload();
+  if (u.status == UPLOAD_FILE_START) {
+    otaAuthed = gWeb.authenticate(OTA_USER, SETUP_AP_PASS);
+    otaStarted = false;
+    if (!otaAuthed || tap != TAP_IDLE) return;
+    outf("firmware update: %s\n", u.filename.c_str());
+    otaStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
+  } else if (u.status == UPLOAD_FILE_WRITE) {
+    if (otaStarted && Update.write(u.buf, u.currentSize) != u.currentSize) otaStarted = false;
+  } else if (u.status == UPLOAD_FILE_END) {
+    if (otaStarted) otaStarted = Update.end(true);
+    outf("firmware update: %u bytes, %s\n", (unsigned)u.totalSize, otaStarted ? "ok" : "FAILED");
+  } else if (u.status == UPLOAD_FILE_ABORTED) {
+    if (otaStarted) Update.abort();
+    otaStarted = false;
+  }
+}
+
+void startWeb() {
+  if (webStarted) return;
+  gWeb.on("/", webRoot);
+  gWeb.on("/add", HTTP_POST, webAdd);
+  gWeb.on("/del", webDel);
+  gWeb.on("/update", HTTP_GET, webUpdatePage);
+  gWeb.on("/update", HTTP_POST, webUpdateDone, webUpdateUpload);
+  gWeb.onNotFound(webOther);
+  gWeb.begin();
+  webStarted = true;
 }
 
 void startPortal(uint32_t now) {
@@ -492,14 +563,7 @@ void startPortal(uint32_t now) {
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(SETUP_AP_SSID, SETUP_AP_PASS);
   gDns.start(53, "*", WiFi.softAPIP());
-  if (!webStarted) {
-    gWeb.on("/", webRoot);
-    gWeb.on("/add", HTTP_POST, webAdd);
-    gWeb.on("/del", webDel);
-    gWeb.onNotFound(webOther);
-    gWeb.begin();
-    webStarted = true;
-  }
+  startWeb();
   portalOn = true;
   portalUseMs = now;
   outf("%9lu  setup Wi-Fi open: \"%s\" password %s, page http://192.168.4.1\n", (unsigned long)now, SETUP_AP_SSID,
@@ -520,8 +584,9 @@ void wifiTick(uint32_t now) {
   if (up != wifiUp) {
     wifiUp = up;
     if (up) {
-      outf("%9lu  Wi-Fi connected: \"%s\" %s, rssi %d dBm\n", (unsigned long)now, WiFi.SSID().c_str(),
-           WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+      outf("%9lu  Wi-Fi connected: \"%s\" %s, rssi %d dBm (update page http://%s/update)\n", (unsigned long)now,
+           WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(), WiFi.localIP().toString().c_str());
+      startWeb();
     } else {
       out("Wi-Fi disconnected\n");
       wifiDownMs = now;
@@ -534,9 +599,9 @@ void wifiTick(uint32_t now) {
   if (!up && !portalOn && now - wifiDownMs >= (netCount ? PORTAL_AFTER_MS : 3000)) startPortal(now);
   if (portalOn) {
     gDns.processNextRequest();
-    gWeb.handleClient();
     if (up && now - portalUseMs > PORTAL_IDLE_MS) stopPortal();
   }
+  if (webStarted && (portalOn || up)) gWeb.handleClient();  // setup page and /update on the hotspot too
 }
 
 // ---------- serial ----------
@@ -576,7 +641,7 @@ void serialLine(char *line, uint32_t now) {
 }
 
 void help() {
-  out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request)\n"
+  out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request), firmware " FW_VERSION "\n"
       "  l = LEFT tap   r = RIGHT tap   c = cancel our blinking (tap the other way)   s = status   h = help\n"
       "  w NAME|PASSWORD = save hotspot   wl = list   wd N = delete   wp = open setup Wi-Fi\n");
   outf("  UDP in %d / status %d, CAN pins TX %d RX %d 100k\n", COMMAND_PORT, STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);

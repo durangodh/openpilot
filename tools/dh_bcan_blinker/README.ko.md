@@ -94,3 +94,14 @@
 2. 성공했으면 설정 **DH BLINKER STOP AFTER LANE CHANGE** 켜기 (기본 꺼짐).
 - ESP32는 자기가 켠 원터치가 아직 깜빡이는 중이고, 그 뒤 운전자가 레버를 건드리지 않았을 때만 보냅니다.
 - 기록: `/data/bcan_blinker.log`의 `lane line crossed`, `cancel seq ... sent`, `ESP32 answer cancel ...` 줄.
+
+## 9. 노트북 없이 펌웨어 업데이트 (폰 브라우저)
+2026-11-15 펌웨어부터 됩니다(이 펌웨어는 한 번 노트북으로 올려야 함).
+1. 폰에서 GitHub g_blinker의 `tools/dh_bcan_blinker/bin/dh_bcan_blinker.ino.bin`을 내려받습니다
+   (Raw/다운로드). 현재 파일: 버전 2026-11-15, sha256 앞자리 `3ff1b20ac2b135ef`.
+2. **P단**, 폰과 보드가 같은 핫스팟에 연결된 상태에서 브라우저로 `http://보드IP/update`
+   (보드 IP는 `/data/bcan_blinker.log`의 `ESP32 link 2 (192.168.x.x ...)`, 또는 시리얼 연결 메시지).
+3. 아이디 `dh`, 비밀번호 `dhblinker` → 파일 선택 → **올리기**. 10~30초 뒤 "완료"가 뜨고 보드가 다시 시작합니다.
+- 실패하면 기존 펌웨어로 그대로 켜집니다. 저장된 핫스팟은 유지됩니다.
+- 빌드 설정: ESP32S3 Dev Module, USB CDC On Boot: Enabled, Partition: Default 4MB with spiffs
+  (Arduino-ESP32 3.3). 보드에 다른 파티션 설정으로 올렸다면 첫 업로드를 이 설정으로 하세요.
