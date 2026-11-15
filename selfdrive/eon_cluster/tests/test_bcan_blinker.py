@@ -114,19 +114,39 @@ def test_lane_direction_from_enum_names():
   assert lane_direction(None) is None
 
 
-def test_cancel_once_when_our_lane_change_finishes():
+def test_cancel_at_line_crossing_fallback_or_finishing():
   from selfdrive.eon_cluster.bcan_blinker_core import BlinkCancelPlanner, command_packet
   c = BlinkCancelPlanner()
-  assert not c.update("preLaneChange", "L")
-  assert not c.update("laneChangeStarting", None)
-  assert c.update("laneChangeFinishing", None)
-  assert not c.update("laneChangeFinishing", None)      # once
+  assert not c.update(0.0, "preLaneChange", "L")
+  assert not c.update(1.0, "laneChangeStarting", None)
+  assert c.update(1.6, "laneChangeStarting", None, crossed=True)
+  assert not c.update(1.7, "laneChangeStarting", None, crossed=True)      # once
+  assert not c.update(5.0, "laneChangeFinishing", None)
+  # no lane lines: 2 s into laneChangeStarting
+  c = BlinkCancelPlanner()
+  c.update(0.0, "preLaneChange", "R")
+  assert not c.update(1.0, "laneChangeStarting", None)
+  assert not c.update(2.9, "laneChangeStarting", None)
+  assert c.update(3.0, "laneChangeStarting", None)
   # a lane change we did not tap for (driver's lever) is never cancelled
   c = BlinkCancelPlanner()
-  assert not any(c.update(s, None) for s in ("preLaneChange", "laneChangeStarting", "laneChangeFinishing"))
-  # back to off before finishing (cancelled lane change): nothing pending
+  assert not any(c.update(t, s, None, True) for t, s in ((0, "preLaneChange"), (1, "laneChangeStarting"),
+                                                          (9, "laneChangeFinishing")))
+  # back to off first (lane change abandoned): nothing pending
   c = BlinkCancelPlanner()
-  c.update("preLaneChange", "R")
-  c.update("off", None)
-  assert not c.update("laneChangeFinishing", None)
+  c.update(0.0, "preLaneChange", "R")
+  c.update(0.5, "off", None)
+  assert not c.update(1.0, "laneChangeFinishing", None)
   assert command_packet(7, "C") == b"DHBL1 7 C"
+
+
+def test_lane_cross_detector():
+  from selfdrive.eon_cluster.bcan_blinker_core import LaneCrossDetector
+  d = LaneCrossDetector()
+  ys = [1.8, 1.5, 1.2, 0.9, 0.6, 0.3, 3.4, 3.3]      # left line closes in, then the next lane's line
+  hits = [d.update(y, 0.9) for y in ys]
+  assert hits == [False] * 6 + [True, False]
+  d = LaneCrossDetector()
+  assert not any(d.update(y, 0.9) for y in [1.8, 1.7, 3.5])          # jump while still far: no
+  d = LaneCrossDetector()
+  assert not any(d.update(y, p) for y, p in [(0.5, 0.9), (3.4, 0.1)])  # line lost: no

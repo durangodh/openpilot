@@ -110,26 +110,66 @@ class LaneTapPlanner:
     return direction
 
 
-class BlinkCancelPlanner:
-  """Ends our own 5-flash one-touch once the lane change is done (DhBcanBlinkerCancel).
+# Cancel timing. The model's laneChangeFinishing comes 4-5 s after laneChangeStarting (2026-11-15
+# road logs), after the 5 flashes (~3.5 s) are over, so the lane line crossing is the trigger:
+# the near line on the change side closes in on ego and, once ego is over it, the model's near line
+# becomes the next lane's, a jump of about a lane width. Without lane lines, CANCEL_FALLBACK_S after
+# laneChangeStarting.
+CANCEL_FALLBACK_S = 2.0
+CROSS_NEAR_M = 1.0       # the change-side line was this close to ego ...
+CROSS_JUMP_M = 1.5       # ... then moved this much further away in one step
+CROSS_MIN_PROB = 0.3
 
-  The tap gives 5 flashes (~3.5 s) but a single lane change is usually over after 2-3, and the
-  extra flashes look like another lane change to the car behind. When a lane change we tapped for
-  reaches laneChangeFinishing, ask the ESP32 once for a cancel ('C': a short tap the other way)."""
+
+class LaneCrossDetector:
+  """True once when ego crosses the lane line on the change side (modelV2 laneLines 1 left / 2 right).
+  Sign-free: uses the distance |y| of that line at the car, so it does not depend on the y axis."""
+
+  def __init__(self):
+    self.prev = None
+
+  def reset(self):
+    self.prev = None
+
+  def update(self, near_abs_y, prob):
+    if near_abs_y is None or prob is None or prob < CROSS_MIN_PROB or not math.isfinite(near_abs_y):
+      self.prev = None
+      return False
+    crossed = self.prev is not None and self.prev < CROSS_NEAR_M and near_abs_y - self.prev > CROSS_JUMP_M
+    self.prev = near_abs_y
+    return crossed
+
+
+class BlinkCancelPlanner:
+  """Ends our own 5-flash one-touch once the car is in the new lane (DhBcanBlinkerCancel).
+
+  The tap gives 5 flashes (~3.5 s) but a single lane change is over after 2-3, and the extra flashes
+  look like another lane change to the car behind. After a lane change we tapped for crosses the
+  line (or CANCEL_FALLBACK_S into laneChangeStarting, or at laneChangeFinishing), ask the ESP32 once
+  for a cancel ('C': a short tap the other way)."""
 
   def __init__(self):
     self.tapped = False
+    self.start = None
 
-  def update(self, state, tapped_side):
-    """state: laneChangeState name; tapped_side: 'L'/'R' when a tap was just sent. True = cancel now."""
+  def update(self, now, state, tapped_side, crossed=False):
+    """state: laneChangeState name; tapped_side: 'L'/'R' when a tap was just sent; crossed: the lane
+    line crossing was just seen. True = cancel now."""
     if tapped_side in ("L", "R"):
       self.tapped = True
-    if state == "off":
+      self.start = None
+    if state == "off" or not self.tapped:
       self.tapped = False
-    if self.tapped and state == "laneChangeFinishing":
+      self.start = None
+      return False
+    if state == "laneChangeStarting" and self.start is None:
+      self.start = now
+    due = state == "laneChangeFinishing" or \
+      (self.start is not None and (crossed or now - self.start >= CANCEL_FALLBACK_S))
+    if due:
       self.tapped = False
-      return True
-    return False
+      self.start = None
+    return due
 
 
 def write_status(path, payload):

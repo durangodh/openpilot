@@ -16,7 +16,7 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
-                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, LaneTapPlanner, command_packet, lane_direction,
+                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, LaneCrossDetector, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
@@ -55,11 +55,12 @@ def open_status_socket():
 
 def main():
   params = Params()
-  sm = messaging.SubMaster(['lateralPlan', 'carState', 'controlsState'])
+  sm = messaging.SubMaster(['lateralPlan', 'carState', 'controlsState', 'modelV2'])
   rx = open_status_socket()
   tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   planner = LaneTapPlanner()
   canceller = BlinkCancelPlanner()
+  crosser = LaneCrossDetector()
   cancel_enabled = False
   cancel_seq = None
 
@@ -161,7 +162,19 @@ def main():
 
     # Lane change done: stop the remaining flashes of our one-touch (DhBcanBlinkerCancel).
     state_name = str(plan.laneChangeState) if sm.alive['lateralPlan'] else "off"
-    if canceller.update(state_name, tap_sent) and cancel_enabled:
+    crossed = False
+    if state_name == "laneChangeStarting" and direction in ("L", "R") and sm.alive['modelV2'] and sm.updated['modelV2']:
+      try:
+        idx = 1 if direction == "L" else 2
+        line = sm['modelV2'].laneLines[idx]
+        crossed = crosser.update(abs(float(line.y[0])), float(sm['modelV2'].laneLineProbs[idx]))
+      except (IndexError, AttributeError, TypeError, ValueError):
+        crosser.reset()
+    elif state_name != "laneChangeStarting":
+      crosser.reset()
+    if crossed:
+      dlog.write(f"lane line crossed ({direction})")
+    if canceller.update(now, state_name, tap_sent, crossed) and cancel_enabled:
       if link == LINK_OK and esp_ip:
         seq = (seq % 30000) + 1
         packet = command_packet(seq, "C")
