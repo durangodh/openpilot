@@ -9,6 +9,7 @@
 |---|---|
 | `panda_mcan_gw_26pin.bin.signed` | 현재 버전 (커밋 4da04b2 소스). 하네스박스 **26핀만** 사용 |
 | `wiring_26pin.png` | 배선도 |
+| `panda_mcan_gw_8pin.bin.signed` | 이전 버전 (8핀 배선: HUD 쪽 8핀 8/7, 전원 8핀 1/4). 확인 코드 `1dec9f89b946912b` |
 
 - 크기 35,340 바이트
 - 확인 코드(서명 앞 8바이트): `687dc8f5d85f386a`
