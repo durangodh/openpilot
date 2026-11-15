@@ -16,8 +16,11 @@ ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
 # (BSD, road edge, speed gate) and never held longer than MAX_TIME.
 REMOTE_LANE_START_TIMEOUT = 3.0
 REMOTE_LANE_MAX_TIME = 12.0
-# Remote lane change: signal at least this long before moving (AutoLaneChangeTimer if longer).
+# Remote / NOO lane change: signal this long before moving, so the exterior blinker (B-CAN tap)
+# is on first. RemoteLaneChangeDelay / NooLaneChangeDelay params, 0.1 s units (0-30).
 REMOTE_LANE_WAIT_S = 1.0
+NOO_LANE_WAIT_S = 1.0
+LANE_WAIT_PARAM_MAX = 30
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
@@ -74,6 +77,8 @@ class DesireHelper:
     self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
     self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
     self.noo_lane_change_speed_min = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH * CV.KPH_TO_MS
+    self.remote_lane_wait = REMOTE_LANE_WAIT_S
+    self.noo_lane_wait = NOO_LANE_WAIT_S
     self.last_params_update = 0.0
 
     self.auto_lane_change_timer = 0.0
@@ -314,6 +319,13 @@ class DesireHelper:
     else:
       self.turn_disable_count = max(0, self.turn_disable_count - 1)
 
+  def _lane_wait_param(self, name, default_s):
+    try:
+      tenths = int(self.params.get(name, encoding='utf8') or round(default_s * 10))
+    except (TypeError, ValueError):
+      return default_s
+    return max(0, min(LANE_WAIT_PARAM_MAX, tenths)) / 10.0
+
   def _release_remote_lane(self):
     self.remote_direction = 0
     self.remote_timer = 0.0
@@ -376,6 +388,8 @@ class DesireHelper:
       except (TypeError, ValueError):
         auto_lc_speed_kph = 50
       self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
+      self.remote_lane_wait = self._lane_wait_param('RemoteLaneChangeDelay', REMOTE_LANE_WAIT_S)
+      self.noo_lane_wait = self._lane_wait_param('NooLaneChangeDelay', NOO_LANE_WAIT_S)
       try:
         noo_lc_speed_kph = int(self.params.get('NooLaneChangeSpeed', encoding='utf8') or
                                NOO_LANE_CHANGE_SPEED_DEFAULT_KPH)
@@ -556,11 +570,11 @@ class DesireHelper:
           (carstate.steeringTorque > 0 and noo_direction < 0) or
           (carstate.steeringTorque < 0 and noo_direction > 0))
         torque_applied = noo_nudge
-      elif noo_auto_request and remote_request:
-        # Remote: signal at least REMOTE_LANE_WAIT_S (longer if AutoLaneChangeTimer says so) so the
-        # exterior blinker (B-CAN tap) is on before the car moves. 2026-11-15: with
-        # AutoLaneChangeTimer=1 (0.1 s) it moved at once.
-        torque_applied = self.lane_change_wait_timer >= max(lane_change_auto_timer, REMOTE_LANE_WAIT_S)
+      elif noo_auto_request:
+        # Remote / NOO: signal first (exterior blinker via the B-CAN tap), move after its own delay
+        # (RemoteLaneChangeDelay / NooLaneChangeDelay). The lever's AutoLaneChangeTimer does not apply.
+        wait = self.remote_lane_wait if remote_request else self.noo_lane_wait
+        torque_applied = self.lane_change_wait_timer >= wait
       else:
         torque_applied = noo_auto_request or (manual_or_auto_torque and not noo_turn_matches_blinker)
 
@@ -609,7 +623,7 @@ class DesireHelper:
           pass
 
         elif (torque_applied and (not blindspot_detected or self.prev_torque_applied)) or \
-             (lane_change_auto_timer and not remote_request and   # remote: own wait above
+             (lane_change_auto_timer and not noo_auto_request and   # remote/NOO: own wait above
               self.lane_change_wait_timer > lane_change_auto_timer and
               not self.prev_lane_change and
               not blindspot_detected):

@@ -1177,6 +1177,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
       "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
       "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "RemoteLaneChangeDelay", "REMOTE LANE CHANGE DELAY",
+      "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 기본값: 10.",
+      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooLaneChangeDelay", "NOO LANE CHANGE DELAY",
+      "NOO(내비 연동) 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시(예전 동작). NOO 차선변경 시작 방식이 1(토크 필요)이면 이 값 대신 핸들 토크로 시작합니다. 기본값: 10.",
+      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
 
   toggleLayout->addWidget(horizontal_line());
 

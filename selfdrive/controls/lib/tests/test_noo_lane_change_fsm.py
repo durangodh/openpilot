@@ -58,6 +58,7 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     helper.last_params_update = float("inf")
     helper.lane_change_enabled = True
     helper.auto_lane_change_enabled = False
+    helper.noo_lane_wait = 0.0   # NOO gate tests: start at once (NooLaneChangeDelay 0)
     helper.lane_change_need_torque = 0
     helper.noo_enabled = True
     helper.noo_mode = 2
@@ -165,6 +166,23 @@ class TestRemoteLaneLatch(TestNooLaneChangeFsm):
       self.helper.update(c, True, 0.5)
     self.assertEqual(self.helper.lane_change_state, PRE)
     for _ in range(8):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, STARTING)
+
+  def test_remote_delay_param_sets_the_wait(self):
+    self.helper.remote_lane_wait = 0.0
+    c = car(60)
+    self.press(c)
+    self.assertEqual(self.helper.lane_change_state, STARTING)
+
+  def test_noo_delay_signals_before_moving(self):
+    self.helper.noo_lane_wait = 1.0
+    self.helper.noo_controller.direction = -1
+    c = car(60)
+    for _ in range(10):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, PRE)
+    for _ in range(12):
       self.helper.update(c, True, 0.5)
     self.assertEqual(self.helper.lane_change_state, STARTING)
 
