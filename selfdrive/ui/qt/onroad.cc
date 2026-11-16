@@ -451,9 +451,12 @@ static bool s9HudActive() {
   // 2026-08-19: EonClusterHudConnected(폰 ACK) 조건을 뺐다.
   // ACK 는 와이파이가 잠깐 흔들리기만 해도 2초 만에 False 가 되고, 그때마다
   // EON 이 지도·NOO 박스를 다시 그렸다. 이제는 remote_hud 프로세스가 살아
-  // 있는지(하트비트)만 본다. 프로세스가 죽거나 EonClusterHud 를 끄면
-  // 10초 뒤 EON 화면이 원래대로 돌아온다.
+  // 있는지(하트비트)를 본다. 외부 HUD 설정을 끄면 다음 확인 주기에
+  // EON 화면이 돌아오고, 프로세스만 끊기면 하트비트가 10초 뒤 만료된다.
   active = false;
+  if (!s9_params.getBool("EonClusterHud")) {
+    return active;
+  }
   const std::string beat = s9_params.get("EonClusterHudHeartbeat");
   if (!beat.empty()) {
     const long long stamp = atoll(beat.c_str());

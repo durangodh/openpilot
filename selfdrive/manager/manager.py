@@ -371,6 +371,8 @@ def manager_thread() -> None:
     ignore.append("pandad")
   ignore += [x for x in os.getenv("BLOCK", "").split(",") if len(x) > 0]
 
+  if EON:
+    managed_processes["remote_hud"].enabled = params.get_bool("EonClusterHud")
   ensure_running(managed_processes.values(), started=False, not_run=ignore)
 
   started_prev = False
@@ -385,6 +387,7 @@ def manager_thread() -> None:
 
     started = sm['deviceState'].started
     if EON:
+      managed_processes["remote_hud"].enabled = params.get_bool("EonClusterHud")
       route_logging = os.path.isfile(EON_ROUTE_LOGGING_FLAG)
       video = route_logging and os.path.isfile("/persist/comma/enable-eon-web-video")
       logger = managed_processes["loggerd"]

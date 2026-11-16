@@ -1006,8 +1006,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   toggleLayout->addWidget(new ParamControl(
-      "EonClusterHud", "S9 EXTERNAL HUD",
-      "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
+      "EonClusterHud", "EXTERNAL HUD",
+      "켜짐: EON 주행 데이터를 휴대폰 HUD 앱으로 전송합니다. HUD 없이 엔미러로 내비를 보는 경우에는 끄세요.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamControl(
       "EonClusterHudShowOwnMap", "EON SHOW OWN MAP",
