@@ -42,16 +42,18 @@
   <g font-size="14">
     <circle cx="890" cy="225" r="7" fill="#2e7d32"/><text x="905" y="230">CAN H (4핀 단자)</text>
     <circle cx="890" cy="270" r="7" fill="#ef6c00"/><text x="905" y="275">CAN L (4핀 단자)</text>
-    <circle cx="890" cy="330" r="7" fill="#c62828"/><text x="905" y="335">VIN (+, 2핀 단자)</text>
-    <circle cx="890" cy="375" r="7" fill="#222"/><text x="905" y="380">GND (-, 2핀 단자)</text>
+    <circle cx="1160" cy="380" r="7" fill="#c62828"/><text x="1145" y="385" text-anchor="end">VIN (+)</text>
+    <circle cx="1160" cy="420" r="7" fill="#222"/><text x="1145" y="425" text-anchor="end">GND (-)</text>
   </g>
   <rect x="1060" y="200" width="100" height="90" rx="6" fill="#fff" stroke="#b71c1c" stroke-width="2"/>
   <text x="1110" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#b71c1c">CAN 점퍼</text>
   <text x="1110" y="252" text-anchor="middle" font-size="20" font-weight="700" fill="#b71c1c">NC</text>
   <text x="1110" y="276" text-anchor="middle" font-size="11" fill="#b71c1c">(120R 금지)</text>
-  <text x="905" y="300" font-size="11" fill="#444">4핀의 RS485 A/B는 비움</text>
-  <text x="1025" y="405" text-anchor="middle" font-size="11" fill="#444">2핀 = USB-C 옆 전원 단자 (7~36V)</text>
-  <text x="1025" y="425" text-anchor="middle" font-size="11" fill="#444">USB-C는 비우거나 충전기만</text>
+  <text x="905" y="195" font-size="12" font-weight="700" fill="#e65100">◀ 4핀 단자 쪽</text>
+  <text x="905" y="300" font-size="11" fill="#444">RS485 A/B는 비움</text>
+  <text x="1150" y="345" text-anchor="end" font-size="12" font-weight="700" fill="#e65100">2핀 단자 쪽 (USB-C 옆) ▶</text>
+  <text x="905" y="400" font-size="11" fill="#444">전원 7~36V</text>
+  <text x="905" y="418" font-size="11" fill="#444">USB-C는 비우거나 충전기만</text>
 
   <!-- wires M01 <-> converter low side -->
   <line x1="262" y1="225" x2="423" y2="225" stroke="#2e7d32" stroke-width="4"/>
@@ -66,13 +68,13 @@
   <text x="560" y="552" text-anchor="middle" font-size="16" font-weight="700">IGN 12V (시동 연동, 퓨즈 2~3A)</text>
   <text x="560" y="578" text-anchor="middle" font-size="13" fill="#555">상시전원(B+) 금지</text>
   <path d="M737 330 L770 330 L770 540 L740 540" fill="none" stroke="#c62828" stroke-width="3"/>
-  <path d="M883 330 L850 330 L850 565 L740 565" fill="none" stroke="#c62828" stroke-width="3"/>
+  <path d="M1167 380 L1188 380 L1188 565 L740 565" fill="none" stroke="#c62828" stroke-width="3"/>
 
   <rect x="380" y="650" width="360" height="70" rx="10" fill="#eeeeee" stroke="#222" stroke-width="2"/>
   <text x="560" y="682" text-anchor="middle" font-size="16" font-weight="700">차체 접지 (볼트 또는 M01 6번)</text>
   <text x="560" y="704" text-anchor="middle" font-size="13" fill="#555">HUD 배선 접지는 쓰지 않음</text>
   <path d="M737 375 L800 375 L800 675 L740 675" fill="none" stroke="#222" stroke-width="3"/>
-  <path d="M883 375 L870 375 L870 700 L740 700" fill="none" stroke="#222" stroke-width="3"/>
+  <path d="M1167 420 L1180 420 L1180 700 L740 700" fill="none" stroke="#222" stroke-width="3"/>
   <path d="M262 315 L300 315 L300 685 L380 685" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6,4"/>
 
   <!-- checklist -->
