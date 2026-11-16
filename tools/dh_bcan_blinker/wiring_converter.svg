@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="'NanumGothic','Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',sans-serif">
   <rect width="1200" height="820" fill="#ffffff"/>
   <text x="600" y="38" text-anchor="middle" font-size="24" font-weight="700" fill="#111">DH 자동 깜빡이: 저속↔고속 변환기 + ESP32 (점퍼 NC) 시험 배선도</text>
-  <text x="600" y="64" text-anchor="middle" font-size="14" fill="#555">B-CAN(저속 내결함) ─ 변환기 ─ ESP32 보드 CAN 단자. 처음 실패는 보드 점퍼 120R 때문으로 보이며, 이번엔 NC로 시험</text>
+  <text x="600" y="64" text-anchor="middle" font-size="14" fill="#555">B-CAN(저속 내결함) ─ 변환기 ─ ESP32 보드 CAN 단자. 처음엔 보드 점퍼 120R로 시험(실패), 이번엔 NC로 재시험</text>
 
   <!-- Car M01 -->
   <rect x="30" y="110" width="250" height="290" rx="10" fill="#f4f4f4" stroke="#333" stroke-width="2"/>
@@ -18,22 +18,22 @@
   <!-- Converter -->
   <rect x="420" y="110" width="320" height="330" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
   <text x="580" y="140" text-anchor="middle" font-size="17" font-weight="700">저속↔고속 CAN 변환기</text>
-  <text x="580" y="160" text-anchor="middle" font-size="12" fill="#444">(M-CAN에 쓰던 TJA1054 박스와 같은 종류)</text>
+  <text x="580" y="160" text-anchor="middle" font-size="12" fill="#444">JCANBUS CANBridge-LS V2.1 (M-CAN용과 같은 보드)</text>
   <line x1="580" y1="175" x2="580" y2="430" stroke="#90caf9" stroke-dasharray="5,4"/>
-  <text x="500" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">저속 쪽</text>
-  <text x="660" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">고속 쪽</text>
+  <text x="500" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">저속 쪽 (J1 LOW, 2핀)</text>
+  <text x="660" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">고속 쪽 (5핀)</text>
   <g font-size="14">
     <circle cx="430" cy="225" r="7" fill="#2e7d32"/><text x="445" y="230">CANH</text>
     <circle cx="430" cy="270" r="7" fill="#ef6c00"/><text x="445" y="275">CANL</text>
     <circle cx="730" cy="225" r="7" fill="#2e7d32"/><text x="660" y="230">CANH</text>
     <circle cx="730" cy="270" r="7" fill="#ef6c00"/><text x="665" y="275">CANL</text>
-    <circle cx="430" cy="330" r="7" fill="#c62828"/><text x="445" y="335">9~24V</text>
-    <circle cx="430" cy="375" r="7" fill="#222"/><text x="445" y="380">GND</text>
+    <circle cx="730" cy="330" r="7" fill="#c62828"/><text x="650" y="335">10-24V</text>
+    <circle cx="730" cy="375" r="7" fill="#222"/><text x="675" y="380">GND</text>
   </g>
-  <text x="660" y="330" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">고속 쪽 종단 점퍼:</text>
-  <text x="660" y="348" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">끼움 (120Ω 켬)</text>
-  <text x="660" y="366" text-anchor="middle" font-size="11" fill="#444">전원 끄고 보드 H–L ≈120Ω</text>
-  <text x="580" y="420" text-anchor="middle" font-size="12" fill="#444">PE 단자: 연결 안 함</text>
+  <text x="500" y="320" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">모드 점퍼 J3: LOW</text>
+  <text x="500" y="338" text-anchor="middle" font-size="11" fill="#444">(SINGLE 아님, 그대로)</text>
+  <text x="660" y="300" text-anchor="middle" font-size="11" fill="#444">120Ω 고정(R10), 점퍼 없음</text>
+  <text x="580" y="420" text-anchor="middle" font-size="12" fill="#444">5핀: 10-24V / H / (빈칸, 비움) / L / GND</text>
 
   <!-- ESP32 board -->
   <rect x="880" y="110" width="290" height="330" rx="10" fill="#fff8e1" stroke="#f9a825" stroke-width="2"/>
@@ -60,18 +60,18 @@
   <text x="810" y="215" text-anchor="middle" font-size="12" fill="#555">짧게</text>
 
   <!-- power -->
-  <rect x="380" y="520" width="440" height="80" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
-  <text x="600" y="552" text-anchor="middle" font-size="16" font-weight="700">IGN 12V (시동 연동, 퓨즈탭 2~3A)</text>
-  <text x="600" y="578" text-anchor="middle" font-size="13" fill="#555">상시전원(B+) 금지: 시동 끄면 둘 다 꺼져야 함</text>
-  <path d="M430 337 L380 337 L380 470 L520 470 L520 520" fill="none" stroke="#c62828" stroke-width="3"/>
-  <path d="M883 330 L840 330 L840 470 L680 470 L680 520" fill="none" stroke="#c62828" stroke-width="3"/>
+  <rect x="380" y="520" width="360" height="80" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="560" y="552" text-anchor="middle" font-size="16" font-weight="700">IGN 12V (시동 연동, 퓨즈 2~3A)</text>
+  <text x="560" y="578" text-anchor="middle" font-size="13" fill="#555">상시전원(B+) 금지</text>
+  <path d="M737 330 L770 330 L770 540 L740 540" fill="none" stroke="#c62828" stroke-width="3"/>
+  <path d="M883 330 L850 330 L850 565 L740 565" fill="none" stroke="#c62828" stroke-width="3"/>
 
-  <rect x="380" y="650" width="440" height="70" rx="10" fill="#eeeeee" stroke="#222" stroke-width="2"/>
-  <text x="600" y="682" text-anchor="middle" font-size="16" font-weight="700">차체 접지 (차체 볼트 또는 M01 6번)</text>
-  <text x="600" y="704" text-anchor="middle" font-size="13" fill="#555">HUD 배선 접지는 쓰지 않음</text>
-  <path d="M430 375 L350 375 L350 685 L380 685" fill="none" stroke="#222" stroke-width="3"/>
-  <path d="M883 375 L860 375 L860 685 L820 685" fill="none" stroke="#222" stroke-width="3"/>
-  <path d="M262 315 L300 315 L300 685 L350 685" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6,4"/>
+  <rect x="380" y="650" width="360" height="70" rx="10" fill="#eeeeee" stroke="#222" stroke-width="2"/>
+  <text x="560" y="682" text-anchor="middle" font-size="16" font-weight="700">차체 접지 (볼트 또는 M01 6번)</text>
+  <text x="560" y="704" text-anchor="middle" font-size="13" fill="#555">HUD 배선 접지는 쓰지 않음</text>
+  <path d="M737 375 L800 375 L800 675 L740 675" fill="none" stroke="#222" stroke-width="3"/>
+  <path d="M883 375 L870 375 L870 700 L740 700" fill="none" stroke="#222" stroke-width="3"/>
+  <path d="M262 315 L300 315 L300 685 L380 685" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6,4"/>
 
   <!-- checklist -->
   <g font-size="13" fill="#222">
