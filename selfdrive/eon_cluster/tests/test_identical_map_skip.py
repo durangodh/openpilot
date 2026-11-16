@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Identical re-sent map/overlay images must not rewrite the files remote_hud forwards."""
+"""Identical map and overlay images must not rewrite cached assets."""
 import os
 import struct
 import sys
@@ -27,7 +27,7 @@ def main():
   work = tempfile.mkdtemp()
   server.MAP_FILE = os.path.join(work, "map.jpg")
   server.OVERLAY_FILES["crossroad_expanded"] = os.path.join(work, "crossroad.png")
-  server.map_render_fps = lambda params: 1e9         # no rate gate in this check
+  server.MAP_RENDER_FPS = 1e9         # no rate gate in this check
   state = server.NaviState()
   state._configured_source = lambda: server.SOURCE_NAVER
   writes = []

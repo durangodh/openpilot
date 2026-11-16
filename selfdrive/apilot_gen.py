@@ -39,7 +39,6 @@ GROUPS = OrderedDict([
     ("LongitudinalPanel", "종방향"),
     ("VIPPanel",          "횡방향"),
     ("CommunityPanel",    "커브내비"),
-    ("__S9__",            "S9HUD"),
     ("UISettingsPanel",   "화면"),
 ])
 
@@ -190,8 +189,6 @@ def build():
         if None in (vmin, vmax, default):
             print("!! 범위 파싱 실패, 건너뜀:", name, file=sys.stderr)
             return
-        if name.startswith("EonClusterHud"):
-            group = "__S9__"
         params[name] = dict(
             group=GROUPS.get(group, group), name=name,
             title=title, descr=descr.strip(),

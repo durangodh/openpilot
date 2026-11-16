@@ -3,7 +3,6 @@
 import json
 import os
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
@@ -108,26 +107,12 @@ class VoiceParamsTest(unittest.TestCase):
 
 
 class VoiceRequestTest(unittest.TestCase):
-  def test_voice_command_bumps_seq(self):
-    with tempfile.TemporaryDirectory() as tmp:
-      path = os.path.join(tmp, "voice.json")
-      old = hud_remote.VOICE_FILE
-      hud_remote.VOICE_FILE = path
-      try:
-        clock = [10.0]
-        sync = hud_remote.RemoteCommandSync(FakeParams(), command_file=os.path.join(tmp, "c.json"),
-                                            lane_file=os.path.join(tmp, "l.json"), clock=lambda: clock[0])
-        allowed = hud_remote.allowed_commands(False, False, False, False, False)
-        self.assertIn("voice", allowed)
-        self.assertEqual(sync.apply("voice", allowed), "accepted")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (1, "ai"))
-        self.assertEqual(sync.apply("voice", allowed), "accepted")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (2, "ai"))
-        self.assertEqual(sync.apply("nav_voice", allowed), "blocked")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (2, "ai"))
-        self.assertIsNone(hud_remote.voice_request(path, clock=lambda: 20.0))
-      finally:
-        hud_remote.VOICE_FILE = old
+  def test_external_hud_commands_are_blocked(self):
+    sync = hud_remote.RemoteCommandSync(FakeParams())
+    allowed = hud_remote.allowed_commands(False, False, False, False, False)
+    for command in ("voice", "nav_voice", "hud_box"):
+      self.assertNotIn(command, allowed)
+      self.assertEqual(sync.apply(command, allowed), "blocked")
 
 
 if __name__ == "__main__":

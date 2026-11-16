@@ -9,8 +9,7 @@ if __name__ == "__main__":
   CP = car.CarParams(notCar=True)
   Params().put("CarParams", CP.to_bytes())
 
-  # The external HUD path is S9-only.
-  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'remote_hud']
+  procs = ['camerad', 'ui', 'modeld', 'calibrationd']
 
   HARDWARE.set_power_save(False)
 
@@ -30,8 +29,7 @@ if __name__ == "__main__":
   speed = 0.
   try:
     while True:
-      # 20 Hz is enough for UI/HUD preview and avoids evicting slower EON
-      # subscribers while modeld and the selected external HUD are active.
+      # 20 Hz is enough for preview and avoids evicting slower EON subscribers.
       time.sleep(1 / 20)
       
       msgs['carState'] = messaging.new_message('carState')

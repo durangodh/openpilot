@@ -20,7 +20,7 @@ class Clock:
 
 class FakeParams:
   def __init__(self):
-    self.store = {"EonClusterHudNavApp": b"1"}
+    self.store = {"EonNavApp": b"1"}
 
   def get(self, name):
     return self.store.get(name)

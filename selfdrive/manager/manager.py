@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 from multiprocessing import Process
+from pathlib import Path
 from typing import List, Tuple, Union
 
 import cereal.messaging as messaging
@@ -25,6 +26,26 @@ from selfdrive.version import is_dirty, get_commit, get_version, get_origin, get
 from selfdrive.hardware.eon.apk import system
 
 sys.path.append(os.path.join(BASEDIR, "pyextra"))
+
+
+def migrate_external_hud_params(params, directory=Path("/data/params/d")) -> None:
+  # The navigation source is shared by the phone bridge and EON controls.
+  old_selection = directory / "EonClusterHudNavApp"
+  if params.get("EonNavApp") is None:
+    try:
+      selected = old_selection.read_bytes().strip()
+    except FileNotFoundError:
+      selected = None
+    if selected in (b"0", b"1", b"2", b"3"):
+      params.put("EonNavApp", selected)
+      if params.get("EonNavApp") != selected:
+        return
+
+  for obsolete in directory.glob("EonClusterHud*"):
+    try:
+      obsolete.unlink()
+    except FileNotFoundError:
+      pass
 
 
 def manager_init() -> None:
@@ -57,7 +78,6 @@ def manager_init() -> None:
     ("NavigationOnOpenpilot", "0"),
     ("NooTurnSpeed", "30"),
     ("NooMode", "0"),
-    ("EonClusterHudTmapIcon", "0"),
     ("NooTurnEndTime", "6"),
     ("NooLaneChangeSpeed", "30"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table
@@ -96,33 +116,8 @@ def manager_init() -> None:
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
-    ("EonClusterHud", "0"),
+    ("EonNavApp", "1"),
     ("BtRemoteEnabled", "0"),
-    ("EonClusterHudRoadZ", "100"),
-    ("EonClusterHudPitchDyn", "60"),
-    ("EonClusterHudViewPitch", "0"),
-    ("EonClusterHudFps", "10"),
-    ("EonClusterHudMapFps", "3"),
-    ("EonClusterHudBrightness", "0"),
-    ("EonClusterHudDayBrightness", "65"),
-    ("EonClusterHudNightBrightness", "35"),
-    ("EonClusterHudJpegQuality", "55"),
-    ("EonClusterHudLayoutMode", "1"),
-    ("EonClusterHudNaviLayout", "0"),
-    ("EonClusterHudMapScaleTmap", "70"),
-    ("EonClusterHudMapScaleKakao", "70"),
-    ("EonClusterHudMapScaleNaver", "70"),
-    ("EonClusterHudNavApp", "1"),
-    ("EonClusterHudScreenMode", "1"),
-    ("EonClusterHudInfoBox", "1"),
-    ("EonClusterHudTheme", "0"),
-    ("EonClusterHudOrientation", "0"),
-    ("EonClusterHudMirror", "0"),
-    ("EonClusterHudPathFlip", "0"),
-    ("EonClusterHudLanguage", "0"),
-    ("EonClusterHudRadarInfo", "4"),
-    ("EonClusterHudGuardrail", "1"),
-    ("EonClusterHudHaze", "55"),
     ("ShowMapboxMap", "1"),
     ("ShowRouteMapAlways", "0"),
     ("ShowPathWidth", "90"),
@@ -219,20 +214,8 @@ def manager_init() -> None:
     finally:
       params.put_bool("NooUnifiedMigrated", True)
 
-  # The old HUD schema stored 65 as the default fixed brightness. When the
-  # day/night controls first appear, migrate only that legacy default to auto.
-  # Other fixed values are user choices and remain unchanged.
-  if (params.get("EonClusterHudDayBrightness") is None and
-      params.get("EonClusterHudNightBrightness") is None and
-      params.get("EonClusterHudBrightness") == b"65"):
-    params.put("EonClusterHudBrightness", "0")
-
-  # Migrate the legacy stored 7 FPS value once. Preserve 0 (paused) and every
-  # non-legacy value the driver selected.
-  if params.get("EonClusterHudGeometryV2Migrated") is None:
-    if params.get("EonClusterHudFps", encoding="utf8") in (None, "7"):
-      params.put("EonClusterHudFps", "10")
-    params.put_bool("EonClusterHudGeometryV2Migrated", True)
+  if EON:
+    migrate_external_hud_params(params)
 
   # aPilot PathOffset is an integer centimetre value. Preserve the previous
   # common OffsetTotal calibration (metres) once before defaults are created.
@@ -274,7 +257,7 @@ def manager_init() -> None:
                    "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
-                   "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
+                   "OPKRTimeZone", "ShowBlindSpotAlways",
                    "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey",
                    "LatYawMeasureBlend", "EarlyStopReqRelease",
                    "OffsetTotal", "AdjustLaneOffset", "LanelessOffset", "LatMpcInputOffset",
@@ -371,8 +354,6 @@ def manager_thread() -> None:
     ignore.append("pandad")
   ignore += [x for x in os.getenv("BLOCK", "").split(",") if len(x) > 0]
 
-  if EON:
-    managed_processes["remote_hud"].enabled = params.get_bool("EonClusterHud")
   ensure_running(managed_processes.values(), started=False, not_run=ignore)
 
   started_prev = False
@@ -387,7 +368,6 @@ def manager_thread() -> None:
 
     started = sm['deviceState'].started
     if EON:
-      managed_processes["remote_hud"].enabled = params.get_bool("EonClusterHud")
       route_logging = os.path.isfile(EON_ROUTE_LOGGING_FLAG)
       video = route_logging and os.path.isfile("/persist/comma/enable-eon-web-video")
       logger = managed_processes["loggerd"]

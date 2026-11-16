@@ -479,8 +479,8 @@ const btSaveStatus = document.querySelector('#btSaveStatus');
 const btMappings = document.querySelector('#btMappings');
 const btGestures = {short:'짧게 누르기', double:'더블클릭', long:'길게 누르기'};
 const btLabels = {res:'크루즈 RES', set:'크루즈 SET', gap:'크루즈 갭', cancel:'크루즈 취소',
-  res_long:'크루즈 RES 길게', set_long:'크루즈 SET 길게', nav_toggle:'내비 전환',
-  nav_tmap:'티맵', nav_naver:'네이버지도', hud_box:'HUD 정보창', voice:'AI 음성',
+  res_long:'크루즈 RES 길게', set_long:'크루즈 SET 길게', nav_toggle:'EON 내비 수신 앱 전환',
+  nav_tmap:'EON 티맵 수신', nav_naver:'EON 네이버지도 수신',
   lane_left:'왼쪽 차로변경 요청', lane_right:'오른쪽 차로변경 요청'};
 let btSaving = false;
 async function loadBtRemote() {

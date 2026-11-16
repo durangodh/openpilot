@@ -1,13 +1,11 @@
+import ast
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).parents[3]
 UI_DIR = ROOT / "selfdrive" / "ui" / "qt"
-
-# OSM/OpenGL 전환으로 사라진 파라미터. 어느 층에도 남아 있으면 안 된다.
-DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings",
-               "EonClusterHudCarStyle", "EonClusterHudRoadSigns",
-               "EonClusterHudGl", "EonClusterHudOutputTarget", "EonClusterHudMapLayers")
 
 
 def _code_only(source):
@@ -16,19 +14,15 @@ def _code_only(source):
                     if not line.lstrip().startswith("//"))
 
 
-def test_s9_connection_does_not_hide_eon_driving_ui():
+def test_eon_driving_ui_shows_navigation_without_external_hud():
   onroad = (UI_DIR / "onroad.cc").read_text(encoding="utf-8")
   header = (UI_DIR / "onroad.h").read_text(encoding="utf-8")
-  assert 'getBool("EonClusterHudConnected")' not in onroad
-  assert "eon_cluster_hud_connected" not in onroad
-  assert "eon_cluster_hud_connected" not in header
+  assert "EonClusterHud" not in onroad
+  assert "s9_show_own_map" not in header
   assert "drawLaneLines(p, s);" in onroad
   assert "drawCarrotPlot" not in onroad   # 주행 그래프는 제거됨(2026-10-05)
   assert "drawCarrotLead(p);" in onroad
-  # 내비 이미지 로드는 외부 HUD 생존 여부로만 가른다(현재는 s9HudActive).
-  # 인자가 무엇으로 바뀌든 폰 ACK 파라미터에 묶이면 안 된다.
-  navi_arg = onroad.split("updateCarrotNavi(", 1)[1].split(")", 1)[0]
-  assert "EonClusterHudConnected" not in navi_arg
+  assert "updateCarrotNavi();" in onroad
   assert "drawCarrotNavi(p);" in onroad
 
 
@@ -43,89 +37,73 @@ def test_eon_driving_path_matches_valid_mpc_with_model_fallback():
   assert "update_line_data(s, model_position, path_width" in ui
 
 
-def test_image_loading_is_gated_separately_from_json_state():
+def test_navigation_updates_images_and_json_together():
   navi = (UI_DIR / "onroad_navi.inc").read_text(encoding="utf-8")
-  image_guard = navi.index("if (load_images)")
+  assert "load_images" not in navi
+  image_read = navi.index("if (lane_image_info.exists())")
   json_update = navi.index('root.value("updated_at_ms")')
-  assert image_guard < json_update
+  assert image_read < json_update
   assert "void NvgWindow::drawCarrotNavi" in navi
   draw_body = navi.split("void NvgWindow::drawCarrotNavi", 1)[1]
   assert "updateCarrotNavi();" not in draw_body
 
 
-def test_s9_hud_params_are_exposed_in_settings():
-  # 라벨 문구와 기본값은 자주 손보는 부분이라 검사하지 않는다.
-  # 여기서 지키려는 것은 "설정 UI 에서 손댈 수 있는가" 하나다.
+def test_only_phone_navigation_source_is_exposed_instead_of_external_hud():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
-  exposed = (
-      "EonClusterHud",
-      "EonClusterHudFps",
-      "EonClusterHudMapFps",
-      "EonClusterHudBrightness",
-      "EonClusterHudDayBrightness",
-      "EonClusterHudNightBrightness",
-      "EonClusterHudJpegQuality",
-      "EonClusterHudOutputMode",
-      "EonClusterHudLayoutMode",
-      "EonClusterHudNaviLayout",
-      "EonClusterHudMapScaleTmap",
-      "EonClusterHudMapScaleKakao",
-      "EonClusterHudMapScaleNaver",
-      "EonClusterHudScreenMode",
-      "EonClusterHudInfoBox",
-      "EonClusterHudTheme",
-      "EonClusterHudOrientation",
-      "EonClusterHudMirror",
-      "EonClusterHudLanguage",
-      "EonClusterHudRadarInfo",
-      "EonClusterHudNavRoute",
-  )
-  for key in exposed:
-    assert '"%s"' % key in settings, key
-  for dead in DEAD_PARAMS:
-    assert dead not in settings, dead
+  registry = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
+  catalog = json.loads((ROOT / "selfdrive" / "apilot.json").read_text(encoding="utf-8"))
+  assert "EonClusterHud" not in settings
+  assert "EonClusterHud" not in registry
+  assert '"EonNavApp", "PHONE NAVIGATION SOURCE"' in settings
+  assert '{"EonNavApp", PERSISTENT}' in registry
+  assert all(not row["name"].startswith("EonClusterHud") for row in catalog["params"])
+  source = next(row for row in catalog["params"] if row["name"] == "EonNavApp")
+  assert (source["min"], source["max"], source["default"]) == (0, 3, 1)
 
 
-def test_s9_hud_auto_brightness_uses_day_and_night_params():
-  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
-  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
-  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" / "HudService.java").read_text(encoding="utf-8")
+def test_boot_migrates_saved_phone_navigation_source_and_cleans_hud_params():
+  manager = ROOT / "selfdrive" / "manager" / "manager.py"
+  tree = ast.parse(manager.read_text(encoding="utf-8"))
+  function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and
+                  node.name == "migrate_external_hud_params")
+  scope = {"Path": Path}
+  exec(compile(ast.Module(body=[function], type_ignores=[]), str(manager), "exec"), scope)
+  migrate = scope[function.name]
 
-  assert '("EonClusterHudBrightness", "0")' in manager
-  assert 'params.get("EonClusterHudBrightness") == b"65"' in manager
-  assert 'params.put("EonClusterHudBrightness", "0")' in manager
-  assert '_bounded_int("EonClusterHudBrightness", 0, 0, 100)' in sender
-  assert 'currentState.optInt("hudBrightness", 0)' in service
-  for key, default in (("EonClusterHudDayBrightness", "65"),
-                       ("EonClusterHudNightBrightness", "35")):
-    assert '("%s", "%s")' % (key, default) in manager
-    assert '{"%s", PERSISTENT}' % key in params
-    assert '"%s"' % key in sender
+  class Params(dict):
+    def put(self, key, value):
+      self[key] = value
 
-  assert 'currentState.optInt("hudDayBrightness", 65)' in service
-  assert 'currentState.optInt("hudNightBrightness", 35)' in service
-  assert '? configuredNightBrightness : configuredDayBrightness' in service
+  with TemporaryDirectory() as temp:
+    directory = Path(temp)
+    source = directory / "EonClusterHudNavApp"
+    unrelated = directory / "ShowCarrotHud"
+    unrelated.write_bytes(b"1")
+    for selection in (b"0", b"1", b"2", b"3", b"invalid"):
+      source.write_bytes(selection)
+      (directory / "EonClusterHudBrightness").write_bytes(b"65")
+      params = Params()
+      migrate(params, directory)
+      assert params.get("EonNavApp") == (None if selection == b"invalid" else selection)
+      assert {value.name for value in directory.iterdir()} == {unrelated.name}
+    source.write_bytes(b"1")
+    params = Params(EonNavApp=b"3")
+    migrate(params, directory)
+    migrate(params, directory)
+    assert params["EonNavApp"] == b"3"
+    assert not source.exists()
 
 
-def test_manager_starts_only_s9_hud_publisher():
+def test_manager_starts_navigation_and_web_without_external_hud():
   processes = (ROOT / "selfdrive" / "manager" / "process_config.py").read_text(encoding="utf-8")
-  remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
-  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
-
-  assert 'PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON' in processes
+  assert 'PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON' in processes
+  assert 'PythonProcess("eon_web", "selfdrive.eon_web", enabled=EON' in processes
+  assert 'PythonProcess("remote_hud"' not in processes
   assert 'PythonProcess("eon_cluster"' not in processes
-  assert "EonClusterHudOutputMode" not in remote
-  assert "_migrate_legacy_remote_mode" not in remote
-  assert 'params.put_bool(PARAM_ENABLED, True)' not in remote
-  assert '{"EonClusterHudOutputMode", PERSISTENT}' in params
-  assert '{"EonClusterHudLayoutMode", PERSISTENT}' in params
 
 
 def test_hud_output_is_external_panel_only():
   """순정 화면(nMirror) 출력 경로가 남아 있지 않은지."""
-  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
   remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
@@ -137,7 +115,6 @@ def test_hud_output_is_external_panel_only():
 
   # 레이아웃 모드는 남는다(패널 안 3분할/2분할).
   assert 'packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)' in remote
-  assert '("EonClusterHudLayoutMode", "1")' in manager
 
   # 출력 대상 선택과 순정 화면 렌더 경로는 사라졌다.
   for gone in ("hudOutputTarget", "configuredOutputTarget", "phoneOutputEnabled",
@@ -162,9 +139,6 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
 
-  assert '("EonClusterHudViewPitch", "0")' in manager
-  assert '{"EonClusterHudViewPitch", PERSISTENT}' in params
-  assert '"EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)"' in settings
   assert 'math.radians(view_pitch * 0.1)' in remote
 
   # OSM/건물 렌더가 빠지면서 사장된 파라미터는 어느 층에도 남아 있으면 안 된다.
@@ -175,12 +149,12 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
     assert dead not in remote
 
 
-def test_uiview_starts_only_s9_hud_publisher():
+def test_uiview_has_no_external_hud_publisher():
   debug_dir = ROOT / "selfdrive" / "debug"
   for script_name in ("uiview.py", "uiview_carrot.py"):
     script = (debug_dir / script_name).read_text(encoding="utf-8")
     process_line = next(line for line in script.splitlines() if line.strip().startswith("procs ="))
-    assert "'remote_hud'" in process_line
+    assert "'remote_hud'" not in process_line
     assert "'eon_cluster'" not in process_line
 
 
@@ -229,7 +203,7 @@ def test_navi_speed_projection_applies_to_both_apps():
   # Camera/section deceleration: only TMAP may use the legacy roadLimitSpeed
   # path when that sender exists; Naver and Kakao always use their own 7714
   # stream (currently a no-op since nothing feeds UDP 2843 in this fork).
-  assert 'self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")' in cruise
+  assert 'self.nav_app_selected = self.params.get_int("EonNavApp")' in cruise
   assert 'if road_data is not None and self.nav_app_selected == 1:' in cruise
 
   # The general (non-camera) road speed limit used for auto speed-up and the

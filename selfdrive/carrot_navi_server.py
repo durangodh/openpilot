@@ -12,7 +12,6 @@ import uuid
 
 from common.params import Params
 from selfdrive import trace_http
-from selfdrive.eon_cluster.navi_layout import read_map_scales, read_wide_map
 
 try:
   import numpy as np
@@ -69,14 +68,11 @@ OVERLAY_FILES = {
 }
 MAP_RENDER_WIDTH = 760   # 12.3인치 HUD 6:4 지도칸
 MAP_RENDER_HEIGHT = 720
-PARAM_MAP_FPS = "EonClusterHudMapFps"
-PARAM_NAV_APP = "EonClusterHudNavApp"
+PARAM_NAV_APP = "EonNavApp"
 SOURCE_TMAP = "tmap"
 SOURCE_NAVER = "naver"
 SOURCE_KAKAO = "kakao"
-MAP_RENDER_FPS_DEFAULT = 5
-MAP_RENDER_FPS_MIN = 2
-MAP_RENDER_FPS_MAX = 5
+MAP_RENDER_FPS = 3
 # Accept a map frame once this fraction of the frame interval has passed.
 # Naver/Kakao send at roughly the configured rate, so a strict 1/fps gate
 # dropped every frame that arrived a few ms early (5 fps became 2.5 fps with
@@ -94,15 +90,6 @@ STATE_WRITE_INTERVAL_S = 0.20
 MAP_STALE_S = 3.0
 MAP_RESYNC_INTERVAL_S = 2.0
 MAP_STALE_CLEAR_S = 5.0
-
-
-def map_render_fps(params):
-  try:
-    raw = params.get(PARAM_MAP_FPS)
-    value = int(raw) if raw is not None else MAP_RENDER_FPS_DEFAULT
-  except (TypeError, ValueError):
-    value = MAP_RENDER_FPS_DEFAULT
-  return max(MAP_RENDER_FPS_MIN, min(MAP_RENDER_FPS_MAX, value))
 
 
 def accept_json_envelope(message, name, session_id, revision, sequences, legacy_sequences):
@@ -190,17 +177,6 @@ class NaviState(object):
       return SOURCE_TMAP
     except (TypeError, ValueError, UnicodeDecodeError):
       return SOURCE_TMAP
-
-  def route_guiding(self, max_age_ms=5000):
-    """선택한 네비가 최근 5초 안에 남은 거리가 있는 경로를 보냈으면 True(네비모드 자동 판단용)."""
-    with self.lock:
-      route = self.values.get("route")
-      updated = self.updated_at.get("route", 0)
-    try:
-      remain = float(route.get("remain_distance_m", 0) or 0) if isinstance(route, dict) else 0.0
-    except (TypeError, ValueError):
-      remain = 0.0
-    return remain > 0 and 0 <= int(time.time() * 1000) - updated <= max_age_ms
 
   def accepts(self, source):
     """Accept data only from the navigation app selected in EON settings."""
@@ -441,7 +417,7 @@ class NaviState(object):
         self.last_map_sequence = sequence
 
     # A valid rate-limited frame still refreshed last_map_rx above.
-    if now < self.last_map_write + MAP_WRITE_GATE_RATIO / map_render_fps(self.params):
+    if now < self.last_map_write + MAP_WRITE_GATE_RATIO / MAP_RENDER_FPS:
       return
     image_digest = hashlib.sha1(image).digest()
     with self.lock:
@@ -569,7 +545,7 @@ class NaviState(object):
     with self.lock:
       session_id = self.session_id
       revision = self.manifest_revision
-    return manifest(self.params, session_id, revision)
+    return manifest(session_id, revision)
 
   def send_control(self, message):
     with self.lock:
@@ -709,8 +685,7 @@ def send_frame(sock, payload, opcode=1):
   sock.sendall(header + payload)
 
 
-def manifest(params, session_id, revision):
-  map_fps = map_render_fps(params)
+def manifest(session_id, revision):
   streams = []
   handle = 1
   for kind, names in (("json", JSON_NAMES), ("image", IMAGE_NAMES), ("render", RENDER_NAMES)):
@@ -723,13 +698,12 @@ def manifest(params, session_id, revision):
         stream_params = {"delivery_mode": "on_change_with_heartbeat", "interval_ms": 500,
                          "stale_timeout_ms": 30000}
       elif kind == "image":
-        # Native guidance bitmaps change slowly; 2 FPS keeps the S9 display
-        # faithful without creating meaningful work on the EON.
+        # Native guidance bitmaps change slowly. The EON display refreshes them at 2 Hz.
         stream_params = {"format": "png", "max_fps": 2}
       else:
         stream_params = {"composition": "map_route_vehicle",
                          "width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
-                         "fps": map_fps, "codec": "jpeg", "jpeg_quality": 65,
+                         "fps": MAP_RENDER_FPS, "codec": "jpeg", "jpeg_quality": 65,
                          "camera_mode": "app_sync", "map_theme": "auto",
                          "stale_timeout_ms": int(MAP_STALE_S * 1000)}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
@@ -880,20 +854,18 @@ def handle_client(conn, state):
       pass
 
 
-def discovery_loop(state=None):
+def discovery_loop():
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   payload_ip = None
-  params = Params()
   while True:
     ip = local_ip()
     if ip != "127.0.0.1":
       payload_ip = ip
     if payload_ip:
-      # hud_wide_map: S9 HUD 가 네비모드면 1. 휴대폰 모듈이 지도를 가로로 넓게 캡처한다.
-      # hud_map_scale_*: 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 %), 앱별 설정값.
-      message = {"ip": payload_ip, "navi_debug": 0, "hud_wide_map": read_wide_map(params, state is not None and state.route_guiding())}
-      message.update(read_map_scales(params))
+      # Reset any wide capture or scaling cached by older phone bridges.
+      message = {"ip": payload_ip, "navi_debug": 0, "hud_wide_map": 0,
+                 "hud_map_scale_tmap": 100, "hud_map_scale_kakao": 100, "hud_map_scale_naver": 100}
       payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
       try:
         sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))
@@ -905,7 +877,7 @@ def discovery_loop(state=None):
 
 def main():
   state = NaviState()
-  threading.Thread(target=discovery_loop, args=(state,), name="carrot-navi-discovery", daemon=True).start()
+  threading.Thread(target=discovery_loop, name="carrot-navi-discovery", daemon=True).start()
   server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   server.bind(("0.0.0.0", PORT))

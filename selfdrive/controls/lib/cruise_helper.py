@@ -60,10 +60,8 @@ NOO_TURN_DECEL = 1.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 
-# 핸들 차간거리(GAP) 버튼 길게 누르기 = 내비 앱 전환(티맵↔네이버).
-# 짧게 누르면 종전대로 차간 단계가 바뀌고, 이 시간을 넘기면 전환만 하고
-# 차간 변경은 취소한다. 100 Hz 기준 프레임 수.
-NAV_TOGGLE_HOLD_FRAMES = 150   # 1.5 s
+# Openpilot changes the software gap on a short press only (100 Hz).
+GAP_LONG_PRESS_FRAMES = 150   # 1.5 s
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
 
@@ -108,7 +106,6 @@ class CruiseHelper:
     self.gap_param_initialized = False
     self.gap_pressed = False
     self.gap_hold_frames = 0
-    self.nav_toggle_done = False
     self.init_driving_mode = 3
     self.my_driving_mode = 3
     self.last_mode_param = 3
@@ -657,47 +654,26 @@ class CruiseHelper:
     # after a completed short button press, never from a passive SCC value.
     gap_button_events = [event for event in CS.buttonEvents if event.type == ButtonType.gapAdjustCruise]
     short_gap_release = False
-    navigation_gap_release = False
+    gap_release = False
 
-    # ── GAP 길게 누르기 → 내비 앱 전환 ──
-    # carState(capnp)에는 현재 눌린 버튼 필드가 없으므로 buttonEvents 의
-    # 누름/뗌으로 유지시간을 잰다. 짧은 누름인지 긴 누름인지 알기 전에는
-    # PrevCruiseGap을 바꾸지 않는다.
     for event in gap_button_events:
       if event.pressed:
         self.gap_pressed = True
         self.gap_hold_frames = 0
-        self.nav_toggle_done = False
       else:
         self.gap_pressed = False
-        if self.nav_toggle_done:
-          # 전환에 쓰인 입력이므로 차간 단계는 바꾸지 않는다.
-          navigation_gap_release = True
-          self.nav_toggle_done = False
-        else:
-          short_gap_release = True
+        gap_release = True
+        short_gap_release = short_gap_release or self.gap_hold_frames < GAP_LONG_PRESS_FRAMES
     if self.gap_pressed:
       self.gap_hold_frames += 1
-      if self.gap_hold_frames >= NAV_TOGGLE_HOLD_FRAMES and not self.nav_toggle_done:
-        self.nav_toggle_done = True
-        try:
-          current = self.params.get_int("EonClusterHudNavApp")
-          put_nonblocking("EonClusterHudNavApp", "2" if current == 1 else "1")
-        except (TypeError, ValueError):
-          pass
 
     if longcontrol:
-      # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2. Cycle
-      # from the persisted value only after a completed short press. A long
-      # press belongs exclusively to navigation selection.
+      # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2.
       gap, changed = select_software_gap(self.long_cruise_gap, short_gap_release)
     else:
-      # With stock SCC the physical GAP button really changes TauGapSet even
-      # when its long press is also used for navigation. Reflect that actual
-      # value in software on release so the HUD and persisted gap cannot drift
-      # apart. Openpilot longitudinal control keeps its saved gap above.
+      # Stock SCC changes the real gap on either press length. Mirror it on release.
       gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
-                                         accepted_gap_release=(short_gap_release or navigation_gap_release))
+                                         accepted_gap_release=gap_release)
     if changed:
       self.long_cruise_gap = gap
       put_nonblocking("PrevCruiseGap", str(gap))
@@ -880,7 +856,7 @@ class CruiseHelper:
     # Params are file reads; refresh the app selection once a second instead of
     # on every 100 Hz control frame (switching still applies within 1 s).
     if frame % 100 == 0 or self.nav_app_selected is None:
-      self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")
+      self.nav_app_selected = self.params.get_int("EonNavApp")
     if road_data is not None and self.nav_app_selected == 1:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
@@ -1103,7 +1079,7 @@ class CruiseHelper:
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     # carrot_navi_server.accepts() already gates the shared state file by
-    # EonClusterHudNavApp, so navi_state["road_limit_kph"] is valid for
+    # EonNavApp, so navi_state["road_limit_kph"] is valid for
     # whichever app is selected -- it does not need a naver_selected check.
     # road_data.roadLimitSpeed is the legacy UDP 2843 path, which has no
     # sender anywhere in this fork; keep it only as a fallback in case that

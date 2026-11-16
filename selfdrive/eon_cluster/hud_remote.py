@@ -27,7 +27,7 @@ BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
 # 핸들 버튼을 길게 누른 것과 같은 동작(carrot-wip accelCruiseLong 등, 2026-10-18).
 # RES/SET 길게 = 크루즈 속도 10단위. 티맵↔네이버는 nav_toggle 이 직접 바꾼다.
 LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise"}
-PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box", "voice")
+PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver")
 LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
@@ -40,7 +40,7 @@ EVENT_SHOW_S = 1.5
 COMMAND_LABELS = {"res": "RES", "set": "SET", "gap": "GAP", "cancel": "취소",
                   "res_long": "RES 길게", "set_long": "SET 길게",
                   "nav_toggle": "맵 전환", "nav_tmap": "티맵", "nav_naver": "네이버",
-                  "hud_box": "정보 박스", "voice": "음성", "lane_left": "차선 좌", "lane_right": "차선 우"}
+                  "lane_left": "차선 좌", "lane_right": "차선 우"}
 
 
 def atomic_json(path, payload):
@@ -107,26 +107,13 @@ class RemoteCommandSync:
         self.events = events[-32:]
       elif command in LANE_COMMANDS:
         atomic_json(self.lane_file, {"direction": LANE_COMMANDS[command], "ts": now})
-      elif command == "hud_box":
-        # HUD info box: 1 = HUD info, 2 = trip summary.
-        try:
-          box = int(self.params.get("EonClusterHudInfoBox") or 1)
-        except (ValueError, TypeError):
-          box = 1
-        self.params.put("EonClusterHudInfoBox", "1" if box == 2 else "2")
-      elif command == "voice":
-        previous = read_json(VOICE_FILE)
-        seq = previous.get("seq", 0) if isinstance(previous, dict) else 0
-        seq = (seq + 1) % 1000000 if isinstance(seq, int) else 1
-        atomic_json(VOICE_FILE, {"seq": seq, "ts": now, "mode": "ai"})
-        _wake_remote_hud()
       else:
         try:
-          current = int(self.params.get("EonClusterHudNavApp") or 1)
+          current = int(self.params.get("EonNavApp") or 1)
         except (ValueError, TypeError):
           current = 1
         target = {"nav_tmap": 1, "nav_naver": 2}.get(command, 2 if current == 1 else 1)
-        self.params.put("EonClusterHudNavApp", str(target))
+        self.params.put("EonNavApp", str(target))
     except OSError:
       return False
     return True
@@ -142,19 +129,6 @@ def hud_status(status_file=STATUS_FILE, clock=time.monotonic):
   if isinstance(event, dict) and event:
     out.update(event)
   return out
-
-
-def _wake_remote_hud():
-  """remote_hud 의 대기를 깨워 음성 요청을 다음 주기까지 기다리지 않고 보내게 한다."""
-  try:
-    import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-      s.sendto(b"v", ("127.0.0.1", VOICE_WAKE_PORT))
-    finally:
-      s.close()
-  except OSError:
-    pass
 
 
 def voice_request(voice_file=VOICE_FILE, clock=time.monotonic):

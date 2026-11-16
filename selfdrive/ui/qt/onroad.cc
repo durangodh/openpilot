@@ -429,43 +429,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.restore();
 }
 
-// S9 외부 HUD 가 실제로 살아 있는지.
-//
-// EonClusterHudConnected 만 보면 remote_hud 프로세스가 True 를 남긴 채
-// 죽었을 때 EON 화면이 영영 비어 있게 된다. 그래서 remote_hud 가 2초마다
-// 갱신하는 EonClusterHudHeartbeat(epoch 초) 도 같이 확인한다.
-// 하트비트가 10초 이상 멈추면 죽은 것으로 보고 EON 이 다시 그린다.
-//
-// 파라미터는 파일 I/O 라 1초에 한 번만 읽는다.
-static bool s9HudActive() {
-  static Params s9_params;
-  static uint64_t last_check = 0;
-  static bool active = false;
-
-  const uint64_t now = millis_since_boot();
-  if (last_check != 0 && now - last_check < 1000) {
-    return active;
-  }
-  last_check = now;
-
-  // 2026-08-19: EonClusterHudConnected(폰 ACK) 조건을 뺐다.
-  // ACK 는 와이파이가 잠깐 흔들리기만 해도 2초 만에 False 가 되고, 그때마다
-  // EON 이 지도·NOO 박스를 다시 그렸다. 이제는 remote_hud 프로세스가 살아
-  // 있는지(하트비트)를 본다. 외부 HUD 설정을 끄면 다음 확인 주기에
-  // EON 화면이 돌아오고, 프로세스만 끊기면 하트비트가 10초 뒤 만료된다.
-  active = false;
-  if (!s9_params.getBool("EonClusterHud")) {
-    return active;
-  }
-  const std::string beat = s9_params.get("EonClusterHudHeartbeat");
-  if (!beat.empty()) {
-    const long long stamp = atoll(beat.c_str());
-    const long long wall = (long long)time(NULL);
-    active = stamp > 0 && wall >= stamp && (wall - stamp) < 10;
-  }
-  return active;
-}
-
 void NvgWindow::paintGL() {
 }
 
@@ -575,20 +538,10 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   (void)sm;
   (void)model;
 
-  // S9 외부 HUD 가 붙어 있으면 내비 패널은 그쪽에서 이미 그린다.
-  // 차선·경로·리드는 EON 화면에서 조향 확인용으로 계속 남긴다.
-  // EonClusterHudShowOwnMap 이 켜져 있으면 S9 가 붙어 있어도 이온 자체
-  // 지도/ATC 표시를 억제하지 않는다(둘 다 뜸).
-  const bool s9_hud = s9HudActive() && !s9_show_own_map;
-
   drawLaneLines(p, s);
   drawCarrotLead(p);
-  // 이미지 로드만 건너뛰고 JSON 파싱은 계속한다 —
-  // drawCarrotHud 의 MAP/NDA/HDA 표시가 이 상태를 쓴다.
-  updateCarrotNavi(!s9_hud);
-  if (!s9_hud) {
-    drawCarrotNavi(p);
-  }
+  updateCarrotNavi();
+  drawCarrotNavi(p);
   drawCarrotHud(p);
   drawSpeedLimit(p);
   drawCarrotInfo(p);
@@ -1157,7 +1110,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     std::string spsc = params.get("ShowPathStatusColor");
     show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
     show_route_map_always = params.getBool("ShowRouteMapAlways");
-    s9_show_own_map = params.getBool("EonClusterHudShowOwnMap");
   }
 
   if (!show_carrot_hud) { p.restore(); return; }

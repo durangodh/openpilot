@@ -261,45 +261,12 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"PrevCruiseGap", PERSISTENT},              // 마지막 소프트웨어 크루즈 갭 1~4
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
-    {"EonClusterHud", PERSISTENT},
-    {"EonClusterHudShowOwnMap", PERSISTENT},    // 1=S9 켜져도 이온 자체 지도/ATC 계속 표시
-    {"EonClusterHudBrightness", PERSISTENT},
-    {"EonClusterHudDayBrightness", PERSISTENT},
-    {"EonClusterHudNightBrightness", PERSISTENT},
-    {"EonClusterHudGuardrail", PERSISTENT},     // 도로경계 위 가드레일 0=끔 1=켬
-    {"EonClusterHudHaze", PERSISTENT},          // 원경 헤이즈 강도 % (0..100)
-    {"EonClusterHudTmapIcon", PERSISTENT},
-    {"EonClusterHudJunction", PERSISTENT},
-    {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
-    {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
-    {"EonClusterHudViewPitch", PERSISTENT},     // 주행씬 수평선 보정 0.1도 (-50..50)
-    {"EonClusterHudOutputMode", PERSISTENT},
-    {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
-    {"EonClusterHudNaviLayout", PERSISTENT},  // 0=주행모드, 1=네비모드(지도 8:주행 2), 2=자동(길안내 중 네비모드)
-    {"EonClusterHudMapScaleTmap", PERSISTENT},   // 네비모드 HUD 지도 크기(주행모드 대비 %), 30~100
-    {"EonClusterHudMapScaleKakao", PERSISTENT},
-    {"EonClusterHudMapScaleNaver", PERSISTENT},
     {"BtRemoteEnabled", PERSISTENT},       // EON 블루투스 리모컨(bt_remote) 사용
     {"BtRemoteDevice", PERSISTENT},        // 학습한 리모컨의 Bluetooth 주소
     {"BtRemoteMapping", PERSISTENT},       // 버튼@누르기 방식 -> 명령(JSON)
     {"BtRemoteLearn", CLEAR_ON_MANAGER_START},
     {"BtRemoteStatus", CLEAR_ON_MANAGER_START},
-    {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
-    {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
-    {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
-    {"EonClusterHudFps", PERSISTENT},
-    {"EonClusterHudGeometryV2Migrated", PERSISTENT},
-    {"EonClusterHudMapFps", PERSISTENT},
-    {"EonClusterHudJpegQuality", PERSISTENT},
-    {"EonClusterHudScreenMode", PERSISTENT},
-    {"EonClusterHudInfoBox", PERSISTENT},
-    {"EonClusterHudTheme", PERSISTENT},
-    {"EonClusterHudOrientation", PERSISTENT},
-    {"EonClusterHudMirror", PERSISTENT},
-    {"EonClusterHudPathFlip", PERSISTENT},       // S9 주행 장면 전체 좌우반전 (0=정상, 1=반전)
-    {"EonClusterHudLanguage", PERSISTENT},
-    {"EonClusterHudRadarInfo", PERSISTENT},
-    {"EonClusterHudNavRoute", PERSISTENT},      // 1=티맵 경로 의도 반투명 표시, 0=숨김
+    {"EonNavApp", PERSISTENT},                 // 0=사용 안 함, 1=티맵, 2=네이버지도, 3=카카오내비
     {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/NOO Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)

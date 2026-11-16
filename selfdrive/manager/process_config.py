@@ -36,9 +36,6 @@ procs = [
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
   PythonProcess("torqued", "selfdrive.locationd.torqued"),
   PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
-  # External HUD output is S9-only. EON publishes compact telemetry/native
-  # TMAP assets plus live S9 render tuning; Android renders/JPEG-encodes/USB.
-  PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON, persistent=True),
   # Bluetooth remote input is read locally on EON from the kernel HID node; no phone or Wi-Fi.
   PythonProcess("bt_remote", "selfdrive.eon_cluster.bt_remote", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),

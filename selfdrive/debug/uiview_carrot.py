@@ -51,8 +51,7 @@ if __name__ == "__main__":
   CP = car.CarParams(notCar=True)
   Params().put("CarParams", CP.to_bytes())
 
-  # Include the S9-only external HUD publisher in bench preview.
-  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'remote_hud']
+  procs = ['camerad', 'ui', 'modeld', 'calibrationd']
   HARDWARE.set_power_save(False)
   for p in procs:
     managed_processes[p].start()
