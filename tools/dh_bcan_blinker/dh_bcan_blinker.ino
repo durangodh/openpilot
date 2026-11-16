@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16"
+#define FW_VERSION "2026-11-16b"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -334,9 +334,114 @@ void handleRequest(char side, uint32_t now) {
   }
 }
 
+// ---------- scan (listen only): which B-CAN message follows a button ----------
+// Learn SCAN_LEARN_MS which bytes change by themselves (counters, signals), then for SCAN_MS
+// record every other change. Phone: http://<board IP>/scan?start=1, press the button a few
+// times, reload. Serial: "scan". Nothing is sent to the car.
+#define SCAN_IDS 160
+#define SCAN_EVENTS 80
+#define SCAN_LEARN_MS 4000
+#define SCAN_MS 40000
+struct ScanTrack { uint16_t id; uint8_t dlc, noisy; uint8_t data[8]; };
+struct ScanEvent { uint32_t t; uint16_t id; uint8_t dlc; uint8_t o[8], n[8]; };
+static ScanTrack scanTracks[SCAN_IDS];
+static ScanEvent scanEvents[SCAN_EVENTS];
+static int scanTrackCount = 0, scanEventCount = 0, scanEventDrop = 0;
+static uint8_t scanState = 0;  // 0 off, 1 learning, 2 recording, 3 done
+static uint32_t scanStartMs = 0;
+
+void startScan(uint32_t now) {
+  scanTrackCount = scanEventCount = scanEventDrop = 0;
+  scanState = 1;
+  scanStartMs = now;
+  out("scan: learning 4 s (do not touch anything), then 40 s recording: press the button now and then\n");
+}
+
+void scanFrame(const twai_message_t &m, uint32_t now) {
+  if (!scanState || scanState == 3) return;
+  if (scanState == 1 && now - scanStartMs >= SCAN_LEARN_MS) {
+    scanState = 2;
+    out("scan: recording\n");
+  }
+  if (scanState == 2 && now - scanStartMs >= SCAN_LEARN_MS + SCAN_MS) {
+    scanState = 3;
+    outf("scan: done, %d changes (%d not kept)\n", scanEventCount, scanEventDrop);
+    return;
+  }
+  int i = 0;
+  while (i < scanTrackCount && scanTracks[i].id != m.identifier) i++;
+  uint8_t dlc = m.data_length_code > 8 ? 8 : m.data_length_code;
+  if (i == scanTrackCount) {
+    if (scanTrackCount >= SCAN_IDS) return;
+    ScanTrack &t = scanTracks[scanTrackCount++];
+    t.id = m.identifier;
+    t.dlc = dlc;
+    t.noisy = scanState == 2 ? 0xFF : 0;  // a message first seen while recording: ignore its changes
+    memcpy(t.data, m.data, 8);
+    return;
+  }
+  ScanTrack &t = scanTracks[i];
+  uint8_t changed = 0;
+  for (int b = 0; b < dlc; b++) if (m.data[b] != t.data[b]) changed |= 1 << b;
+  if (scanState == 1) {
+    t.noisy |= changed;
+  } else if (changed & ~t.noisy) {
+    if (scanEventCount < SCAN_EVENTS) {
+      ScanEvent &e = scanEvents[scanEventCount++];
+      e.t = now - scanStartMs - SCAN_LEARN_MS;
+      e.id = t.id;
+      e.dlc = dlc;
+      memcpy(e.o, t.data, 8);
+      memcpy(e.n, m.data, 8);
+    } else {
+      scanEventDrop++;
+    }
+    char line[96];
+    int k = snprintf(line, sizeof(line), "scan %6.1fs  0x%03X ", (now - scanStartMs - SCAN_LEARN_MS) / 1000.0, t.id);
+    for (int b = 0; b < dlc && k < 90; b++) k += snprintf(line + k, sizeof(line) - k, "%02X", m.data[b]);
+    snprintf(line + k, sizeof(line) - k, "\n");
+    out(line);
+  }
+  memcpy(t.data, m.data, 8);
+}
+
+void webScan() {
+  uint32_t now = millis();
+  if (gWeb.hasArg("start")) startScan(now);
+  String o = "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,"
+             "initial-scale=1'><title>B-CAN scan</title>";
+  if (scanState == 1 || scanState == 2) o += "<meta http-equiv='refresh' content='2;url=/scan'>";
+  o += "<style>body{font-family:sans-serif;margin:12px}td{font-family:monospace;padding:2px 6px}"
+       "b.c{color:#d00}</style></head><body><h3>B-CAN 스캔 (수신만)</h3><p>";
+  if (scanState == 0) o += "대기";
+  else if (scanState == 1) o += "<b>학습 중</b>: 아무것도 만지지 마세요 (" + String((SCAN_LEARN_MS - (now - scanStartMs)) / 1000 + 1) + "초)";
+  else if (scanState == 2) o += "<b>기록 중</b>: 버튼을 몇 번 눌렀다 떼세요 (남은 " +
+                                String((SCAN_LEARN_MS + SCAN_MS - (now - scanStartMs)) / 1000) + "초)";
+  else o += "끝";
+  o += "</p><p><a href='/scan?start=1'>스캔 시작</a></p><p>메시지 " + String(scanTrackCount) + "개, 바뀜 " +
+       String(scanEventCount) + "건" + (scanEventDrop ? " (+" + String(scanEventDrop) + " 생략)" : "") + "</p><table>";
+  for (int i = 0; i < scanEventCount; i++) {
+    ScanEvent &e = scanEvents[i];
+    char cell[8];
+    o += "<tr><td>" + String(e.t / 1000.0, 1) + "s</td><td>0x";
+    snprintf(cell, sizeof(cell), "%03X", e.id);
+    o += cell;
+    o += "</td><td>";
+    for (int b = 0; b < e.dlc; b++) {
+      snprintf(cell, sizeof(cell), "%02X", e.n[b]);
+      if (e.n[b] != e.o[b]) { o += "<b class='c'>"; o += cell; o += "</b>"; } else { o += cell; }
+    }
+    o += "</td></tr>";
+  }
+  o += "</table></body></html>";
+  gWeb.send(200, "text/html; charset=utf-8", o);
+}
+
 void onFrame(uint32_t now) {  // frame in gRx
   const twai_message_t &m = gRx;
-  if (m.extd || m.rtr || m.data_length_code < 8) return;
+  if (m.extd || m.rtr) return;
+  scanFrame(m, now);
+  if (m.data_length_code < 8) return;
   if (m.identifier == LEVER_ID) {
     memcpy(stock, m.data, 8);
     stockValid = true;
@@ -633,6 +738,7 @@ void startWeb() {
   gWeb.on("/del", webDel);
   gWeb.on("/update", HTTP_GET, webUpdatePage);
   gWeb.on("/update", HTTP_POST, webUpdateDone, webUpdateUpload);
+  gWeb.on("/scan", webScan);
   gWeb.onNotFound(webOther);
   gWeb.begin();
   webStarted = true;
@@ -716,6 +822,10 @@ void serialLine(char *line, uint32_t now) {
   }
   if (line[0] == 'l' || line[0] == 'r') handleRequest(line[0] == 'l' ? 'L' : 'R', now);
   if (line[0] == 'c') handleRequest('C', now);
+  if (!strcmp(line, "scan")) {
+    startScan(now);
+    return;
+  }
   if (line[0] == 'k' && (line[1] == 'l' || line[1] == 'r')) {
     const char *why = requestHold(line[1] == 'l' ? 'L' : 'R', now, HOLD_SERIAL_MS);
     if (*why) outf("hold refused: %s\n", why);
@@ -727,7 +837,7 @@ void serialLine(char *line, uint32_t now) {
 void help() {
   out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request), firmware " FW_VERSION "\n"
       "  l = LEFT tap   r = RIGHT tap   c = cancel our blinking (tap the other way)   s = status   h = help\n"
-      "  kl / kr = keep blinking (hold, 60 s test) until c\n"
+      "  kl / kr = keep blinking (hold, 60 s test) until c   scan = which message follows a button\n"
       "  w NAME|PASSWORD = save hotspot   wl = list   wd N = delete   wp = open setup Wi-Fi\n");
   outf("  UDP in %d / status %d, CAN pins TX %d RX %d 100k\n", COMMAND_PORT, STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);
   listNets();
