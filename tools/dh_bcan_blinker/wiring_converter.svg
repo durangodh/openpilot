@@ -40,16 +40,18 @@
   <text x="1025" y="140" text-anchor="middle" font-size="17" font-weight="700">ESP32-S3 보드</text>
   <text x="1025" y="160" text-anchor="middle" font-size="12" fill="#444">Waveshare ESP32-S3-RS485-CAN</text>
   <g font-size="14">
-    <circle cx="890" cy="225" r="7" fill="#2e7d32"/><text x="905" y="230">CAN H 단자</text>
-    <circle cx="890" cy="270" r="7" fill="#ef6c00"/><text x="905" y="275">CAN L 단자</text>
-    <circle cx="890" cy="330" r="7" fill="#c62828"/><text x="905" y="335">DC 단자 VIN</text>
-    <circle cx="890" cy="375" r="7" fill="#222"/><text x="905" y="380">DC 단자 GND</text>
+    <circle cx="890" cy="225" r="7" fill="#2e7d32"/><text x="905" y="230">CAN H (4핀 단자)</text>
+    <circle cx="890" cy="270" r="7" fill="#ef6c00"/><text x="905" y="275">CAN L (4핀 단자)</text>
+    <circle cx="890" cy="330" r="7" fill="#c62828"/><text x="905" y="335">VIN (+, 2핀 단자)</text>
+    <circle cx="890" cy="375" r="7" fill="#222"/><text x="905" y="380">GND (-, 2핀 단자)</text>
   </g>
   <rect x="1060" y="200" width="100" height="90" rx="6" fill="#fff" stroke="#b71c1c" stroke-width="2"/>
   <text x="1110" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#b71c1c">CAN 점퍼</text>
   <text x="1110" y="252" text-anchor="middle" font-size="20" font-weight="700" fill="#b71c1c">NC</text>
   <text x="1110" y="276" text-anchor="middle" font-size="11" fill="#b71c1c">(120R 금지)</text>
-  <text x="1025" y="420" text-anchor="middle" font-size="12" fill="#444">USB: 충전기만 (OTG·헤드유닛 X)</text>
+  <text x="905" y="300" font-size="11" fill="#444">4핀의 RS485 A/B는 비움</text>
+  <text x="1025" y="405" text-anchor="middle" font-size="11" fill="#444">2핀 = USB-C 옆 전원 단자 (7~36V)</text>
+  <text x="1025" y="425" text-anchor="middle" font-size="11" fill="#444">USB-C는 비우거나 충전기만</text>
 
   <!-- wires M01 <-> converter low side -->
   <line x1="262" y1="225" x2="423" y2="225" stroke="#2e7d32" stroke-width="4"/>
