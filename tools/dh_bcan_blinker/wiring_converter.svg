@@ -30,8 +30,9 @@
     <circle cx="430" cy="330" r="7" fill="#c62828"/><text x="445" y="335">9~24V</text>
     <circle cx="430" cy="375" r="7" fill="#222"/><text x="445" y="380">GND</text>
   </g>
-  <text x="660" y="330" text-anchor="middle" font-size="12" fill="#444">고속 쪽 종단 점퍼:</text>
-  <text x="660" y="348" text-anchor="middle" font-size="12" fill="#444">기본값 그대로</text>
+  <text x="660" y="330" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">고속 쪽 종단 점퍼:</text>
+  <text x="660" y="348" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">끼움 (120Ω 켬)</text>
+  <text x="660" y="366" text-anchor="middle" font-size="11" fill="#444">전원 끄고 보드 H–L ≈120Ω</text>
   <text x="580" y="420" text-anchor="middle" font-size="12" fill="#444">PE 단자: 연결 안 함</text>
 
   <!-- ESP32 board -->
