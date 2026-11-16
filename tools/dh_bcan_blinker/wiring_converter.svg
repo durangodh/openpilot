@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="'NanumGothic','Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',sans-serif">
+  <rect width="1200" height="820" fill="#ffffff"/>
+  <text x="600" y="38" text-anchor="middle" font-size="24" font-weight="700" fill="#111">DH 자동 깜빡이: 저속↔고속 변환기 + ESP32 (점퍼 NC) 시험 배선도</text>
+  <text x="600" y="64" text-anchor="middle" font-size="14" fill="#555">B-CAN(저속 내결함) ─ 변환기 ─ ESP32 보드 CAN 단자. 처음 실패는 보드 점퍼 120R 때문으로 보이며, 이번엔 NC로 시험</text>
+
+  <!-- Car M01 -->
+  <rect x="30" y="110" width="250" height="290" rx="10" fill="#f4f4f4" stroke="#333" stroke-width="2"/>
+  <text x="155" y="140" text-anchor="middle" font-size="17" font-weight="700">차량 M01</text>
+  <text x="155" y="161" text-anchor="middle" font-size="13" fill="#444">다기능 스위치 (회색 10핀)</text>
+  <text x="155" y="179" text-anchor="middle" font-size="12" fill="#666">T-탭 분기 (전선 절단 금지)</text>
+  <g font-size="14">
+    <circle cx="255" cy="225" r="7" fill="#2e7d32"/><text x="60" y="230">1번 녹색 = B-CAN H</text>
+    <circle cx="255" cy="270" r="7" fill="#ef6c00"/><text x="60" y="275">2번 주황 = B-CAN L</text>
+    <circle cx="255" cy="315" r="7" fill="#222"/><text x="60" y="320">6번 검정 = 접지</text>
+  </g>
+  <text x="155" y="375" text-anchor="middle" font-size="12" fill="#b71c1c">옆 노란 커넥터(에어백) 건드리지 말 것</text>
+
+  <!-- Converter -->
+  <rect x="420" y="110" width="320" height="330" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="580" y="140" text-anchor="middle" font-size="17" font-weight="700">저속↔고속 CAN 변환기</text>
+  <text x="580" y="160" text-anchor="middle" font-size="12" fill="#444">(M-CAN에 쓰던 TJA1054 박스와 같은 종류)</text>
+  <line x1="580" y1="175" x2="580" y2="430" stroke="#90caf9" stroke-dasharray="5,4"/>
+  <text x="500" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">저속 쪽</text>
+  <text x="660" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">고속 쪽</text>
+  <g font-size="14">
+    <circle cx="430" cy="225" r="7" fill="#2e7d32"/><text x="445" y="230">CANH</text>
+    <circle cx="430" cy="270" r="7" fill="#ef6c00"/><text x="445" y="275">CANL</text>
+    <circle cx="730" cy="225" r="7" fill="#2e7d32"/><text x="660" y="230">CANH</text>
+    <circle cx="730" cy="270" r="7" fill="#ef6c00"/><text x="665" y="275">CANL</text>
+    <circle cx="430" cy="330" r="7" fill="#c62828"/><text x="445" y="335">9~24V</text>
+    <circle cx="430" cy="375" r="7" fill="#222"/><text x="445" y="380">GND</text>
+  </g>
+  <text x="660" y="330" text-anchor="middle" font-size="12" fill="#444">고속 쪽 종단 점퍼:</text>
+  <text x="660" y="348" text-anchor="middle" font-size="12" fill="#444">기본값 그대로</text>
+  <text x="580" y="420" text-anchor="middle" font-size="12" fill="#444">PE 단자: 연결 안 함</text>
+
+  <!-- ESP32 board -->
+  <rect x="880" y="110" width="290" height="330" rx="10" fill="#fff8e1" stroke="#f9a825" stroke-width="2"/>
+  <text x="1025" y="140" text-anchor="middle" font-size="17" font-weight="700">ESP32-S3 보드</text>
+  <text x="1025" y="160" text-anchor="middle" font-size="12" fill="#444">Waveshare ESP32-S3-RS485-CAN</text>
+  <g font-size="14">
+    <circle cx="890" cy="225" r="7" fill="#2e7d32"/><text x="905" y="230">CAN H 단자</text>
+    <circle cx="890" cy="270" r="7" fill="#ef6c00"/><text x="905" y="275">CAN L 단자</text>
+    <circle cx="890" cy="330" r="7" fill="#c62828"/><text x="905" y="335">DC 단자 VIN</text>
+    <circle cx="890" cy="375" r="7" fill="#222"/><text x="905" y="380">DC 단자 GND</text>
+  </g>
+  <rect x="1060" y="200" width="100" height="90" rx="6" fill="#fff" stroke="#b71c1c" stroke-width="2"/>
+  <text x="1110" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#b71c1c">CAN 점퍼</text>
+  <text x="1110" y="252" text-anchor="middle" font-size="20" font-weight="700" fill="#b71c1c">NC</text>
+  <text x="1110" y="276" text-anchor="middle" font-size="11" fill="#b71c1c">(120R 금지)</text>
+  <text x="1025" y="420" text-anchor="middle" font-size="12" fill="#444">USB: 충전기만 (OTG·헤드유닛 X)</text>
+
+  <!-- wires M01 <-> converter low side -->
+  <line x1="262" y1="225" x2="423" y2="225" stroke="#2e7d32" stroke-width="4"/>
+  <line x1="262" y1="270" x2="423" y2="270" stroke="#ef6c00" stroke-width="4"/>
+  <!-- converter high side <-> board -->
+  <line x1="737" y1="225" x2="883" y2="225" stroke="#2e7d32" stroke-width="4"/>
+  <line x1="737" y1="270" x2="883" y2="270" stroke="#ef6c00" stroke-width="4"/>
+  <text x="810" y="215" text-anchor="middle" font-size="12" fill="#555">짧게</text>
+
+  <!-- power -->
+  <rect x="380" y="520" width="440" height="80" rx="10" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="600" y="552" text-anchor="middle" font-size="16" font-weight="700">IGN 12V (시동 연동, 퓨즈탭 2~3A)</text>
+  <text x="600" y="578" text-anchor="middle" font-size="13" fill="#555">상시전원(B+) 금지: 시동 끄면 둘 다 꺼져야 함</text>
+  <path d="M430 337 L380 337 L380 470 L520 470 L520 520" fill="none" stroke="#c62828" stroke-width="3"/>
+  <path d="M883 330 L840 330 L840 470 L680 470 L680 520" fill="none" stroke="#c62828" stroke-width="3"/>
+
+  <rect x="380" y="650" width="440" height="70" rx="10" fill="#eeeeee" stroke="#222" stroke-width="2"/>
+  <text x="600" y="682" text-anchor="middle" font-size="16" font-weight="700">차체 접지 (차체 볼트 또는 M01 6번)</text>
+  <text x="600" y="704" text-anchor="middle" font-size="13" fill="#555">HUD 배선 접지는 쓰지 않음</text>
+  <path d="M430 375 L350 375 L350 685 L380 685" fill="none" stroke="#222" stroke-width="3"/>
+  <path d="M883 375 L860 375 L860 685 L820 685" fill="none" stroke="#222" stroke-width="3"/>
+  <path d="M262 315 L300 315 L300 685 L350 685" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6,4"/>
+
+  <!-- checklist -->
+  <g font-size="13" fill="#222">
+    <text x="30" y="760" font-weight="700">확인 순서</text>
+    <text x="30" y="782">① 시동 ON·P단: 순정 레버 깜빡이 정상인지 먼저 (안 되면 즉시 분리)  ② 이온 화면 "깜빡이 연결됨" (B-CAN 수신)</text>
+    <text x="30" y="804">③ 리모컨 원터치·HOLD 40초  ④ grep "link 3" /data/bcan_blinker.log → 새 줄 없으면 성공 (펌웨어는 일반용 dh_bcan_blinker.ino.bin 그대로)</text>
+  </g>
+</svg>
