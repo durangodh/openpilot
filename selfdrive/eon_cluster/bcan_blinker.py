@@ -132,6 +132,35 @@ def main():
     changing = (sm['controlsState'].enabled and sm.alive['lateralPlan'] and
                 plan.laneChangeState in CHANGING)
     direction = lane_direction(plan.laneChangeDirection)
+    # Remote lane button = the lever: tap the exterior blinker at any speed (a second press while
+    # ours still blinks and no lane change runs ends it). A lane change that follows counts this
+    # tap as its first (planner) and may cancel it at the line crossing (canceller).
+    lane_change_active = sm.alive['lateralPlan'] and str(plan.laneChangeState) != "off"
+    action = stopped_blink_action(blink_requests.poll(), own_tap_time, now, lane_change_active)
+    press_tap = None
+    if action is not None:
+      seq = (seq % 30000) + 1
+      if link == LINK_OK and esp_ip:
+        packet = command_packet(seq, action)
+        for _ in range(COMMAND_REPEATS):
+          try:
+            tx.sendto(packet, (esp_ip, COMMAND_PORT))
+          except OSError:
+            pass
+          time.sleep(0.02)
+        if action == "C":
+          cancel_seq = seq
+          own_tap_time = None
+          dlog.write(f"remote: cancel seq {seq} sent to {esp_ip}")
+        else:
+          own_tap_time = now
+          press_tap = action
+          planner.note_external_tap(now, action)
+          event = {"seq": seq, "dir": action, "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
+          dlog.write(f"remote: tap {action} seq {seq} sent to {esp_ip} (v {car.vEgo:.1f} m/s)")
+      else:
+        dlog.write(f"remote: {action} NOT sent: link {link}")
+
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)
     try:  # the log must never take the process down
       lc = (str(plan.laneChangeState), direction) if sm.alive['lateralPlan'] else None
@@ -177,7 +206,7 @@ def main():
       crosser.reset()
     if crossed:
       dlog.write(f"lane line crossed ({direction})")
-    if canceller.update(now, state_name, tap_sent, crossed) and cancel_enabled:
+    if canceller.update(now, state_name, tap_sent or press_tap, crossed) and cancel_enabled:
       if link == LINK_OK and esp_ip:
         seq = (seq % 30000) + 1
         packet = command_packet(seq, "C")
@@ -192,29 +221,6 @@ def main():
         dlog.write(f"cancel seq {seq} sent to {esp_ip} (lane change finishing)")
       else:
         dlog.write(f"cancel NOT sent: link {link}")
-
-    # Remote lane button while stopped: blinker only (tap, or a second press ends it).
-    action = stopped_blink_action(blink_requests.poll(), own_tap_time, now)
-    if action is not None:
-      seq = (seq % 30000) + 1
-      if link == LINK_OK and esp_ip:
-        packet = command_packet(seq, action)
-        for _ in range(COMMAND_REPEATS):
-          try:
-            tx.sendto(packet, (esp_ip, COMMAND_PORT))
-          except OSError:
-            pass
-          time.sleep(0.02)
-        if action == "C":
-          cancel_seq = seq
-          own_tap_time = None
-          dlog.write(f"stopped: cancel seq {seq} sent to {esp_ip}")
-        else:
-          own_tap_time = now
-          event = {"seq": seq, "dir": action, "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
-          dlog.write(f"stopped: tap {action} seq {seq} sent to {esp_ip}")
-      else:
-        dlog.write(f"stopped: {action} NOT sent: link {link}")
 
     if now >= next_status_write:
       next_status_write = now + STATUS_WRITE_S

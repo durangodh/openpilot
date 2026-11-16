@@ -13,7 +13,9 @@ import uuid
 
 COMMAND_FILE = "/dev/shm/hud_remote_cmd.json"
 LANE_FILE = "/dev/shm/hud_remote_lane.json"
-# Remote lane button while stopped: no lane change, only the exterior blinker (bcan_blinker).
+# Remote lane button = the turn signal lever: every press asks bcan_blinker for the exterior
+# blinker (one-touch), at any speed. The lane change request (LANE_FILE) goes along only in D,
+# off the pedals and moving; DesireHelper then gates it like a lever lane change.
 BLINK_FILE = "/dev/shm/hud_remote_blink.json"
 STATUS_FILE = "/dev/shm/hud_remote_status.json"
 # 리모컨 음성 호출: S20 HUD 앱이 이 seq 가 바뀌면 듣기를 시작한다(2026-11-07).
@@ -110,10 +112,10 @@ class RemoteCommandSync:
         atomic_json(self.command_file, {"events": events[-32:]})
         self.events = events[-32:]
       elif command in LANE_COMMANDS:
-        stopped = len(self.vehicle) > 5 and bool(self.vehicle[5])
-        # Stopped: the exterior blinker only (bcan_blinker), never a lane change.
-        atomic_json(self.blink_file if stopped else self.lane_file,
-                    {"direction": LANE_COMMANDS[command], "ts": now, "id": request})
+        payload = {"direction": LANE_COMMANDS[command], "ts": now, "id": request}
+        atomic_json(self.blink_file, payload)
+        if lane_change_possible(*self.vehicle):
+          atomic_json(self.lane_file, payload)
       elif command == "hud_box":
         # HUD info box: 1 = HUD info, 2 = trip summary.
         try:
@@ -264,6 +266,11 @@ class RemoteLaneChangeSource:
     return 0
 
 
+def lane_change_possible(started, car_valid, drive, brake, gas, stopped=False):
+  """A remote lane press also asks for a lane change (else it only works the blinker)."""
+  return bool(started and car_valid and drive and not brake and not gas and not stopped)
+
+
 def allowed_commands(started, car_valid, drive, brake, gas, stopped=False):
   allowed = set(PARAM_COMMANDS)
   if started and car_valid:
@@ -271,9 +278,8 @@ def allowed_commands(started, car_valid, drive, brake, gas, stopped=False):
     # 실제 동작 여부는 핸들 버튼과 똑같이 크루즈 로직이 판단한다(2026-10-18).
     allowed.update(BUTTON_COMMANDS)
     allowed.update(LONG_BUTTON_COMMANDS)
-    if (drive and not brake and not gas) or stopped:
-      # stopped: the lane buttons only work the exterior blinker (BLINK_FILE)
-      allowed.update(LANE_COMMANDS)
+    # Like the lever: the blinker works in any gear and on the pedals (lane change gated above).
+    allowed.update(LANE_COMMANDS)
   return frozenset(allowed)
 
 
@@ -285,11 +291,4 @@ def block_reason(command, started, car_valid, drive, brake, gas, stopped=False):
     return "시동 꺼짐"
   if not car_valid:
     return "차량 데이터 없음"
-  if command in LANE_COMMANDS:
-    if not drive:
-      return "D단 아님"
-    if brake:
-      return "브레이크"
-    if gas:
-      return "가속페달"
   return ""

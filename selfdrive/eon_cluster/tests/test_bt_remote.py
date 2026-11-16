@@ -155,25 +155,35 @@ class TestCommandJournal(unittest.TestCase):
     self.clock.now += hr.COMMAND_MAX_AGE_S + 0.1
     self.assertEqual([p for _ in range(10) for p in source.poll()], [])
 
-  def test_lane_command_blocked_out_of_drive_with_reason(self):
-    self.sync.vehicle = (True, True, False, False, False)
-    allowed = hr.allowed_commands(*self.sync.vehicle)
-    self.assertEqual(self.sync.apply("lane_left", allowed), "blocked")
-    self.assertEqual(self.sync.event_status()["why"], "D단 아님")
-    self.assertFalse(os.path.exists(self.lane))
-
-  def test_lane_button_while_stopped_only_asks_for_the_blinker(self):
+  def test_lane_button_is_a_lever_blinker_in_any_state(self):
     blink = os.path.join(self.dir.name, "blink.json")
     self.sync.blink_file = blink
-    self.sync.vehicle = (True, True, True, True, False, True)   # stopped on the brake
-    self.assertEqual(self.sync.apply("lane_left", hr.allowed_commands(*self.sync.vehicle)), "accepted")
-    self.assertFalse(os.path.exists(self.lane))                  # no lane change
-    self.assertEqual(hr.read_json(blink)["direction"], -1)
+    # out of D, on the brake, stopped: blinker only, no lane change request
+    for vehicle in ((True, True, False, False, False, False), (True, True, True, True, False, True),
+                    (True, True, True, False, False, True)):
+      for f in (blink, self.lane):
+        if os.path.exists(f):
+          os.remove(f)
+      self.sync.vehicle = vehicle
+      self.assertEqual(self.sync.apply("lane_left", hr.allowed_commands(*vehicle)), "accepted")
+      self.assertEqual(hr.read_json(blink)["direction"], -1)
+      self.assertFalse(os.path.exists(self.lane))
+    # moving in D off the pedals: blinker and lane change request
+    self.sync.vehicle = (True, True, True, False, False, False)
+    self.assertEqual(self.sync.apply("lane_right", hr.allowed_commands(*self.sync.vehicle)), "accepted")
+    self.assertEqual(hr.read_json(blink)["direction"], 1)
+    self.assertEqual(hr.read_json(self.lane)["direction"], 1)
+
+  def test_lane_button_needs_the_car(self):
+    self.sync.vehicle = (False, False, False, False, False, False)
+    self.assertEqual(self.sync.apply("lane_left", hr.allowed_commands(*self.sync.vehicle)), "blocked")
+    self.assertEqual(self.sync.event_status()["why"], "시동 꺼짐")
 
   def test_lane_command_pulse(self):
     source = hr.RemoteLaneChangeSource(self.lane, clock=self.clock)
     self.clock.now += 1
-    self.sync.apply("lane_right", hr.allowed_commands(True, True, True, False, False))
+    self.sync.vehicle = (True, True, True, False, False, False)
+    self.sync.apply("lane_right", hr.allowed_commands(*self.sync.vehicle))
     self.assertEqual(source.poll(), 1)
     self.clock.now += hr.LANE_CHANGE_HOLD_S + 0.05
     self.assertEqual(source.poll(), 0)

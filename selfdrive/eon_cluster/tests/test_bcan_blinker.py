@@ -135,8 +135,8 @@ def test_cancel_at_line_crossing_fallback_or_finishing():
   # back to off first (lane change abandoned): nothing pending
   c = BlinkCancelPlanner()
   c.update(0.0, "preLaneChange", "R")
-  c.update(0.5, "off", None)
-  assert not c.update(1.0, "laneChangeFinishing", None)
+  c.update(5.0, "off", None)            # off past the remote-press grace
+  assert not c.update(6.0, "laneChangeFinishing", None)
   assert command_packet(7, "C") == b"DHBL1 7 C"
 
 
@@ -172,3 +172,24 @@ def test_stopped_blink_requests_and_actions(tmp_path):
   assert stopped_blink_action("R", 10.0, 12.0) == "C"
   assert stopped_blink_action("L", 10.0, 14.0) == "L"
   assert stopped_blink_action(None, 10.0, 11.0) is None
+  # during a lane change a second press is not a blinker cancel
+  assert stopped_blink_action("L", 10.0, 12.0, lane_change_active=True) is None
+
+
+def test_remote_press_tap_counts_for_the_lane_change():
+  from selfdrive.eon_cluster.bcan_blinker_core import BlinkCancelPlanner, LaneTapPlanner
+  p = LaneTapPlanner()
+  p.note_external_tap(10.0, "L")
+  # lamp already on from the press: not the driver's lever, and no second tap at once
+  assert p.update(10.5, True, "L", True, False) is None
+  assert not p.driver_owned
+  assert p.update(15.0, True, "L", True, False) == "L"     # long lane change: repeat
+  c = BlinkCancelPlanner()
+  assert not c.update(10.0, "off", "L")                     # press, lane change not yet started
+  assert not c.update(10.2, "preLaneChange", None)
+  assert not c.update(11.0, "laneChangeStarting", None)
+  assert c.update(11.5, "laneChangeStarting", None, crossed=True)
+  c = BlinkCancelPlanner()
+  c.update(10.0, "off", "L")
+  assert not c.update(20.0, "off", None)                    # no lane change followed
+  assert not c.update(21.0, "laneChangeStarting", None, crossed=True)

@@ -540,7 +540,8 @@ class DesireHelper:
     # override) the NOO controller used to raise the request. Otherwise the
     # request opens while the FSM below stays edge-blocked.
     noo_auto_request = noo_direction != 0 and direction == noo_direction
-    below_lane_change_speed = v_ego < (noo_lane_change_speed_min if noo_auto_request
+    # Remote lane changes use the lever's speed (AutoLaneChangeSpeed); NOO keeps its own.
+    below_lane_change_speed = v_ego < (noo_lane_change_speed_min if (noo_auto_request and not remote_request)
                                        else self.lane_change_speed_min)
     if noo_auto_request:
       self.road_edge = not (noo_left_open if direction < 0 else noo_right_open)

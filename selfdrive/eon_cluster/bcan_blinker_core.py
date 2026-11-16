@@ -88,6 +88,12 @@ class LaneTapPlanner:
     self.taps = 0
     self.last_tap = -1e9
     self.driver_owned = False
+    self.external_side = None
+
+  def note_external_tap(self, now, side):
+    """The remote press already tapped this side: it counts as the lane change's first tap."""
+    self.last_tap = now
+    self.external_side = side
 
   def update(self, now, changing, direction, left_lamp, right_lamp):
     """changing: openpilot lateral active and laneChangeState pre/starting.
@@ -101,6 +107,9 @@ class LaneTapPlanner:
       lamp = left_lamp if direction == "L" else right_lamp
       # Lamp already on and not from our recent tap: the driver's lever started this change.
       self.driver_owned = bool(lamp) and now - self.last_tap > OWN_LAMP_S
+      if self.external_side == direction and now - self.last_tap < TAP_REPEAT_S:
+        self.taps = 1   # the remote press tapped already; repeat only for a long lane change
+      self.external_side = None
     if self.driver_owned or self.taps >= MAX_TAPS:
       return None
     if self.taps and now - self.last_tap < TAP_REPEAT_S:
@@ -150,6 +159,7 @@ class BlinkCancelPlanner:
 
   def __init__(self):
     self.tapped = False
+    self.tapped_time = None
     self.start = None
 
   def update(self, now, state, tapped_side, crossed=False):
@@ -157,7 +167,11 @@ class BlinkCancelPlanner:
     line crossing was just seen. True = cancel now."""
     if tapped_side in ("L", "R"):
       self.tapped = True
+      self.tapped_time = now
       self.start = None
+    # A remote press taps before the lane change leaves "off"; keep it a moment.
+    if state == "off" and self.tapped and self.tapped_time is not None and now - self.tapped_time <= TAP_REPEAT_S:
+      return False
     if state == "off" or not self.tapped:
       self.tapped = False
       self.start = None
@@ -172,8 +186,8 @@ class BlinkCancelPlanner:
     return due
 
 
-# Remote lane button while stopped (hud_remote BLINK_FILE): one-touch on that side, or end our own
-# one-touch if it is still blinking (a second press, either side).
+# Remote lane button (hud_remote BLINK_FILE), like the lever at any speed: one-touch on that side,
+# or end our own one-touch if it is still blinking and no lane change is running (second press).
 STOPPED_BLINK_FILE = "/dev/shm/hud_remote_blink.json"
 BLINK_REQUEST_MAX_AGE_S = 1.0
 OWN_BLINK_S = 3.6        # one-touch: 5 flashes in about 3.5 s
@@ -205,12 +219,13 @@ class BlinkRequestSource:
     return {-1: "L", 1: "R"}.get(direction)
 
 
-def stopped_blink_action(request, own_tap_time, now):
-  """'L'/'R' to tap, 'C' to end our own one-touch still blinking, or None."""
+def stopped_blink_action(request, own_tap_time, now, lane_change_active=False):
+  """Remote press -> 'L'/'R' to tap, 'C' to end our own one-touch still blinking, or None.
+  During a lane change a press is the lane change's business (DesireHelper), not a cancel."""
   if request not in ("L", "R"):
     return None
   if own_tap_time is not None and 0.0 <= now - own_tap_time <= OWN_BLINK_S:
-    return "C"
+    return None if lane_change_active else "C"
   return request
 
 
