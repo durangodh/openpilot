@@ -39,11 +39,11 @@ COMMAND_REPEATS = 3
 
 RESULT_TEXT = {"ok": "", "busy": "처리 중", "cooldown": "대기", "lever": "레버 사용 중",
                "lamp": "깜빡이 켜짐", "nobcan": "B-CAN 없음", "abort": "버스 오류", "notx": "송신 불가",
-               "nothing": "끌 깜빡이 없음", "nolamp": "이미 꺼짐"}
+               "nothing": "끌 깜빡이 없음", "nolamp": "이미 꺼짐", "nohold": "유지 끝남"}
 
 
 def command_packet(seq, side):
-  if side not in ("L", "R", "C"):
+  if side not in ("L", "R", "C", "HL", "HR", "KL", "KR"):
     raise ValueError(side)
   return f"{COMMAND_MAGIC} {int(seq) & 0xffff} {side}".encode()
 
@@ -227,6 +227,21 @@ def stopped_blink_action(request, own_tap_time, now, lane_change_active=False):
   if own_tap_time is not None and 0.0 <= now - own_tap_time <= OWN_BLINK_S:
     return None if lane_change_active else "C"
   return request
+
+
+# Hold mode (DhBcanBlinkerHold): a press keeps that side blinking (ESP32 HL/HR, firmware
+# 2026-11-16) until the other button; EON repeats it every HOLD_KEEPALIVE_S as a keepalive.
+HOLD_KEEPALIVE_S = 1.0
+HOLD_MAX_S = 180.0
+
+
+def hold_press_action(request, hold_side):
+  """Remote press in hold mode -> 'HL' / 'HR' to start holding, 'C' to stop, or None."""
+  if request not in ("L", "R"):
+    return None
+  if hold_side is None:
+    return "H" + request
+  return "C" if request != hold_side else None
 
 
 def write_status(path, payload):

@@ -193,3 +193,13 @@ def test_remote_press_tap_counts_for_the_lane_change():
   c.update(10.0, "off", "L")
   assert not c.update(20.0, "off", None)                    # no lane change followed
   assert not c.update(21.0, "laneChangeStarting", None, crossed=True)
+
+
+def test_hold_mode_press_actions():
+  from selfdrive.eon_cluster.bcan_blinker_core import command_packet, hold_press_action
+  assert hold_press_action("L", None) == "HL"
+  assert hold_press_action("R", "L") == "C"        # the other button stops it
+  assert hold_press_action("L", "L") is None       # same button: keeps holding
+  assert hold_press_action(None, "L") is None
+  assert command_packet(3, "HR") == b"DHBL1 3 HR"
+  assert command_packet(4, "KL") == b"DHBL1 4 KL"

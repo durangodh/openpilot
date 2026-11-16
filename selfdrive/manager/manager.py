@@ -102,6 +102,7 @@ def manager_init() -> None:
     ("BtRemoteEnabled", "0"),
     ("DhBcanBlinker", "0"),
     ("DhBcanBlinkerCancel", "0"),
+    ("DhBcanBlinkerHold", "0"),
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
     ("EonClusterHudViewPitch", "0"),

@@ -19,7 +19,9 @@
 //   - Any bus error / error-passive / bus-off / failed frame aborts at once.
 //
 // Network (phone hotspot, 2.4 GHz):
-//   EON -> board  UDP 7290 "DHBL1 <seq> L|R|C" (sent 3 times, same seq; C = cancel our own blinking)
+//   EON -> board  UDP 7290 "DHBL1 <seq> L|R|C|HL|HR" (sent 3 times, same seq; C = cancel our own
+//                 blinking, HL/HR = hold: keep blinking; KL/KR = keepalive every second, never
+//                 starts a hold)
 //   board -> EON  UDP 7291 broadcast every second and after each request:
 //                 {"t":"dhbl","v":1,"rssi":-55,"bcan":1,"lamp":0,"err":0,"seq":3,"res":"ok"}
 //
@@ -52,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-15"
+#define FW_VERSION "2026-11-16"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -80,6 +82,15 @@
 // the driver has not touched the lever since. Test at P first: serial 'l', then 'c' after ~1.5 s.
 #define CANCEL_WINDOW_MS 6000
 #define CANCEL_MIN_MS 300
+// Hold (HL / HR): keep blinking past the 5 flashes, like a lever held in its detent, until a
+// cancel (C), the driver's lever, a bus error, no EON keepalive for HOLD_KEEPALIVE_MS, or
+// HOLD_MAX_MS. Our own one-touch is tapped again HOLD_RETAP_MS after the last tap, or as soon
+// as the lamps stay dark HOLD_GAP_MS (the 5 flashes ended). Serial test: "kl" / "kr", then "c".
+#define HOLD_RETAP_MS 2800
+#define HOLD_GAP_MS 600
+#define HOLD_KEEPALIVE_MS 8000
+#define HOLD_SERIAL_MS 60000
+#define HOLD_MAX_MS 180000
 
 // Arduino IDE puts prototypes for every function above the includes, so no function takes or
 // returns a TWAI or Wi-Fi type and none is static; those values live in these globals.
@@ -115,6 +126,8 @@ static char tapSide = 0;          // side of the tap in progress
 static char ownSide = 0;          // side of our last successful one-touch (0: none / cancelled)
 static uint32_t ownEndMs = 0, driverLeverMs = 0;
 static bool cancelTap = false;
+static char holdSide = 0;
+static uint32_t holdStartMs = 0, holdDeadlineMs = 0;
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -255,6 +268,45 @@ const char *requestTap(char side, uint32_t now) {
   return startTap(side, now);
 }
 
+void stopHold(const char *why, uint32_t now) {
+  if (!holdSide) return;
+  outf("%9lu  hold %c end: %s\n", (unsigned long)now, holdSide, why);
+  holdSide = 0;
+}
+
+// Start (or refresh, when already holding that side) a held blinker.
+const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
+  if (holdSide == side) {
+    holdDeadlineMs = now + keepMs;
+    return "";
+  }
+  stopHold("other side", now);
+  const char *why = "";
+  bool ownBlinking = ownSide == side && now - ownEndMs < CANCEL_WINDOW_MS && lampRecent(now);
+  if (!ownBlinking) why = requestTap(side, now);
+  if (*why) return why;
+  holdSide = side;
+  holdStartMs = now;
+  holdDeadlineMs = now + keepMs;
+  outf("%9lu  hold %c start\n", (unsigned long)now, side);
+  return "";
+}
+
+// Called from loop() while idle: tap our side again to keep the blinker going.
+void holdTick(uint32_t now) {
+  if (!holdSide || tap != TAP_IDLE) return;
+  if (driverLeverMs && driverLeverMs > holdStartMs) return stopHold("driver lever", now);
+  if (errRecent(now) && errMs > holdStartMs) return stopHold("bus error", now);
+  if ((int32_t)(now - holdDeadlineMs) > 0) return stopHold("no keepalive", now);
+  if (now - holdStartMs > HOLD_MAX_MS) return stopHold("max time", now);
+  bool due = now - ownEndMs >= HOLD_RETAP_MS ||
+             (now - ownEndMs > 1000 && (!lampSeen || now - lampOnMs >= HOLD_GAP_MS));
+  if (!due || !stockFresh(now) || (stock[0] & LEVER_MASK)) return;
+  cancelTap = false;
+  const char *why = startTap(holdSide, now);
+  if (*why) stopHold(why, now);
+}
+
 // Ends our own one-touch: a tap the other way. Refused unless our tap is still blinking.
 const char *requestCancel(uint32_t now) {
   if (tap != TAP_IDLE) return "busy";
@@ -271,6 +323,7 @@ const char *requestCancel(uint32_t now) {
 }
 
 void handleRequest(char side, uint32_t now) {
+  if (side == 'C') stopHold("cancel", now);
   const char *why = side == 'C' ? requestCancel(now) : requestTap(side, now);
   if (*why) {
     outf("%9lu  %s refused: %s\n", (unsigned long)now,
@@ -327,10 +380,37 @@ void pollUdp(uint32_t now) {
   if (len <= 0) return;
   buf[len] = 0;
   int seq = -1;
-  char side = 0;
-  if (sscanf(buf, "DHBL1 %d %c", &seq, &side) != 2 || seq < 0 || (side != 'L' && side != 'R' && side != 'C')) return;
+  char cmd[4] = {0};
+  if (sscanf(buf, "DHBL1 %d %3s", &seq, cmd) != 2 || seq < 0) return;
+  bool hold = cmd[0] == 'H' && (cmd[1] == 'L' || cmd[1] == 'R') && !cmd[2];
+  bool keep = cmd[0] == 'K' && (cmd[1] == 'L' || cmd[1] == 'R') && !cmd[2];
+  char side = (hold || keep) ? cmd[1] : cmd[0];
+  if (!hold && !keep && (cmd[1] || (side != 'L' && side != 'R' && side != 'C'))) return;
   if (seq == lastSeq) return;  // repeats of the same request
   lastSeq = seq;
+  if (keep) {  // keepalive: only refreshes a hold still running, never starts one
+    if (holdSide == side) {
+      holdDeadlineMs = now + HOLD_KEEPALIVE_MS;
+      finish("ok", now);
+    } else {
+      finish("nohold", now);
+    }
+    return;
+  }
+  if (hold) {
+    bool refresh = holdSide == side;
+    if (!refresh) outf("%9lu  EON hold %d %c from %s\n", (unsigned long)now, seq, side, gUdp.remoteIP().toString().c_str());
+    const char *why = requestHold(side, now, HOLD_KEEPALIVE_MS);
+    if (*why) {
+      outf("%9lu  hold %c refused: %s\n", (unsigned long)now, side, why);
+      finish(why, now);
+    } else if (refresh) {
+      finish("ok", now);
+    } else {
+      lastRes[0] = 0;
+    }
+    return;
+  }
   outf("%9lu  EON request %d %c from %s\n", (unsigned long)now, seq, side, gUdp.remoteIP().toString().c_str());
   handleRequest(side, now);
 }
@@ -636,6 +716,10 @@ void serialLine(char *line, uint32_t now) {
   }
   if (line[0] == 'l' || line[0] == 'r') handleRequest(line[0] == 'l' ? 'L' : 'R', now);
   if (line[0] == 'c') handleRequest('C', now);
+  if (line[0] == 'k' && (line[1] == 'l' || line[1] == 'r')) {
+    const char *why = requestHold(line[1] == 'l' ? 'L' : 'R', now, HOLD_SERIAL_MS);
+    if (*why) outf("hold refused: %s\n", why);
+  }
   else if (line[0] == 's') status(now);
   else help();
 }
@@ -643,6 +727,7 @@ void serialLine(char *line, uint32_t now) {
 void help() {
   out("\nGenesis DH automatic turn signal (B-CAN one-touch on EON request), firmware " FW_VERSION "\n"
       "  l = LEFT tap   r = RIGHT tap   c = cancel our blinking (tap the other way)   s = status   h = help\n"
+      "  kl / kr = keep blinking (hold, 60 s test) until c\n"
       "  w NAME|PASSWORD = save hotspot   wl = list   wd N = delete   wp = open setup Wi-Fi\n");
   outf("  UDP in %d / status %d, CAN pins TX %d RX %d 100k\n", COMMAND_PORT, STATUS_PORT, CAN_TX_PIN, CAN_RX_PIN);
   listNets();
@@ -703,6 +788,7 @@ void loop() {
     }
   }
 
+  holdTick(now);
   if (tap == TAP_IDLE) wifiTick(now);  // nothing slow during the 0.16 s tap
   if (wifiUp && tap == TAP_IDLE) pollUdp(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);

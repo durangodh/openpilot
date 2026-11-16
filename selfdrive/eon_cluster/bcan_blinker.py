@@ -16,7 +16,7 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
-                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, BlinkRequestSource, LaneCrossDetector, stopped_blink_action, LaneTapPlanner, command_packet, lane_direction,
+                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, BlinkRequestSource, LaneCrossDetector, hold_press_action, stopped_blink_action, HOLD_KEEPALIVE_S, HOLD_MAX_S, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
@@ -65,6 +65,10 @@ def main():
   cancel_seq = None
   blink_requests = BlinkRequestSource()
   own_tap_time = None   # monotonic time of our last tap (a cancel clears it)
+  hold_enabled = False
+  hold_side = None      # 'L' / 'R' while the ESP32 holds the blinker for us
+  hold_start = hold_keep = 0.0
+  hold_seq = None
 
   enabled = False
   next_param_check = 0.0
@@ -85,6 +89,7 @@ def main():
     if now >= next_param_check:
       enabled = params.get_bool("DhBcanBlinker")
       cancel_enabled = params.get_bool("DhBcanBlinkerCancel")
+      hold_enabled = params.get_bool("DhBcanBlinkerHold")
       next_param_check = now + PARAM_CHECK_S
       if enabled != prev_enabled:
         dlog.write(f"DhBcanBlinker {'on' if enabled else 'off'}")
@@ -101,6 +106,11 @@ def main():
       if parsed is None:
         continue
       status, status_mono, esp_ip = parsed, now, addr[0]
+      if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
+        if parsed["res"] != "ok" and hold_side is not None:
+          dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
+          hold_side = None
+        hold_seq = None
       if cancel_seq is not None and parsed["seq"] == cancel_seq and parsed["res"]:
         dlog.write(f"ESP32 answer cancel seq {cancel_seq}: {parsed['res']} (lamp {parsed['lamp']})")
         cancel_seq = None
@@ -136,7 +146,17 @@ def main():
     # ours still blinks and no lane change runs ends it). A lane change that follows counts this
     # tap as its first (planner) and may cancel it at the line crossing (canceller).
     lane_change_active = sm.alive['lateralPlan'] and str(plan.laneChangeState) != "off"
-    action = stopped_blink_action(blink_requests.poll(), own_tap_time, now, lane_change_active)
+    request = blink_requests.poll()
+    if hold_enabled or hold_side is not None:
+      action = hold_press_action(request, hold_side)
+    else:
+      action = stopped_blink_action(request, own_tap_time, now, lane_change_active)
+    if action is None and hold_side is not None and now - hold_keep >= HOLD_KEEPALIVE_S:
+      if now - hold_start > HOLD_MAX_S or not hold_enabled:
+        action = "C"
+        dlog.write(f"hold {hold_side} stop: {'max time' if hold_enabled else 'setting off'}")
+      else:
+        action = "K" + hold_side   # keepalive: refreshes the ESP32 hold, never restarts it
     press_tap = None
     if action is not None:
       seq = (seq % 30000) + 1
@@ -151,14 +171,25 @@ def main():
         if action == "C":
           cancel_seq = seq
           own_tap_time = None
+          hold_side = None
           dlog.write(f"remote: cancel seq {seq} sent to {esp_ip}")
+        elif action in ("HL", "HR", "KL", "KR"):
+          hold_seq = seq
+          hold_keep = now
+          if hold_side != action[1]:
+            hold_side, hold_start = action[1], now
+            own_tap_time = now
+            press_tap = action[1]
+            planner.note_external_tap(now, action[1])
+            event = {"seq": seq, "dir": action[1], "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
+            dlog.write(f"remote: hold {action[1]} seq {seq} sent to {esp_ip} (v {car.vEgo:.1f} m/s)")
         else:
           own_tap_time = now
           press_tap = action
           planner.note_external_tap(now, action)
           event = {"seq": seq, "dir": action, "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
           dlog.write(f"remote: tap {action} seq {seq} sent to {esp_ip} (v {car.vEgo:.1f} m/s)")
-      else:
+      elif not action.startswith("K"):
         dlog.write(f"remote: {action} NOT sent: link {link}")
 
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)
@@ -218,6 +249,7 @@ def main():
           time.sleep(0.02)
         cancel_seq = seq  # the screens keep showing the tap; the answer goes to the log only
         own_tap_time = None
+        hold_side = None   # the lane change is done: a held blinker ends with it
         dlog.write(f"cancel seq {seq} sent to {esp_ip} (lane change finishing)")
       else:
         dlog.write(f"cancel NOT sent: link {link}")
