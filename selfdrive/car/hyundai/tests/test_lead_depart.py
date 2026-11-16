@@ -22,3 +22,14 @@ def test_no_alert_while_moving_or_without_a_close_lead():
   run(d, 0.0, 6.0, 150)
   run(d, 2.0, 6.0, 10)                         # ego moved: a new stop starts over
   assert not any(run(d, 0.0, 9.0, 50))
+
+
+def test_only_in_drive():
+  d = LeadDepartDetector()
+  assert not any(d.update(0.0, 6.0, in_drive=False) for _ in range(150))
+  assert not any(d.update(0.0, 9.0, in_drive=False) for _ in range(50))   # P/N: never
+  # stopped in D, shifted to N while the lead leaves, back to D: the stop starts over
+  d = LeadDepartDetector()
+  run(d, 0.0, 6.0, 150)
+  d.update(0.0, 7.0, in_drive=False)
+  assert not any(run(d, 0.0, 9.0, 50))
