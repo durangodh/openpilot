@@ -170,6 +170,12 @@ class Controls:
                                     ignore_alive=ignore,
                                     ignore_avg_freq=['radarState', 'longitudinalPlan', 'driverMonitoringState'])
 
+    # liveTorqueParameters is optional: it is only used when it passes its own checks (see
+    # sm.all_checks(['liveTorqueParameters']) below), else the offline torque values are used.
+    # torqued marks it invalid whenever one of its inputs hiccups, which raised commIssue and
+    # blocked engagement (2026-11-16 g_web log: invalid ["liveTorqueParameters"]).
+    self.comm_services = [s for s in self.sm.alive if s != 'liveTorqueParameters']
+
     # set alternative experiences from parameters
     self.disengage_on_accelerator = params.get_bool("DisengageOnAccelerator")
     self.CP.alternativeExperience = 0
@@ -421,11 +427,11 @@ class Controls:
       self.events.add(EventName.usbError)
     # 시동을 끄면(started=False) manager 가 프로세스를 차례로 끄는 사이 "Communication Issue
     # between Processes" 가 가끔 남았다. 카메라 경고처럼 시동 중에만 확인한다.
-    elif self.sm['deviceState'].started and (not self.sm.all_checks() or self.can_rcv_error):
+    elif self.sm['deviceState'].started and (not self.sm.all_checks(self.comm_services) or self.can_rcv_error):
 
-      if not self.sm.all_alive():
+      if not self.sm.all_alive(self.comm_services):
         self.events.add(EventName.commIssue)
-      elif not self.sm.all_freq_ok():
+      elif not self.sm.all_freq_ok(self.comm_services):
         self.events.add(EventName.commIssueAvgFreq)
       else:  # invalid or can_rcv_error.
         self.events.add(EventName.commIssue)
@@ -566,7 +572,7 @@ class Controls:
     self._sp.mark("sm_update")  # _prof
 
     if not self.initialized:
-      all_valid = CS.canValid and self.sm.all_checks()
+      all_valid = CS.canValid and self.sm.all_checks(self.comm_services)
       if all_valid or self.sm.frame * DT_CTRL > 3.5 or SIMULATION:
         if not self.read_only:
           self.CI.init(self.CP, self.can_sock, self.pm.sock['sendcan'])
