@@ -9,7 +9,6 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.mcan_hud import McanHud
-from selfdrive.car.hyundai.lead_depart import LeadDepartDetector
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -94,10 +93,6 @@ class CarController:
 
     self.mad_mode_enabled = param.get_bool('MadModeEnabled')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
-    # 앞차 출발 핸들 진동 (LeadDepartHaptic, read every 2 s so it applies without a reboot)
-    self.lead_depart_haptic = param.get_bool('LeadDepartHaptic')
-    self.lead_depart = LeadDepartDetector()
-    self.lead_depart_timer = 0
     self.op_params = param
 
     self.scc_smoother = SccSmoother()
@@ -153,21 +148,6 @@ class CarController:
       if self.active_cam_timer > 0:
         self.active_cam_timer -= 1
         left_lane_warning = right_lane_warning = 1
-
-    # 앞차 출발: the car ahead moved off while ego still stands -> 1 s wheel vibration.
-    if self.frame % 200 == 0:
-      self.lead_depart_haptic = self.op_params.get_bool('LeadDepartHaptic')
-    try:
-      lead = controls.sm['radarState'].leadOne
-      lead_d = float(lead.dRel) if lead.status else None
-    except Exception:
-      lead_d = None
-    in_drive = CS.out.gearShifter == car.CarState.GearShifter.drive   # 기어 D에서만
-    if self.lead_depart.update(CS.out.vEgo, lead_d, in_drive) and self.lead_depart_haptic:
-      self.lead_depart_timer = int(1.0 / DT_CTRL)
-    if self.lead_depart_timer > 0:
-      self.lead_depart_timer -= 1
-      left_lane_warning = right_lane_warning = 1
 
     clu11_speed = CS.clu11["CF_Clu_Vanz"]
     enabled_speed = 38 if CS.is_set_speed_in_mph else 60
