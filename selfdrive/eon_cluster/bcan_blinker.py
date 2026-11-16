@@ -16,7 +16,7 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
-                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, LaneCrossDetector, LaneTapPlanner, command_packet, lane_direction,
+                                                     STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, BlinkRequestSource, LaneCrossDetector, stopped_blink_action, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
@@ -63,6 +63,8 @@ def main():
   crosser = LaneCrossDetector()
   cancel_enabled = False
   cancel_seq = None
+  blink_requests = BlinkRequestSource()
+  own_tap_time = None   # monotonic time of our last tap (a cancel clears it)
 
   enabled = False
   next_param_check = 0.0
@@ -155,6 +157,7 @@ def main():
         event = {"seq": seq, "dir": side, "wall": wall, "ok": False, "why": "응답 대기", "pending": True}
         dlog.write(f"tap {side} seq {seq} sent to {esp_ip}")
         tap_sent = side
+        own_tap_time = now
       else:
         why = "ESP32 없음" if link == LINK_NONE else "B-CAN 없음" if link != LINK_OK else "주소 없음"
         event = {"seq": seq, "dir": side, "wall": wall, "ok": False, "why": why, "pending": False}
@@ -185,9 +188,33 @@ def main():
             pass
           time.sleep(0.02)
         cancel_seq = seq  # the screens keep showing the tap; the answer goes to the log only
+        own_tap_time = None
         dlog.write(f"cancel seq {seq} sent to {esp_ip} (lane change finishing)")
       else:
         dlog.write(f"cancel NOT sent: link {link}")
+
+    # Remote lane button while stopped: blinker only (tap, or a second press ends it).
+    action = stopped_blink_action(blink_requests.poll(), own_tap_time, now)
+    if action is not None:
+      seq = (seq % 30000) + 1
+      if link == LINK_OK and esp_ip:
+        packet = command_packet(seq, action)
+        for _ in range(COMMAND_REPEATS):
+          try:
+            tx.sendto(packet, (esp_ip, COMMAND_PORT))
+          except OSError:
+            pass
+          time.sleep(0.02)
+        if action == "C":
+          cancel_seq = seq
+          own_tap_time = None
+          dlog.write(f"stopped: cancel seq {seq} sent to {esp_ip}")
+        else:
+          own_tap_time = now
+          event = {"seq": seq, "dir": action, "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
+          dlog.write(f"stopped: tap {action} seq {seq} sent to {esp_ip}")
+      else:
+        dlog.write(f"stopped: {action} NOT sent: link {link}")
 
     if now >= next_status_write:
       next_status_write = now + STATUS_WRITE_S

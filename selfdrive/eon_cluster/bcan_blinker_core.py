@@ -172,6 +172,48 @@ class BlinkCancelPlanner:
     return due
 
 
+# Remote lane button while stopped (hud_remote BLINK_FILE): one-touch on that side, or end our own
+# one-touch if it is still blinking (a second press, either side).
+STOPPED_BLINK_FILE = "/dev/shm/hud_remote_blink.json"
+BLINK_REQUEST_MAX_AGE_S = 1.0
+OWN_BLINK_S = 3.6        # one-touch: 5 flashes in about 3.5 s
+
+
+class BlinkRequestSource:
+  """New stopped-blinker requests from the remote ('L' / 'R' / None), each id once."""
+
+  def __init__(self, path=STOPPED_BLINK_FILE, clock=time.monotonic):
+    self.path, self.clock = path, clock
+    self.last_id = None
+    self.started = clock()
+
+  def poll(self):
+    try:
+      with open(self.path) as f:
+        payload = json.load(f)
+    except (OSError, ValueError):
+      return None
+    if not isinstance(payload, dict):
+      return None
+    rid, ts, direction = payload.get("id"), payload.get("ts"), payload.get("direction")
+    now = self.clock()
+    if rid == self.last_id or not isinstance(ts, (int, float)) or not math.isfinite(ts):
+      return None
+    self.last_id = rid
+    if not (self.started <= ts <= now and now - ts <= BLINK_REQUEST_MAX_AGE_S):
+      return None
+    return {-1: "L", 1: "R"}.get(direction)
+
+
+def stopped_blink_action(request, own_tap_time, now):
+  """'L'/'R' to tap, 'C' to end our own one-touch still blinking, or None."""
+  if request not in ("L", "R"):
+    return None
+  if own_tap_time is not None and 0.0 <= now - own_tap_time <= OWN_BLINK_S:
+    return "C"
+  return request
+
+
 def write_status(path, payload):
   temporary = path + ".tmp"
   with open(temporary, "w") as f:

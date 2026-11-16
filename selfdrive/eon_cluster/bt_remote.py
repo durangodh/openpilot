@@ -229,7 +229,9 @@ def vehicle_state(sm):
   started = sm.alive['deviceState'] and sm['deviceState'].started
   valid = sm.alive['carState'] and sm.valid['carState'] and sm['carState'].canValid
   car = sm['carState']
-  return started, valid, car.gearShifter == 'drive', car.brakePressed, car.gasPressed
+  # stopped: the lane buttons turn on the exterior blinker instead (hud_remote BLINK_FILE)
+  stopped = bool(valid and car.vEgo < 0.5)
+  return started, valid, car.gearShifter == 'drive', car.brakePressed, car.gasPressed, stopped
 
 
 def remote_learning_allowed(sm, params):

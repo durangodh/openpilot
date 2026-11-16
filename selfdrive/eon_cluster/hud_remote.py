@@ -13,6 +13,8 @@ import uuid
 
 COMMAND_FILE = "/dev/shm/hud_remote_cmd.json"
 LANE_FILE = "/dev/shm/hud_remote_lane.json"
+# Remote lane button while stopped: no lane change, only the exterior blinker (bcan_blinker).
+BLINK_FILE = "/dev/shm/hud_remote_blink.json"
 STATUS_FILE = "/dev/shm/hud_remote_status.json"
 # 리모컨 음성 호출: S20 HUD 앱이 이 seq 가 바뀌면 듣기를 시작한다(2026-11-07).
 VOICE_FILE = "/dev/shm/hud_voice_req.json"
@@ -66,12 +68,14 @@ def fresh(created, started, now, max_age=COMMAND_MAX_AGE_S):
 class RemoteCommandSync:
   """Journals accepted commands for carState (buttons) and DesireHelper (lane changes)."""
 
-  def __init__(self, params, command_file=COMMAND_FILE, lane_file=LANE_FILE, clock=time.monotonic):
+  def __init__(self, params, command_file=COMMAND_FILE, lane_file=LANE_FILE, clock=time.monotonic,
+               blink_file=BLINK_FILE):
     self.params, self.command_file, self.lane_file = params, command_file, lane_file
+    self.blink_file = blink_file
     self.clock = clock
     self.session = uuid.uuid4().hex
     self.events = []
-    self.vehicle = (False, False, False, False, False)
+    self.vehicle = (False, False, False, False, False, False)
     self.seq = 0
     self.last_event = None
 
@@ -106,7 +110,10 @@ class RemoteCommandSync:
         atomic_json(self.command_file, {"events": events[-32:]})
         self.events = events[-32:]
       elif command in LANE_COMMANDS:
-        atomic_json(self.lane_file, {"direction": LANE_COMMANDS[command], "ts": now})
+        stopped = len(self.vehicle) > 5 and bool(self.vehicle[5])
+        # Stopped: the exterior blinker only (bcan_blinker), never a lane change.
+        atomic_json(self.blink_file if stopped else self.lane_file,
+                    {"direction": LANE_COMMANDS[command], "ts": now, "id": request})
       elif command == "hud_box":
         # HUD info box: 1 = HUD info, 2 = trip summary.
         try:
@@ -257,19 +264,20 @@ class RemoteLaneChangeSource:
     return 0
 
 
-def allowed_commands(started, car_valid, drive, brake, gas):
+def allowed_commands(started, car_valid, drive, brake, gas, stopped=False):
   allowed = set(PARAM_COMMANDS)
   if started and car_valid:
     # carrot-wip 처럼 크루즈 버튼은 시동·차량 데이터만 보고 받는다. 기어·페달에 따른
     # 실제 동작 여부는 핸들 버튼과 똑같이 크루즈 로직이 판단한다(2026-10-18).
     allowed.update(BUTTON_COMMANDS)
     allowed.update(LONG_BUTTON_COMMANDS)
-    if drive and not brake and not gas:
+    if (drive and not brake and not gas) or stopped:
+      # stopped: the lane buttons only work the exterior blinker (BLINK_FILE)
       allowed.update(LANE_COMMANDS)
   return frozenset(allowed)
 
 
-def block_reason(command, started, car_valid, drive, brake, gas):
+def block_reason(command, started, car_valid, drive, brake, gas, stopped=False):
   """allowed_commands 가 이 명령을 막은 이유(HUD 표시용)."""
   if command in PARAM_COMMANDS:
     return ""

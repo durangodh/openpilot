@@ -150,3 +150,25 @@ def test_lane_cross_detector():
   assert not any(d.update(y, 0.9) for y in [1.8, 1.7, 3.5])          # jump while still far: no
   d = LaneCrossDetector()
   assert not any(d.update(y, p) for y, p in [(0.5, 0.9), (3.4, 0.1)])  # line lost: no
+
+
+def test_stopped_blink_requests_and_actions(tmp_path):
+  import json
+  from selfdrive.eon_cluster.bcan_blinker_core import BlinkRequestSource, stopped_blink_action
+  t = [100.0]
+  path = str(tmp_path / "blink.json")
+  src = BlinkRequestSource(path, clock=lambda: t[0])
+  assert src.poll() is None
+  t[0] = 101.0
+  with open(path, "w") as f:
+    json.dump({"direction": -1, "ts": 100.9, "id": "a"}, f)
+  assert src.poll() == "L"
+  assert src.poll() is None                      # each request once
+  with open(path, "w") as f:
+    json.dump({"direction": 1, "ts": 99.0, "id": "b"}, f)
+  assert src.poll() is None                      # older than this process / stale
+  # first press taps, a second press while it blinks ends it, later presses tap again
+  assert stopped_blink_action("L", None, 10.0) == "L"
+  assert stopped_blink_action("R", 10.0, 12.0) == "C"
+  assert stopped_blink_action("L", 10.0, 14.0) == "L"
+  assert stopped_blink_action(None, 10.0, 11.0) is None

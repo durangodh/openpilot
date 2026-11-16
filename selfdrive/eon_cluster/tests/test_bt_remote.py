@@ -162,6 +162,14 @@ class TestCommandJournal(unittest.TestCase):
     self.assertEqual(self.sync.event_status()["why"], "D단 아님")
     self.assertFalse(os.path.exists(self.lane))
 
+  def test_lane_button_while_stopped_only_asks_for_the_blinker(self):
+    blink = os.path.join(self.dir.name, "blink.json")
+    self.sync.blink_file = blink
+    self.sync.vehicle = (True, True, True, True, False, True)   # stopped on the brake
+    self.assertEqual(self.sync.apply("lane_left", hr.allowed_commands(*self.sync.vehicle)), "accepted")
+    self.assertFalse(os.path.exists(self.lane))                  # no lane change
+    self.assertEqual(hr.read_json(blink)["direction"], -1)
+
   def test_lane_command_pulse(self):
     source = hr.RemoteLaneChangeSource(self.lane, clock=self.clock)
     self.clock.now += 1
