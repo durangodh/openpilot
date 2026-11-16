@@ -54,15 +54,34 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16f"
+#define FW_VERSION "2026-11-16g" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
 #define PORTAL_AFTER_MS 30000
 #define PORTAL_IDLE_MS 120000     // closes this long after the last page view once connected
 
+// CAN transceiver. FT_MODULE 0 (default): the board's own CAN terminals (GPIO15/16, a high-speed chip
+// wired straight to the low-speed B-CAN; works, but a tap now and then sees a bus error).
+// FT_MODULE 1: a TJA1055T/3 low-speed fault-tolerant module on the header (IO4 TXD, IO5 RXD,
+// IO6 EN, IO7 STB_N, both held HIGH = normal mode), the B-CAN's own physical layer.
+// Prebuilt: bin/dh_bcan_blinker.ino.bin (0) and bin/dh_bcan_blinker_tja1055.ino.bin (1).
+#ifndef FT_MODULE
+#define FT_MODULE 0
+#endif
+#if FT_MODULE
+#define CAN_TX_PIN 4
+#define CAN_RX_PIN 5
+#define FT_EN_PIN 6
+#define FT_STB_PIN 7
+#define FW_VARIANT "-tja1055"
+#else
 #define CAN_TX_PIN 15
 #define CAN_RX_PIN 16
+#define FT_EN_PIN -1
+#define FT_STB_PIN -1
+#define FW_VARIANT ""
+#endif
 #define COMMAND_PORT 7290
 #define STATUS_PORT 7291
 #define LEVER_ID 0x138
@@ -901,6 +920,8 @@ void setup() {
   Serial0.begin(115200);
 #endif
   delay(1000);
+  if (FT_EN_PIN >= 0) { pinMode(FT_EN_PIN, OUTPUT); digitalWrite(FT_EN_PIN, HIGH); }
+  if (FT_STB_PIN >= 0) { pinMode(FT_STB_PIN, OUTPUT); digitalWrite(FT_STB_PIN, HIGH); }
   startCan(false);
   loadNets();
   WiFi.mode(WIFI_STA);
