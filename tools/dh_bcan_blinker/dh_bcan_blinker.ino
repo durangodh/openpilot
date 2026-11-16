@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16b"
+#define FW_VERSION "2026-11-16c"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -127,7 +127,8 @@ static char ownSide = 0;          // side of our last successful one-touch (0: n
 static uint32_t ownEndMs = 0, driverLeverMs = 0;
 static bool cancelTap = false;
 static char holdSide = 0;
-static uint32_t holdStartMs = 0, holdDeadlineMs = 0;
+static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;
+static char holdEnd[16] = "";   // why the last hold ended (status "hend")
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -191,10 +192,11 @@ bool errRecent(uint32_t now) { return errSeen && now - errMs < ERR_HOLD_MS; }
 void sendStatus(uint32_t now) {
   lastStatus = now;
   if (!wifiUp) return;
-  char buf[160];
-  snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\"}",
+  char buf[220];
+  snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
+           "\"hold\":%d,\"hend\":\"%s\"}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
-           lastSeq < 0 ? 0 : lastSeq, lastRes);
+           lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -271,7 +273,10 @@ const char *requestTap(char side, uint32_t now) {
 void stopHold(const char *why, uint32_t now) {
   if (!holdSide) return;
   outf("%9lu  hold %c end: %s\n", (unsigned long)now, holdSide, why);
+  strncpy(holdEnd, why, sizeof(holdEnd) - 1);
+  holdEnd[sizeof(holdEnd) - 1] = 0;
   holdSide = 0;
+  sendStatus(now);
 }
 
 // Start (or refresh, when already holding that side) a held blinker.
@@ -288,6 +293,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
   holdSide = side;
   holdStartMs = now;
   holdDeadlineMs = now + keepMs;
+  holdEnd[0] = 0;
   outf("%9lu  hold %c start\n", (unsigned long)now, side);
   return "";
 }
@@ -301,10 +307,13 @@ void holdTick(uint32_t now) {
   if (now - holdStartMs > HOLD_MAX_MS) return stopHold("max time", now);
   bool due = now - ownEndMs >= HOLD_RETAP_MS ||
              (now - ownEndMs > 1000 && (!lampSeen || now - lampOnMs >= HOLD_GAP_MS));
-  if (!due || !stockFresh(now) || (stock[0] & LEVER_MASK)) return;
+  if (!due || !stockFresh(now) || (stock[0] & LEVER_MASK) || (int32_t)(now - holdRetryMs) < 0) return;
   cancelTap = false;
   const char *why = startTap(holdSide, now);
-  if (*why) stopHold(why, now);
+  if (*why) {
+    outf("%9lu  hold retap failed: %s, retry\n", (unsigned long)now, why);
+    holdRetryMs = now + 300;  // a transient driver hiccup must not end the hold
+  }
 }
 
 // Ends our own one-touch: a tap the other way. Refused unless our tap is still blinking.

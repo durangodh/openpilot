@@ -106,6 +106,10 @@ def main():
       if parsed is None:
         continue
       status, status_mono, esp_ip = parsed, now, addr[0]
+      # The ESP32 reports whether it still holds and why the last hold ended (firmware 2026-11-16c).
+      if hold_side is not None and parsed.get("hold") == 0 and now - hold_start > 1.5:
+        dlog.write(f"hold {hold_side} ended by ESP32: {parsed.get('hend') or '?'}")
+        hold_side = None
       if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
         if parsed["res"] != "ok" and hold_side is not None:
           dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
