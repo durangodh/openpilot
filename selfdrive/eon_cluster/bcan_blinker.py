@@ -111,7 +111,7 @@ def main():
       if hold_side is not None and parsed.get("hold") == 0 and now - hold_start > 1.5:
         dlog.write(f"hold {hold_side} ended by ESP32: {parsed.get('hend') or '?'} "
                    f"(keepalives: EON sent {keep_sent}, not sent {keep_skipped}, ESP32 got {parsed.get('kc')}; "
-                   f"ESP32 packets {parsed.get('rx')}, last '{parsed.get('lc')}')")
+                   f"ESP32 packets {parsed.get('rx')}, last '{parsed.get('lc')}', failed re-taps {parsed.get('hf')})")
         hold_side = None
       if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
         if parsed["res"] != "ok" and hold_side is not None:

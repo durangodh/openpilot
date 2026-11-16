@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16e"
+#define FW_VERSION "2026-11-16f"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -134,6 +134,7 @@ static uint16_t rxCount = 0;    // command packets received, any kind (status "r
 static char lastCmd[16] = "";   // the last command packet as received (status "lc")
 static uint32_t holdErrMs = 0;
 static uint8_t holdErrs = 0;
+static uint16_t holdFails = 0;  // hold re-taps that did not finish (status "hf")
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -199,10 +200,10 @@ void sendStatus(uint32_t now) {
   if (!wifiUp) return;
   char buf[260];
   snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
-           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\"}",
+           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\",\"hf\":%u}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
            lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount,
-           (unsigned)rxCount, lastCmd);
+           (unsigned)rxCount, lastCmd, (unsigned)holdFails);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -236,6 +237,10 @@ void endTap(const char *res) {
   if (!done && strcmp(res, "nobcan")) {
     errSeen = true;
     errMs = now;
+  }
+  if (!done && holdSide) {
+    holdFails++;
+    holdRetryMs = now + 500;  // a failed hold re-tap waits before the next try
   }
   if (done && !cancelTap) {
     ownSide = tapSide;
@@ -302,6 +307,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
   holdEnd[0] = 0;
   keepCount = 0;
   holdErrs = 0;
+  holdFails = 0;
   outf("%9lu  hold %c start\n", (unsigned long)now, side);
   return "";
 }
@@ -927,9 +933,11 @@ void loop() {
     }
   }
 
-  holdTick(now);
+  // Read EON first: a hold re-tap starts in holdTick() and would otherwise keep the board busy
+  // loop after loop (2026-11-16 road log: 16 packets, then none for 30 s during a hold).
   if (tap == TAP_IDLE) wifiTick(now);  // nothing slow during the 0.16 s tap
   if (wifiUp && tap == TAP_IDLE) pollUdp(now);
+  holdTick(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);
 
   for (int c = readCmd(); c >= 0; c = readCmd()) {
