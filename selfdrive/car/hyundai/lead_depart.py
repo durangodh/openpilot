@@ -17,8 +17,14 @@ class LeadDepartDetector:
     self.stop_lead_d = None
     self.fired = False
 
-  def update(self, v_ego, lead_d):
-    """True on the one frame the lead is seen departing."""
+  def update(self, v_ego, lead_d, in_drive=True):
+    """True on the one frame the lead is seen departing. Only in D: out of D (P, N, R) the stop
+    starts over, so a parked or neutral car never vibrates."""
+    if not in_drive:
+      self.stopped_frames = 0
+      self.stop_lead_d = None
+      self.fired = False
+      return False
     if v_ego < 0.3:
       self.stopped_frames += 1
     elif v_ego > 1.0:

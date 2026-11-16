@@ -162,7 +162,8 @@ class CarController:
       lead_d = float(lead.dRel) if lead.status else None
     except Exception:
       lead_d = None
-    if self.lead_depart.update(CS.out.vEgo, lead_d) and self.lead_depart_haptic:
+    in_drive = CS.out.gearShifter == car.CarState.GearShifter.drive   # 기어 D에서만
+    if self.lead_depart.update(CS.out.vEgo, lead_d, in_drive) and self.lead_depart_haptic:
       self.lead_depart_timer = int(1.0 / DT_CTRL)
     if self.lead_depart_timer > 0:
       self.lead_depart_timer -= 1
