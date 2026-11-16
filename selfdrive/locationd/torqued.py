@@ -30,11 +30,10 @@ MIN_FILTER_DECAY = 50
 MAX_FILTER_DECAY = 250
 LAT_ACC_THRESHOLD = 1
 STEER_BUCKET_BOUNDS = [(-0.5, -0.3), (-0.3, -0.2), (-0.2, -0.1), (-0.1, 0), (0, 0.1), (0.1, 0.2), (0.2, 0.3), (0.3, 0.5)]
-#MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
-MIN_BUCKET_POINTS = np.array([20, 60, 100, 100, 100, 100, 60, 20])
+MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
 MIN_ENGAGE_BUFFER = 2  # secs
 
-VERSION = 1  # bump this to invalidate old parameter caches
+VERSION = 2  # v1 samples predate input validation and the new bucket minimums
 ALLOWED_CARS = ['toyota', 'hyundai']
 
 
@@ -118,9 +117,10 @@ class TorqueEstimator:
     self.offline_friction = 0.0
     self.offline_latAccelFactor = 0.0
     self.resets = 0.0
-    self.use_params = CP.carName in ALLOWED_CARS
+    torque_tuning = CP.lateralTuning.which() == 'torque'
+    self.use_params = CP.carName in ALLOWED_CARS and torque_tuning
 
-    if CP.lateralTuning.which() == 'torque':
+    if torque_tuning:
       self.offline_friction = CP.lateralTuning.torque.friction
       self.offline_latAccelFactor = CP.lateralTuning.torque.latAccelFactor
 
@@ -148,6 +148,7 @@ class TorqueEstimator:
         cache_CP = car.CarParams.from_bytes(params_cache)
         if self.get_restore_key(cache_CP, cache_ltp.version) == self.get_restore_key(CP, VERSION):
           if cache_ltp.liveValid:
+            self.live_valid = True
             initial_params = {
               'latAccelFactor': cache_ltp.latAccelFactorFiltered,
               'latAccelOffset': cache_ltp.latAccelOffsetFiltered,
@@ -176,6 +177,8 @@ class TorqueEstimator:
   def reset(self):
     self.resets += 1.0
     self.decay = MIN_FILTER_DECAY
+    self.live_valid = False
+    self.raw_estimate = None
     self.raw_points = defaultdict(lambda: deque(maxlen=self.hist_len))
     self.filtered_points = PointBuckets(x_bounds=STEER_BUCKET_BOUNDS, min_points=self.min_bucket_points, min_points_total=self.min_points_total)
 
@@ -217,35 +220,38 @@ class TorqueEstimator:
         vego = np.interp(t, self.raw_points['carState_t'], self.raw_points['vego'])
         steer = np.interp(t, self.raw_points['carControl_t'], self.raw_points['steer_torque'])
         lateral_acc = (vego * yaw_rate) - (np.sin(roll) * ACCELERATION_DUE_TO_GRAVITY)
-        if all(active) and (not any(steer_override)) and (vego > MIN_VEL) and (abs(steer) > STEER_MIN_THRESHOLD) and (abs(lateral_acc) <= LAT_ACC_THRESHOLD):
+        if (all(active) and not any(steer_override) and vego > MIN_VEL and np.isfinite(steer)
+            and abs(steer) > STEER_MIN_THRESHOLD and abs(lateral_acc) <= LAT_ACC_THRESHOLD):
           self.filtered_points.add_point(float(steer), float(lateral_acc))
 
-  def get_msg(self, valid=True, with_points=False):
+  def get_msg(self, valid=True, with_points=False, update_filter=True):
     msg = messaging.new_message('liveTorqueParameters')
     msg.valid = valid
     liveTorqueParameters = msg.liveTorqueParameters
     liveTorqueParameters.version = VERSION
     liveTorqueParameters.useParams = self.use_params
 
-    if self.filtered_points.is_valid():
-      latAccelFactor, latAccelOffset, frictionCoeff = self.estimate_params()
-      liveTorqueParameters.latAccelFactorRaw = float(latAccelFactor)
-      liveTorqueParameters.latAccelOffsetRaw = float(latAccelOffset)
-      liveTorqueParameters.frictionCoefficientRaw = float(frictionCoeff)
-
-      if any([val is None or np.isnan(val) for val in [latAccelFactor, latAccelOffset, frictionCoeff]]):
-        cloudlog.exception("Live torque parameters are invalid.")
-        liveTorqueParameters.liveValid = False
+    if valid and update_filter and self.filtered_points.is_valid():
+      estimate = self.estimate_params()
+      if not np.all(np.isfinite(estimate)):
+        cloudlog.warning("Live torque parameters are invalid.")
         self.reset()
       else:
-        liveTorqueParameters.liveValid = True
-        latAccelFactor = np.clip(latAccelFactor, self.min_lataccel_factor, self.max_lataccel_factor)
-        frictionCoeff = np.clip(frictionCoeff, self.min_friction, self.max_friction)
-        self.update_params({'latAccelFactor': latAccelFactor, 'latAccelOffset': latAccelOffset, 'frictionCoefficient': frictionCoeff})
-    else:
-      liveTorqueParameters.liveValid = False
+        self.raw_estimate = estimate
+        self.live_valid = True
+        lat_accel_factor, lat_accel_offset, friction = estimate
+        self.update_params({
+          'latAccelFactor': np.clip(lat_accel_factor, self.min_lataccel_factor, self.max_lataccel_factor),
+          'latAccelOffset': lat_accel_offset,
+          'frictionCoefficient': np.clip(friction, self.min_friction, self.max_friction),
+        })
 
-    #print(self.filtered_points.bucket_lengths_str())
+    if self.raw_estimate is not None:
+      lat_accel_factor, lat_accel_offset, friction = self.raw_estimate
+      liveTorqueParameters.latAccelFactorRaw = float(lat_accel_factor)
+      liveTorqueParameters.latAccelOffsetRaw = float(lat_accel_offset)
+      liveTorqueParameters.frictionCoefficientRaw = float(friction)
+    liveTorqueParameters.liveValid = self.live_valid
     liveTorqueParameters.debugText = self.filtered_points.bucket_lengths_str()
 
     if with_points:
@@ -280,7 +286,7 @@ def main(sm=None, pm=None):
     params = Params()
     params.put("LiveTorqueCarParams", CP.as_builder().to_bytes())
 
-    msg = estimator.get_msg(with_points=True)
+    msg = estimator.get_msg(with_points=True, update_filter=False)
     params.put("LiveTorqueParameters", msg.to_bytes())
 
     sys.exit(0)
@@ -289,25 +295,28 @@ def main(sm=None, pm=None):
 
   while True:
     sm.update()
-#    if sm.all_checks():
-#      for which in sm.updated.keys():
-#        if sm.updated[which]:
-#          t = sm.logMonoTime[which] * 1e-9
-#          estimator.handle_log(t, which, sm[which])
-    for which in sm.updated.keys():
-      if sm.updated[which]:
-        t = sm.logMonoTime[which] * 1e-9
-        estimator.handle_log(t, which, sm[which])
-
+    location = sm['liveLocationKalman']
+    streams_valid = sm.all_checks()
+    inputs_valid = (streams_valid and location.sensorsOK
+                    and location.angularVelocityCalibrated.valid and location.orientationNED.valid)
+    if inputs_valid:
+      for which, updated in sm.updated.items():
+        if updated:
+          estimator.handle_log(sm.logMonoTime[which] * 1e-9, which, sm[which])
+    else:
+      # Preserve accepted samples, but do not interpolate across an input outage.
+      estimator.raw_points.clear()
 
     # 4Hz driven by liveLocationKalman
     if sm.frame % 5 == 0:
-      pm.send('liveTorqueParameters', estimator.get_msg(valid=sm.all_checks()))
+      # Pose quality gates learning without changing the validity contract used
+      # by controlsd for communication checks.
+      pm.send('liveTorqueParameters', estimator.get_msg(valid=streams_valid, update_filter=inputs_valid))
 
     # dp - auto save every 3 mins: 4 hz * 60 * 3 = 720 (3 mins)
     if sm.frame % 720 == 0:
       put_nonblocking("LiveTorqueCarParams", CP.as_builder().to_bytes())
-      msg = estimator.get_msg(with_points=True)
+      msg = estimator.get_msg(with_points=True, update_filter=False)
       put_nonblocking("LiveTorqueParameters", msg.to_bytes())
 
 if __name__ == "__main__":
