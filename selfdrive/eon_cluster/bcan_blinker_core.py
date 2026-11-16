@@ -64,8 +64,11 @@ def parse_status(data):
   out["res"] = res if isinstance(res, str) and len(res) <= 16 else ""
   hold = status.get("hold")
   out["hold"] = int(hold) if isinstance(hold, (int, float)) and math.isfinite(hold) else None  # None: old firmware
-  kc = status.get("kc")
-  out["kc"] = int(kc) if isinstance(kc, (int, float)) and math.isfinite(kc) else None
+  for key in ("kc", "rx"):
+    value = status.get(key)
+    out[key] = int(value) if isinstance(value, (int, float)) and math.isfinite(value) else None
+  lc = status.get("lc")
+  out["lc"] = lc if isinstance(lc, str) and len(lc) <= 16 else ""
   hend = status.get("hend")
   out["hend"] = hend if isinstance(hend, str) and len(hend) <= 16 else ""
   return out

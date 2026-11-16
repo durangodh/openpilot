@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16d"
+#define FW_VERSION "2026-11-16e"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -88,7 +88,7 @@
 // as the lamps stay dark HOLD_GAP_MS (the 5 flashes ended). Serial test: "kl" / "kr", then "c".
 #define HOLD_RETAP_MS 2800
 #define HOLD_GAP_MS 600
-#define HOLD_KEEPALIVE_MS 8000
+#define HOLD_KEEPALIVE_MS 30000
 #define HOLD_SERIAL_MS 60000
 #define HOLD_MAX_MS 180000
 
@@ -130,6 +130,10 @@ static char holdSide = 0;
 static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;
 static char holdEnd[16] = "";   // why the last hold ended (status "hend")
 static uint16_t keepCount = 0;  // keepalives received during the current/last hold (status "kc")
+static uint16_t rxCount = 0;    // command packets received, any kind (status "rx")
+static char lastCmd[16] = "";   // the last command packet as received (status "lc")
+static uint32_t holdErrMs = 0;
+static uint8_t holdErrs = 0;
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -193,11 +197,12 @@ bool errRecent(uint32_t now) { return errSeen && now - errMs < ERR_HOLD_MS; }
 void sendStatus(uint32_t now) {
   lastStatus = now;
   if (!wifiUp) return;
-  char buf[220];
+  char buf[260];
   snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
-           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u}",
+           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\"}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
-           lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount);
+           lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount,
+           (unsigned)rxCount, lastCmd);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -296,6 +301,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
   holdDeadlineMs = now + keepMs;
   holdEnd[0] = 0;
   keepCount = 0;
+  holdErrs = 0;
   outf("%9lu  hold %c start\n", (unsigned long)now, side);
   return "";
 }
@@ -304,7 +310,11 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
 void holdTick(uint32_t now) {
   if (!holdSide || tap != TAP_IDLE) return;
   if (driverLeverMs && driverLeverMs > holdStartMs) return stopHold("driver lever", now);
-  if (errRecent(now) && errMs > holdStartMs) return stopHold("bus error", now);
+  if (errSeen && errMs > holdStartMs && errMs != holdErrMs) {  // one bad tap is not the end
+    holdErrMs = errMs;
+    if (++holdErrs >= 3) return stopHold("bus error", now);
+    holdRetryMs = now + 500;
+  }
   if ((int32_t)(now - holdDeadlineMs) > 0) return stopHold("no keepalive", now);
   if (now - holdStartMs > HOLD_MAX_MS) return stopHold("max time", now);
   bool due = now - ownEndMs >= HOLD_RETAP_MS ||
@@ -495,6 +505,13 @@ void pollUdp(uint32_t now) {
   int len = gUdp.read((uint8_t *)buf, sizeof(buf) - 1);
   if (len <= 0) return;
   buf[len] = 0;
+  rxCount++;
+  int k = 0;
+  for (int i = 0; i < len && k < (int)sizeof(lastCmd) - 1; i++) {
+    char ch = buf[i];
+    if (ch >= 32 && ch < 127 && ch != '"' && ch != '\\') lastCmd[k++] = ch;
+  }
+  lastCmd[k] = 0;
   int seq = -1;
   char cmd[4] = {0};
   if (sscanf(buf, "DHBL1 %d %3s", &seq, cmd) != 2 || seq < 0) return;

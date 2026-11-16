@@ -110,7 +110,8 @@ def main():
       # The ESP32 reports whether it still holds and why the last hold ended (firmware 2026-11-16c).
       if hold_side is not None and parsed.get("hold") == 0 and now - hold_start > 1.5:
         dlog.write(f"hold {hold_side} ended by ESP32: {parsed.get('hend') or '?'} "
-                   f"(keepalives: EON sent {keep_sent}, not sent {keep_skipped}, ESP32 got {parsed.get('kc')})")
+                   f"(keepalives: EON sent {keep_sent}, not sent {keep_skipped}, ESP32 got {parsed.get('kc')}; "
+                   f"ESP32 packets {parsed.get('rx')}, last '{parsed.get('lc')}')")
         hold_side = None
       if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
         if parsed["res"] != "ok" and hold_side is not None:
@@ -166,7 +167,8 @@ def main():
     press_tap = None
     if action is not None:
       seq = (seq % 30000) + 1
-      if link == LINK_OK and esp_ip:
+      reachable = link == LINK_OK or (link != LINK_NONE and action[0] in ("C", "K"))
+      if reachable and esp_ip:
         packet = command_packet(seq, action)
         for _ in range(COMMAND_REPEATS):
           try:
