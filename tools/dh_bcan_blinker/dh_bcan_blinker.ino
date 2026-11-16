@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16c"
+#define FW_VERSION "2026-11-16d"
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -129,6 +129,7 @@ static bool cancelTap = false;
 static char holdSide = 0;
 static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;
 static char holdEnd[16] = "";   // why the last hold ended (status "hend")
+static uint16_t keepCount = 0;  // keepalives received during the current/last hold (status "kc")
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
@@ -194,9 +195,9 @@ void sendStatus(uint32_t now) {
   if (!wifiUp) return;
   char buf[220];
   snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
-           "\"hold\":%d,\"hend\":\"%s\"}",
+           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
-           lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd);
+           lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -294,6 +295,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
   holdStartMs = now;
   holdDeadlineMs = now + keepMs;
   holdEnd[0] = 0;
+  keepCount = 0;
   outf("%9lu  hold %c start\n", (unsigned long)now, side);
   return "";
 }
@@ -503,6 +505,7 @@ void pollUdp(uint32_t now) {
   if (seq == lastSeq) return;  // repeats of the same request
   lastSeq = seq;
   if (keep) {  // keepalive: only refreshes a hold still running, never starts one
+    keepCount++;
     if (holdSide == side) {
       holdDeadlineMs = now + HOLD_KEEPALIVE_MS;
       finish("ok", now);

@@ -69,6 +69,7 @@ def main():
   hold_side = None      # 'L' / 'R' while the ESP32 holds the blinker for us
   hold_start = hold_keep = 0.0
   hold_seq = None
+  keep_sent = keep_skipped = 0
 
   enabled = False
   next_param_check = 0.0
@@ -108,7 +109,8 @@ def main():
       status, status_mono, esp_ip = parsed, now, addr[0]
       # The ESP32 reports whether it still holds and why the last hold ended (firmware 2026-11-16c).
       if hold_side is not None and parsed.get("hold") == 0 and now - hold_start > 1.5:
-        dlog.write(f"hold {hold_side} ended by ESP32: {parsed.get('hend') or '?'}")
+        dlog.write(f"hold {hold_side} ended by ESP32: {parsed.get('hend') or '?'} "
+                   f"(keepalives: EON sent {keep_sent}, not sent {keep_skipped}, ESP32 got {parsed.get('kc')})")
         hold_side = None
       if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
         if parsed["res"] != "ok" and hold_side is not None:
@@ -180,8 +182,11 @@ def main():
         elif action in ("HL", "HR", "KL", "KR"):
           hold_seq = seq
           hold_keep = now
+          if action[0] == "K":
+            keep_sent += 1
           if hold_side != action[1]:
             hold_side, hold_start = action[1], now
+            keep_sent = keep_skipped = 0
             own_tap_time = now
             press_tap = action[1]
             planner.note_external_tap(now, action[1])
@@ -193,7 +198,10 @@ def main():
           planner.note_external_tap(now, action)
           event = {"seq": seq, "dir": action, "wall": time.time(), "ok": False, "why": "응답 대기", "pending": True}
           dlog.write(f"remote: tap {action} seq {seq} sent to {esp_ip} (v {car.vEgo:.1f} m/s)")
-      elif not action.startswith("K"):
+      elif action.startswith("K"):
+        keep_skipped += 1
+        hold_keep = now
+      else:
         dlog.write(f"remote: {action} NOT sent: link {link}")
 
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)

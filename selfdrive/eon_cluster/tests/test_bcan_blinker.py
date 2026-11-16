@@ -15,7 +15,7 @@ def test_command_packet():
 
 def test_parse_status():
   assert parse_status(STATUS) == {"rssi": -55, "bcan": 1, "lamp": 0, "err": 0, "seq": 3, "res": "ok",
-                                  "hold": None, "hend": ""}
+                                  "hold": None, "hend": "", "kc": None}
   held = parse_status(STATUS[:-1] + b',"hold":0,"hend":"no keepalive"}')
   assert held["hold"] == 0 and held["hend"] == "no keepalive"
   assert parse_status(b"not json") is None
