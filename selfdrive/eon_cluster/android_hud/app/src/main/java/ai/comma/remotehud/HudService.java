@@ -5278,42 +5278,34 @@ public final class HudService extends Service {
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
         text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
 
-        // Keep the arrows out of the navigation traffic signal overlay to the right of the clock.
-        float lineLeft = DRIVE_MID - 86f;
-        float lineRight = DRIVE_MID + 86f;
-        float lineY = 62f;
-        float centerGapHalf = 6f;
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(156, 236, 246, 250));
-        c.drawRect(lineLeft, lineY, DRIVE_MID - centerGapHalf, lineY + 2f, p);
-        c.drawRect(DRIVE_MID + centerGapHalf, lineY, lineRight, lineY + 2f, p);
-
         if (signalValid) {
             long nowMs = SystemClock.elapsedRealtime();
-            p.setColor(Color.rgb(206, 246, 103));
+            p.setColor(Color.rgb(0, 166, 74));
+            float arrowOffset = 146f;
             if (turnLampOn(state, LEFT_BLINK_START, nowMs)) {
-                drawTopTurnArrow(c, p, lineLeft - 20f, lineY, -1f);
+                drawTopTurnArrow(c, p, DRIVE_MID - arrowOffset, -1f);
             }
             if (turnLampOn(state, RIGHT_BLINK_START, nowMs)) {
-                drawTopTurnArrow(c, p, lineRight + 20f, lineY, 1f);
+                drawTopTurnArrow(c, p, DRIVE_MID + arrowOffset, 1f);
             }
         }
     }
 
-    private void drawTopTurnArrow(Canvas c, Paint p, float innerX, float top, float direction) {
-        float shoulder = innerX + direction * 18f;
-        float tip = innerX + direction * 32f;
+    private void drawTopTurnArrow(Canvas c, Paint p, float centerX, float direction) {
+        int save = c.save();
+        c.translate(centerX, 74f);
+        c.scale(direction * 1.15f, 1.15f);
         scratchPath.rewind();
-        scratchPath.moveTo(tip, top + 12f);
-        scratchPath.lineTo(shoulder, top);
-        scratchPath.lineTo(shoulder, top + 6f);
-        scratchPath.lineTo(innerX, top + 6f);
-        scratchPath.lineTo(innerX, top + 18f);
-        scratchPath.lineTo(shoulder, top + 18f);
-        scratchPath.lineTo(shoulder, top + 24f);
+        scratchPath.moveTo(16f, 0f);
+        scratchPath.lineTo(2f, -12f);
+        scratchPath.lineTo(2f, -6f);
+        scratchPath.lineTo(-16f, -6f);
+        scratchPath.lineTo(-16f, 6f);
+        scratchPath.lineTo(2f, 6f);
+        scratchPath.lineTo(2f, 12f);
         scratchPath.close();
         c.drawPath(scratchPath, p);
+        c.restoreToCount(save);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
