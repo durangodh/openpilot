@@ -5280,7 +5280,7 @@ public final class HudService extends Service {
 
         if (signalValid) {
             long nowMs = SystemClock.elapsedRealtime();
-            p.setColor(Color.rgb(0, 166, 74));
+            p.setColor(Color.rgb(206, 246, 103));
             float arrowOffset = 146f;
             if (turnLampOn(state, LEFT_BLINK_START, nowMs)) {
                 drawTopTurnArrow(c, p, DRIVE_MID - arrowOffset, -1f);
