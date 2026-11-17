@@ -4,11 +4,13 @@ import bz2
 import io
 import math
 import re
+import subprocess
 import time
 from contextlib import ExitStack
 
 VIDEO_FILE = "qcamera.mp4"
 FRAME_INTERVAL = 1 / 3
+SCREEN_FRAME_INTERVAL = 1.0
 MAX_LOG_BYTES = 32 * 1024 * 1024
 MAX_REPLAY_SECONDS = 120
 
@@ -49,6 +51,31 @@ class RoadPreview:
     image.thumbnail((480, 360))
     output = io.BytesIO()
     image.save(output, "JPEG", quality=55)
+    self.image = output.getvalue()
+    return self.image
+
+
+class ScreenPreview:
+  def __init__(self):
+    self.image = None
+    self.next_capture = 0
+
+  def frame(self):
+    from PIL import Image
+
+    now = time.monotonic()
+    if now < self.next_capture:
+      return self.image
+    self.next_capture = now + SCREEN_FRAME_INTERVAL
+    self.image = None
+    capture = subprocess.run(["/system/bin/screencap", "-p"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=1)
+    if capture.returncode:
+      return None
+    with Image.open(io.BytesIO(capture.stdout)) as image:
+      image.thumbnail((960, 540))
+      output = io.BytesIO()
+      image.convert("RGB").save(output, "JPEG", quality=68)
     self.image = output.getvalue()
     return self.image
 

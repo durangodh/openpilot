@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from common.basedir import BASEDIR
 from common.params import Params, UnknownKeyName
 from selfdrive import trace_http
-from selfdrive.eon_web_media import RoadPreview, VIDEO_FILE, media_range, replay_data
+from selfdrive.eon_web_media import RoadPreview, ScreenPreview, VIDEO_FILE, media_range, replay_data
 from selfdrive.loggerd.config import ROOT
 
 PORT = 7000
@@ -92,6 +92,13 @@ summary{cursor:pointer;font-weight:650}
 ul{padding:0;list-style:none;margin:0}
 img,video,input[type=range]{display:block;width:100%;margin:8px 0}
 #roadImage,#replayVideo{max-height:65vh;object-fit:contain;background:#080c10;border-radius:8px}
+#screenDialog{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0}
+#screenView{display:grid;grid-template-rows:auto minmax(0,1fr);height:100%;color:var(--text);background:#080c10}
+.screen-bar{display:flex;align-items:center;justify-content:flex-end;padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 6px}
+.screen-frame{position:relative;display:grid;place-items:center;min-height:0}
+#screenImage{height:100%;margin:0;object-fit:contain}
+#screenStatus{position:absolute;bottom:12px;margin:0;padding:6px 10px;background:#080c10e6;border-radius:8px}
+#screenStatus:empty{display:none}
 #replay{scroll-margin-top:12px}
 .log a{display:inline-block;margin:6px 12px 0 0}
 fieldset{min-inline-size:0}
@@ -114,7 +121,9 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <main><header class="page-header"><h1>EON 웹</h1><button id="openWebSettings" aria-haspopup="dialog">웹 설정</button></header>
 <section id="drive"><h2>주행</h2>
 <div class="card"><h3>전방 화면</h3><img id="roadImage" alt="실시간 전방 카메라" hidden>
-<button id="vision">주행 비전 시작</button><p id="visionStatus" aria-live="polite"></p></div>
+<div class="actions"><button id="vision">주행 비전 시작</button>
+<button id="openScreen" aria-haspopup="dialog">이온 전체 화면 보기</button></div>
+<p id="visionStatus" aria-live="polite"></p></div>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
@@ -152,6 +161,12 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <button data-page="drive" aria-selected="true">주행</button><button data-page="settings">설정</button>
 <button data-page="tools">도구</button><button data-page="records">로그</button><button data-page="terminal">터미널</button>
 </nav>
+<dialog id="screenDialog" aria-label="이온 전체 화면">
+<div id="screenView">
+<div class="screen-bar"><button id="closeScreen" autofocus>원래 화면으로</button></div>
+<div class="screen-frame"><img id="screenImage" alt="이온 본체 화면" hidden>
+<p id="screenStatus" role="status"></p></div>
+</div></dialog>
 <dialog id="webSettings" aria-labelledby="webSettingsTitle">
 <form id="webSettingsForm" method="dialog">
 <h2 id="webSettingsTitle">웹 설정</h2>
@@ -579,6 +594,69 @@ visionButton.addEventListener('click', async () => {
   }
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopVision(); });
+
+const screenDialog = document.querySelector('#screenDialog');
+const screenView = document.querySelector('#screenView');
+const screenImage = document.querySelector('#screenImage');
+const screenStatus = document.querySelector('#screenStatus');
+let screenRequest = null;
+let screenUrl = '';
+let nativeScreen = false;
+function closeScreen() {
+  screenRequest?.abort();
+  screenRequest = null;
+  screenImage.hidden = true;
+  screenImage.removeAttribute('src');
+  if (screenUrl) URL.revokeObjectURL(screenUrl);
+  screenUrl = '';
+  screenDialog.close();
+  nativeScreen = false;
+  if (document.fullscreenElement === screenView) document.exitFullscreen().catch(() => {});
+}
+document.querySelector('#closeScreen').addEventListener('click', closeScreen);
+screenDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeScreen();
+});
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement === screenView) {
+    nativeScreen = true;
+  } else if (nativeScreen) {
+    closeScreen();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && screenDialog.open) closeScreen();
+});
+window.addEventListener('pagehide', closeScreen);
+document.querySelector('#openScreen').addEventListener('click', async () => {
+  if (screenDialog.open) return;
+  stopVision();
+  screenDialog.showModal();
+  screenView.requestFullscreen?.().catch(() => {});
+  screenStatus.textContent = '이온 화면 연결 중';
+  const request = new AbortController();
+  screenRequest = request;
+  while (!request.signal.aborted) {
+    const started = performance.now();
+    try {
+      const response = await fetch('/api/screen.jpg', {cache:'no-store', signal:request.signal});
+      if (!response.ok) throw Error();
+      const blob = await response.blob();
+      if (request.signal.aborted) return;
+      if (screenUrl) URL.revokeObjectURL(screenUrl);
+      screenUrl = URL.createObjectURL(blob);
+      screenImage.src = screenUrl;
+      screenImage.hidden = false;
+      screenStatus.textContent = '';
+    } catch (_) {
+      if (request.signal.aborted) return;
+      screenImage.hidden = true;
+      screenStatus.textContent = '이온 화면 연결 대기 중';
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, 1050 - (performance.now() - started))));
+  }
+});
 
 const replay = document.querySelector('#replay');
 const video = document.querySelector('#replayVideo');
@@ -1181,6 +1259,7 @@ def request_reboot(rebuild=False):
 class WebServer(HTTPServer):
   def __init__(self, *args):
     self.road_preview = RoadPreview()
+    self.screen_preview = ScreenPreview()
     super().__init__(*args)
 
   def service_actions(self):
@@ -1343,6 +1422,15 @@ class Handler(BaseHTTPRequestHandler):
       else:
         self.begin(200, "image/jpeg", len(frame))
         self.wfile.write(frame)
+    elif path == "/api/screen.jpg":
+      try:
+        frame = self.server.screen_preview.frame()
+      except (ImportError, OSError, ValueError, subprocess.TimeoutExpired):
+        frame = None
+      if frame is None:
+        self.send_json({"output": "이온 화면 준비 중"}, 503)
+      else:
+        self.send_data(frame, "image/jpeg")
     elif path.startswith("/api/replay/"):
       segment = path.rsplit("/", 1)[-1]
       if not SEGMENT.fullmatch(segment):
