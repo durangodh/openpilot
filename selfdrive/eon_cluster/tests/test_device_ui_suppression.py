@@ -414,7 +414,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   assert "drawSpeedRing(c, p" in driving
   assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
   # Date and time sit at the top centre of the driving panel, without a box.
-  assert "drawTopClock(c, p);" in driving
+  assert "drawTopClock(c, p, s, !stale);" in driving
   # NOO guidance is drawn right-aligned above the EON HUD box.
   assert "c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);" in driving
   assert "c.translate(-NOO_CX, -(NOO_CY - 31f));" in driving and "c.scale(0.8f, 0.8f);" in driving

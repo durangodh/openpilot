@@ -3629,7 +3629,7 @@ public final class HudService extends Service {
             // 네비모드: 지도 위 가운데(차로 안내와 같은 가운데).
             c.translate(NAVI_LANE_CX - DRIVE_MID, 0f);
         }
-        drawTopClock(c, p);
+        drawTopClock(c, p, s, !stale);
         c.restoreToCount(clockSave);
 
         // 하늘 띠 글자색 반전은 위쪽 등화 줄·날씨까지만 쓴다.
@@ -5263,7 +5263,7 @@ public final class HudService extends Service {
     }
 
     /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
-    private void drawTopClock(Canvas c, Paint p) {
+    private void drawTopClock(Canvas c, Paint p, JSONObject state, boolean signalValid) {
         java.util.Date now = new java.util.Date();
         String date = new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(now);
         String time = new SimpleDateFormat("HH:mm", Locale.KOREA).format(now);
@@ -5273,9 +5273,47 @@ public final class HudService extends Service {
         p.setTextSize(36f);
         float timeW = p.measureText(time);
         float gap = 14f;
-        float left = DRIVE_MID - (dateW + gap + timeW) / 2f;
+        float clockWidth = dateW + gap + timeW;
+        float left = DRIVE_MID - clockWidth / 2f;
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
         text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
+
+        // Keep the arrows out of the navigation traffic signal overlay to the right of the clock.
+        float lineLeft = DRIVE_MID - 86f;
+        float lineRight = DRIVE_MID + 86f;
+        float lineY = 62f;
+        float centerGapHalf = 6f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(156, 236, 246, 250));
+        c.drawRect(lineLeft, lineY, DRIVE_MID - centerGapHalf, lineY + 2f, p);
+        c.drawRect(DRIVE_MID + centerGapHalf, lineY, lineRight, lineY + 2f, p);
+
+        if (signalValid) {
+            long nowMs = SystemClock.elapsedRealtime();
+            p.setColor(Color.rgb(206, 246, 103));
+            if (turnLampOn(state, LEFT_BLINK_START, nowMs)) {
+                drawTopTurnArrow(c, p, lineLeft - 20f, lineY, -1f);
+            }
+            if (turnLampOn(state, RIGHT_BLINK_START, nowMs)) {
+                drawTopTurnArrow(c, p, lineRight + 20f, lineY, 1f);
+            }
+        }
+    }
+
+    private void drawTopTurnArrow(Canvas c, Paint p, float innerX, float top, float direction) {
+        float shoulder = innerX + direction * 18f;
+        float tip = innerX + direction * 32f;
+        scratchPath.rewind();
+        scratchPath.moveTo(tip, top + 12f);
+        scratchPath.lineTo(shoulder, top);
+        scratchPath.lineTo(shoulder, top + 6f);
+        scratchPath.lineTo(innerX, top + 6f);
+        scratchPath.lineTo(innerX, top + 18f);
+        scratchPath.lineTo(shoulder, top + 18f);
+        scratchPath.lineTo(shoulder, top + 24f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
