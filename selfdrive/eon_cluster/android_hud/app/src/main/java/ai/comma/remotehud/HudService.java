@@ -5280,8 +5280,7 @@ public final class HudService extends Service {
 
         if (signalValid) {
             long nowMs = SystemClock.elapsedRealtime();
-            p.setColor(Color.rgb(206, 246, 103));
-            float arrowOffset = 146f;
+            float arrowOffset = 200f;
             if (turnLampOn(state, LEFT_BLINK_START, nowMs)) {
                 drawTopTurnArrow(c, p, DRIVE_MID - arrowOffset, -1f);
             }
@@ -5293,8 +5292,14 @@ public final class HudService extends Service {
 
     private void drawTopTurnArrow(Canvas c, Paint p, float centerX, float direction) {
         int save = c.save();
-        c.translate(centerX, 74f);
+        c.translate(centerX, 80f);
         c.scale(direction * 1.15f, 1.15f);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(frameDark ? Color.rgb(16, 28, 22) : Color.rgb(18, 68, 42));
+        scratchRect.set(-21f, -16f, 21f, 16f);
+        c.drawRoundRect(scratchRect, 5f, 5f, p);
+
+        p.setColor(Color.rgb(66, 239, 112));
         scratchPath.rewind();
         scratchPath.moveTo(16f, 0f);
         scratchPath.lineTo(2f, -12f);
