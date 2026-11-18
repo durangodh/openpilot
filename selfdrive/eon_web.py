@@ -145,6 +145,16 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <p id="paramSaveStatus" class="hint" role="status" hidden></p>
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
+<details id="jetlinkBench"><summary>S20 N16 연결·속도 시험</summary>
+<p class="hint">S20 Jetlink에서 N16 준비를 완료하고, 설정 → About의 Version을 7번 눌러 Developer를 켜세요. 같은 핫스팟에 연결한 뒤 앱에 표시된 Wi-Fi 주소와 포트를 입력합니다. 시동을 켜고 P단·인게이지 해제 상태에서 실행하세요.</p>
+<div class="actions"><label>S20 IP <input id="jetlinkHost" type="text" inputmode="decimal" placeholder="192.168.x.x" maxlength="15"></label>
+<label>포트 <input id="jetlinkPort" type="number" min="1024" max="65535" value="5599"></label>
+<label>시간 <select id="jetlinkSeconds"><option value="60">1분</option><option value="600">10분</option></select></label>
+<label>입력 <select id="jetlinkSource"><option value="synthetic">N16 처리·전송 속도</option><option value="camera">EON 실제 카메라</option></select></label></div>
+<div class="actions"><button id="jetlinkStart">시험 시작</button><button id="jetlinkStop">중지</button>
+<a href="/api/jetlink-report.json" download="eon-n16-benchmark.json">최근 결과 저장</a></div>
+<p id="jetlinkAction" role="status"></p><pre id="jetlinkStatus" aria-live="polite"></pre>
+<p class="hint">성능 확인용입니다. N16 출력은 조향·가감속에 적용하지 않습니다. EON 단일 카메라의 N16 영상 호환성은 미검증이며, 경로 지도 렌더러가 없으면 빈 지도 입력으로 측정합니다.</p></details>
 <details><summary>블루투스 리모컨</summary>
 <p class="hint">이온에 학습된 버튼의 기능을 바꿉니다. 인게이지를 해제한 뒤 버튼 배정을 변경하세요.</p>
 <button id="btRefresh">리모컨 상태 새로고침</button>
@@ -587,7 +597,53 @@ async function loadBtRemote() {
   } catch (_) { btStatus.textContent = '리모컨 상태를 읽지 못했습니다.'; }
 }
 document.querySelector('#btRefresh').addEventListener('click', loadBtRemote);
-const loaders = {drive: loadDrive, settings: loadSettings, tools: () => { loadGit(); loadBtRemote(); }, records: loadLogs};
+async function loadJetlinkBench() {
+  if (document.hidden || document.querySelector('#tools').hidden || !document.querySelector('#jetlinkBench').open) return;
+  const output = document.querySelector('#jetlinkStatus');
+  try {
+    const data = await read('/api/jetlink-bench');
+    const names = {idle:'시험 대기', starting:'시험 시작 중', connecting:'S20 연결 중', preparing:'N16 확인 중',
+      waiting_frames:'EON 영상·캘리브레이션 대기', measuring:'측정 중', finished:'측정 종료', stopped:'시험 중지', error:'시험 오류'};
+    const lines = [names[data.stage] || data.stage || '시험 대기'];
+    if (data.peer) lines.push([data.peer.device, data.peer.backend].filter(Boolean).join(' · '));
+    if (data.frames != null) lines.push('응답 ' + data.frames + '회 · 워밍업 제외 ' + data.samples + '회');
+    if (data.samples > 0) lines.push('입력 시작→응답 p99 ' + data.input_to_reply_p99_ms.toFixed(1) + 'ms · 최대 ' + data.input_to_reply_max_ms.toFixed(1) + 'ms',
+      '왕복 평균 ' + data.roundtrip_mean_ms.toFixed(1) + 'ms · 서버 평균 ' + data.server_mean_ms.toFixed(1) + 'ms',
+      '50ms 초과 ' + data.over_50ms + '/' + data.samples + ' · 건너뛴 영상 ' + data.skipped_source_frames);
+    if (data.nav_map) lines.push(data.nav_map === 'route' ? '경로 지도 입력' : '빈 지도 입력으로 측정');
+    if (data.error) lines.push(data.error);
+    output.textContent = lines.join('\n');
+    document.querySelector('#jetlinkStart').disabled = !!data.running;
+    document.querySelector('#jetlinkStop').disabled = !data.running;
+  } catch (_) { output.textContent = '시험 상태를 읽지 못했습니다.'; }
+}
+let jetlinkLoading = false;
+async function jetlinkAction(stop) {
+  if (jetlinkLoading) return;
+  jetlinkLoading = true;
+  const target = document.querySelector('#jetlinkAction');
+  target.textContent = stop ? '중지 요청 중…' : '시작 요청 중…';
+  try {
+    const path = stop ? '/api/jetlink-bench/stop' : '/api/jetlink-bench/start';
+    const payload = stop ? {} : {host:document.querySelector('#jetlinkHost').value.trim(),
+      port:Number(document.querySelector('#jetlinkPort').value), seconds:Number(document.querySelector('#jetlinkSeconds').value),
+      source:document.querySelector('#jetlinkSource').value};
+    const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json',
+      'X-EON-Action':stop ? 'jetlink-stop' : 'jetlink-start'}, body:JSON.stringify(payload)});
+    target.textContent = (await response.json()).output;
+    await loadJetlinkBench();
+  } catch (_) { target.textContent = '요청 결과를 확인하지 못했습니다.'; }
+  finally { jetlinkLoading = false; }
+}
+document.querySelector('#jetlinkStart').addEventListener('click', () => jetlinkAction(false));
+document.querySelector('#jetlinkStop').addEventListener('click', () => jetlinkAction(true));
+let jetlinkTimer = null;
+document.querySelector('#jetlinkBench').addEventListener('toggle', event => {
+  clearInterval(jetlinkTimer);
+  jetlinkTimer = null;
+  if (event.currentTarget.open) { loadJetlinkBench(); jetlinkTimer = setInterval(loadJetlinkBench, 1000); }
+});
+const loaders = {drive: loadDrive, settings: loadSettings, tools: () => { loadGit(); loadBtRemote(); loadJetlinkBench(); }, records: loadLogs};
 const roadImage = document.querySelector('#roadImage');
 const visionButton = document.querySelector('#vision');
 const visionStatus = document.querySelector('#visionStatus');
@@ -1298,6 +1354,8 @@ class WebServer(HTTPServer):
     self.road_preview = RoadPreview()
     self.screen_preview = ScreenPreview()
     self.navigation_route = None
+    from selfdrive.eon_web_jetlink import JetlinkBench
+    self.jetlink_bench = JetlinkBench(BASEDIR)
     super().__init__(*args)
 
   def service_actions(self):
@@ -1348,6 +1406,7 @@ class Handler(BaseHTTPRequestHandler):
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
               "/api/bt-remote": "set-bt-mapping",
+              "/api/jetlink-bench/start": "jetlink-start", "/api/jetlink-bench/stop": "jetlink-stop",
               "/api/logs/delete": "delete-route", "/api/logs/delete-all": "delete-all-routes",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
@@ -1362,7 +1421,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping", "jetlink-start", "jetlink-stop"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -1374,7 +1433,11 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
           self.send_json({"output": "잘못된 요청입니다."}, 400)
           return
-        if action == "set-recording":
+        if action == "jetlink-start":
+          status, result = self.server.jetlink_bench.start(payload, maintenance_block_reason())
+        elif action == "jetlink-stop":
+          status, result = self.server.jetlink_bench.stop()
+        elif action == "set-recording":
           status, result = set_recording(payload.get("key"), payload.get("enabled"))
         elif action == "delete-route":
           status, output = delete_route(payload.get("route"))
@@ -1437,6 +1500,10 @@ class Handler(BaseHTTPRequestHandler):
       trace_http.serve(self.connection, path, allow_delete=False)
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
+    elif path == "/api/jetlink-bench":
+      self.send_json(self.server.jetlink_bench.snapshot())
+    elif path == "/api/jetlink-report.json":
+      self.send_json(self.server.jetlink_bench.report())
     elif path == "/api/git.json":
       self.send_json(git_info())
     elif path == "/api/device.json":

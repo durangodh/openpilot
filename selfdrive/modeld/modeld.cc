@@ -60,6 +60,7 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
   // messaging
   PubMaster pm({"modelV2", "cameraOdometry"});
   SubMaster sm({"lateralPlan", "roadCameraState", "liveCalibration"});
+  std::unique_ptr<SubMaster> benchmark_guard;
 
   // setup filter to track dropped frames
   FirstOrderFilter frame_dropped_filter(0., 10., 1. / MODEL_FREQ);
@@ -134,7 +135,26 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
     }
 
     double mt1 = millis_since_boot();
-    ModelOutput *model_output = model_eval_frame(&model, buf_main, buf_extra, model_transform_main, model_transform_extra, vec_desire);
+    bool benchmark_allowed = false;
+    if (model.benchmark_export.wanted()) {
+      if (!benchmark_guard) {
+        benchmark_guard = std::make_unique<SubMaster>(std::vector<const char *>{"carState", "controlsState"});
+      }
+      benchmark_guard->update(0);
+      if (benchmark_guard->allAliveAndValid()) {
+        const auto car = (*benchmark_guard)["carState"].getCarState();
+        const auto controls = (*benchmark_guard)["controlsState"].getControlsState();
+        benchmark_allowed = car.getCanValid() && std::isfinite(car.getVEgo()) &&
+                            std::abs(car.getVEgo()) < 0.1 &&
+                            car.getGearShifter() == cereal::CarState::GearShifter::PARK &&
+                            !controls.getEnabled() && !controls.getActive();
+      }
+    } else {
+      benchmark_guard.reset();
+    }
+    ModelOutput *model_output = model_eval_frame(&model, buf_main, buf_extra, model_transform_main, model_transform_extra,
+                                                vec_desire, meta_main.frame_id, meta_main.timestamp_eof,
+                                                !use_extra_client, live_calib_seen, benchmark_allowed);
     double mt2 = millis_since_boot();
     float model_execution_time = (mt2 - mt1) / 1000.0;
 

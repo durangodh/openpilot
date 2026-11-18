@@ -52,6 +52,17 @@ ModelFrame::~ModelFrame() {
   CL_CHECK(clReleaseCommandQueue(q));
 }
 
+const float* ModelFrame::current_for_benchmark(float *prepared, cl_mem *output) {
+  if (prepared != nullptr) return prepared + MODEL_FRAME_SIZE;
+  if (output == nullptr) return nullptr;
+  // Optional shadow readback only. A readback error drops this diagnostic
+  // frame; it must not abort or replace the driving-model execution.
+  cl_int err = clEnqueueReadBuffer(q, *output, CL_TRUE, MODEL_FRAME_SIZE * sizeof(float),
+                                  MODEL_FRAME_SIZE * sizeof(float),
+                                  &input_frames[MODEL_FRAME_SIZE], 0, nullptr, nullptr);
+  return err == CL_SUCCESS ? &input_frames[MODEL_FRAME_SIZE] : nullptr;
+}
+
 void softmax(const float* input, float* output, size_t len) {
   const float max_val = *std::max_element(input, input + len);
   float denominator = 0;

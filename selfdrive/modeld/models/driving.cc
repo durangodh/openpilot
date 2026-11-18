@@ -56,7 +56,10 @@ void model_init(ModelState* s, cl_device_id device_id, cl_context context) {
 }
 
 ModelOutput* model_eval_frame(ModelState* s, VisionBuf* buf, VisionBuf* wbuf,
-                              const mat3 &transform, const mat3 &transform_wide, float *desire_in) {
+                              const mat3 &transform, const mat3 &transform_wide, float *desire_in,
+                              uint32_t frame_id, uint64_t camera_ns, bool single_camera, bool calibrated,
+                              bool benchmark_allowed) {
+  uint64_t benchmark_started = benchmark_allowed ? eon_jetlink::monotonic_ns() : 0;
 #ifdef DESIRE
   if (desire_in != NULL) {
     for (int i = 1; i < DESIRE_LEN; i++) {
@@ -77,10 +80,18 @@ ModelOutput* model_eval_frame(ModelState* s, VisionBuf* buf, VisionBuf* wbuf,
   s->m->addImage(net_input_buf, s->frame->buf_size);
   LOGT("Image added");
 
+  float *net_extra_buf = nullptr;
   if (wbuf != nullptr) {
-    auto net_extra_buf = s->wide_frame->prepare(wbuf->buf_cl, wbuf->width, wbuf->height, transform_wide, static_cast<cl_mem*>(s->m->getExtraBuf()));
+    net_extra_buf = s->wide_frame->prepare(wbuf->buf_cl, wbuf->width, wbuf->height, transform_wide, static_cast<cl_mem*>(s->m->getExtraBuf()));
     s->m->addExtra(net_extra_buf, s->wide_frame->buf_size);
     LOGT("Extra image added");
+  }
+  if (benchmark_allowed && s->benchmark_export.wanted() && wbuf != nullptr) {
+    s->benchmark_export.publish(
+      s->frame->current_for_benchmark(net_input_buf, static_cast<cl_mem*>(s->m->getInputBuf())),
+      s->wide_frame->current_for_benchmark(net_extra_buf, static_cast<cl_mem*>(s->m->getExtraBuf())),
+      s->pulse_desire, s->traffic_convention, frame_id, benchmark_started, camera_ns,
+      (single_camera ? 1U : 0U) | (calibrated ? 2U : 0U));
   }
   s->m->execute();
   LOGT("Execution finished");

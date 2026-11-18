@@ -1,0 +1,10 @@
+Jetlink wire protocol reference:
+Copyright (c) 2026 Zeph Leggett, Jetlink (MIT).
+https://github.com/bin9208/jetlink/tree/1133658a61df201ef8b1805fa3e03e493604355b
+
+N16 model input/output metadata in n16.json is taken from:
+ajouatom/openpilot bin9208/carrot-rust-dev c18326a46f1949ed2422c609987b7f75774843e5
+rust/crates/jetlink/data/n16.json
+
+The wire client, EON snapshot bridge, benchmark worker and web controls here
+are a new EON integration. No N16 model weights are bundled.
