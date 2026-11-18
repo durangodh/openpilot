@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-16g" FW_VARIANT
+#define FW_VERSION "2026-11-18" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -157,6 +157,16 @@ static uint16_t holdFails = 0;  // hold re-taps that did not finish (status "hf"
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
+static uint32_t lampLeftMs = 0, lampRightMs = 0;  // 0x168 lamp bits per side (0x80 left, 0x20 right)
+// Cancel that waits instead of refusing and checks that our side really stopped (2026-11-18: a hold
+// stopped by the other button kept flashing 2-3 times: the one cancel flick did not always take).
+static bool cancelPending = false;
+static char cancelOrigSide = 0;      // the side we are ending
+static uint32_t cancelSince = 0, cancelEndMs = 0, cancelVerifyMs = 0;
+static uint8_t cancelTries = 0;
+#define CANCEL_PENDING_MS 1500       // give up waiting for a free moment after this
+#define CANCEL_VERIFY_MS 900         // our side still lit this long after a cancel flick: flick again
+#define CANCEL_MAX_TRIES 3
 static uint8_t last138 = 0xFF, last168 = 0xFF, last102 = 0xFF;
 static uint32_t errMs = 0;
 static bool errSeen = false;
@@ -267,6 +277,10 @@ void endTap(const char *res) {
   } else {
     ownSide = 0;  // a cancel (or a failed tap) leaves nothing to cancel
   }
+  if (cancelTap && done) {
+    cancelEndMs = now;
+    cancelVerifyMs = now + CANCEL_VERIFY_MS;
+  }
   outf("=== %s end (%s): %lu frames, tx fail %lu ===\n", cancelTap ? "cancel" : "tap", res,
        (unsigned long)tapFrames, (unsigned long)txFail);
   cancelTap = false;
@@ -355,22 +369,95 @@ void holdTick(uint32_t now) {
 
 // Ends our own one-touch: a tap the other way. Refused unless our tap is still blinking.
 const char *requestCancel(uint32_t now) {
-  if (tap != TAP_IDLE) return "busy";
+  if (tap != TAP_IDLE) {
+    cancelOrigSide = (tapSide && !cancelTap) ? tapSide : ownSide;  // the tap running is ours
+    cancelTries = 0;
+    return cancelOrigSide ? "busy" : "nothing";
+  }
   if (!ownSide || now - ownEndMs > CANCEL_WINDOW_MS) return "nothing";
-  if (now - ownEndMs < CANCEL_MIN_MS) return "cooldown";
+  if (now - ownEndMs < CANCEL_MIN_MS) {
+    cancelOrigSide = ownSide;
+    cancelTries = 0;
+    return "cooldown";
+  }
   if (driverLeverMs && driverLeverMs > ownEndMs) return "lever";  // the driver took over
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
   if (!lampRecent(now)) return "nolamp";  // already finished blinking
+  cancelOrigSide = ownSide;
+  cancelTries = 0;
   cancelTap = true;
+  cancelTries++;
   const char *why = startTap(ownSide == 'L' ? 'R' : 'L', now);
   if (*why) cancelTap = false;
   return why;
 }
 
+// One cancel flick for cancelOrigSide. "" when it started, "wait" to try again shortly, else why not.
+const char *cancelFlick(uint32_t now) {
+  if (tap != TAP_IDLE) return "wait";
+  if (cancelOrigSide != 'L' && cancelOrigSide != 'R') return "nothing";
+  if (now - ownEndMs < CANCEL_MIN_MS || now - cancelEndMs < CANCEL_MIN_MS) return "wait";
+  if (!lampRecent(now)) return "nolamp";  // already dark: nothing left to end
+  if (!stockFresh(now)) return "nobcan";
+  if (stock[0] & LEVER_MASK) return "lever";
+  cancelTap = true;
+  cancelTries++;
+  const char *why = startTap(cancelOrigSide == 'L' ? 'R' : 'L', now);
+  if (*why) cancelTap = false;
+  return why;
+}
+
+bool ownSideLit(uint32_t now, uint32_t since) {
+  uint32_t t = cancelOrigSide == 'L' ? lampLeftMs : lampRightMs;
+  return t && (int32_t)(t - since) > 0 && now - t < LAMP_QUIET_MS;
+}
+
+// Called from loop() while idle: run a waiting cancel, and flick again if our side keeps flashing.
+void cancelTick(uint32_t now) {
+  if (tap != TAP_IDLE) return;
+  if (cancelPending) {
+    const char *why = cancelFlick(now);
+    if (!*why) {
+      cancelPending = false;
+    } else if (strcmp(why, "wait") || now - cancelSince > CANCEL_PENDING_MS) {
+      cancelPending = false;
+      outf("%9lu  cancel gave up: %s\n", (unsigned long)now, why);
+      finish(strcmp(why, "wait") ? why : "busy", now);
+    }
+    return;
+  }
+  if (cancelVerifyMs && (int32_t)(now - cancelVerifyMs) >= 0) {
+    cancelVerifyMs = 0;
+    // our side lit again after the flick ended (a new flash, not the one fading out)
+    if (ownSideLit(now, cancelEndMs + 400) && cancelTries < CANCEL_MAX_TRIES) {
+      outf("%9lu  %c still flashing after cancel: flick again (%u)\n", (unsigned long)now, cancelOrigSide,
+           (unsigned)cancelTries + 1);
+      cancelPending = true;
+      cancelSince = now;
+    }
+  }
+}
+
 void handleRequest(char side, uint32_t now) {
-  if (side == 'C') stopHold("cancel", now);
-  const char *why = side == 'C' ? requestCancel(now) : requestTap(side, now);
+  if (side == 'C') {
+    stopHold("cancel", now);
+    const char *why = requestCancel(now);
+    if (!strcmp(why, "busy") || !strcmp(why, "cooldown")) {  // a hold re-tap just ran: wait for it
+      cancelPending = true;
+      cancelSince = now;
+      lastRes[0] = 0;
+      return;
+    }
+    if (*why) {
+      outf("%9lu  cancel refused: %s\n", (unsigned long)now, why);
+      finish(why, now);
+    } else {
+      lastRes[0] = 0;
+    }
+    return;
+  }
+  const char *why = requestTap(side, now);
   if (*why) {
     outf("%9lu  %s refused: %s\n", (unsigned long)now,
          side == 'C' ? "cancel" : side == 'L' ? "LEFT tap" : "RIGHT tap", why);
@@ -514,6 +601,8 @@ void onFrame(uint32_t now) {  // frame in gRx
     last102 = v;
   } else if (m.identifier == 0x168) {
     uint8_t v = m.data[6] & 0xA0;
+    if (v & 0x80) lampLeftMs = now;
+    if (v & 0x20) lampRightMs = now;
     if (v) {
       lampOnMs = now;
       lampSeen = true;
@@ -959,6 +1048,7 @@ void loop() {
   if (tap == TAP_IDLE) wifiTick(now);  // nothing slow during the 0.16 s tap
   if (wifiUp && tap == TAP_IDLE) pollUdp(now);
   holdTick(now);
+  cancelTick(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);
 
   for (int c = readCmd(); c >= 0; c = readCmd()) {
