@@ -84,6 +84,25 @@ class NavigationLaneChangeController:
                        cls.CARROT_PREPARE_DISTANCE_BP)
 
   @classmethod
+  def turn_pocket_direction(cls, state, v_ego):
+    """carrot-rust's `atc left/right` phase, never a fork or next turn.
+
+    This is preparation intent only. A missing/closed lane may keep the
+    signal waiting but must never authorise a lane-change desire.
+    """
+    from selfdrive.controls.lib.navigation_route import NavigationRouteData
+    if not isinstance(state, dict) or not state.get("fresh", False) or \
+       state.get("off_route", False) or state.get("kind") != "turn":
+      return 0
+    direction = state.get("direction", 0)
+    distance = state.get("distance", -1.0)
+    if direction not in (-1, 1) or not isinstance(distance, (int, float)) or \
+       not math.isfinite(distance) or not math.isfinite(v_ego):
+      return 0
+    start = NavigationRouteData.turn_start_distance(state, v_ego)
+    return direction if start < distance <= cls.carrot_prepare_distance(state, v_ego) else 0
+
+  @classmethod
   def _carrot_direction_plan(cls, state, ego_lane, v_ego):
     """Fallback lane preparation using carrot's maneuver direction (turn, U-turn, fork).
 

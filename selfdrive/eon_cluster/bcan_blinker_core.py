@@ -244,6 +244,40 @@ HOLD_KEEPALIVE_S = 1.0
 HOLD_MAX_S = 180.0
 
 
+class NooHoldPlanner:
+  """Keep an automatic navigation signal through a long turn-pocket wait.
+
+  Uses only the existing ESP32 hold protocol. A remote press owns priority;
+  an ended/rejected hold is not restarted until the navigation request clears.
+  Never cancels a remote/driver-owned hold.
+  """
+
+  def __init__(self):
+    self.side = None
+    self.blocked = False
+
+  def update(self, desired, hold_side, allowed, remote_request=None, lamps_on=False):
+    if remote_request is not None:
+      self.side = None
+      self.blocked = desired is not None
+      return None
+    if desired is None:
+      self.blocked = False
+    if self.side is not None:
+      if hold_side != self.side:
+        self.side = None
+        self.blocked = desired is not None
+      elif not allowed or desired != self.side:
+        self.side = None
+        self.blocked = desired is not None
+        return "C"
+      return None
+    if allowed and desired in ("L", "R") and not self.blocked and hold_side is None and not lamps_on:
+      self.side = desired
+      return "H" + desired
+    return None
+
+
 def hold_press_action(request, hold_side):
   """Remote press in hold mode -> 'HL' / 'HR' to start holding, 'C' to stop, or None."""
   if request not in ("L", "R"):

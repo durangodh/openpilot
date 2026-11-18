@@ -32,6 +32,9 @@ LANE_CHANGE_SPEED_MIN = 50 * CV.KPH_TO_MS
 # Driver blinker lane changes keep AutoLaneChangeSpeed.
 NOO_LANE_CHANGE_SPEED_DEFAULT_KPH = 30
 NOO_LANE_CHANGE_SPEED_RANGE_KPH = (10, 60)
+# carrot-rust 46a4f976: a turn-pocket request waits below the ordinary
+# minimum speed, but needs a visible adjacent lane before moving at >=10 km/h.
+NOO_TURN_POCKET_MIN_SPEED = 10 * CV.KPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 
 DESIRES = {
@@ -112,6 +115,7 @@ class DesireHelper:
     self.noo_pose_trust = NavigationPoseTrust()
     self.noo_pose_trusted = False
     self.noo_enabled = False
+    self.noo_turn_pocket = False
     # NavigationOnOpenpilot 안에서 기능을 분리한다. 기존 0/1/2 의미는
     # 유지하고 carrot-wip의 속도 전용 모드만 3으로 확장한다.
     # 0: 전부 / 1: 회전조향+감속 / 2: 적극 차선준비 / 3: 감속만
@@ -377,6 +381,7 @@ class DesireHelper:
       if self.lane_change_need_torque not in (-1, 0, 1):
         self.lane_change_need_torque = 0
       self.noo_enabled = self.params.get_bool('NavigationOnOpenpilot')
+      self.noo_turn_pocket = self.params.get_bool('NooTurnPocket')
       try:
         self.noo_mode = int(self.params.get('NooMode', encoding='utf8') or '0')
       except (TypeError, ValueError):
@@ -436,6 +441,8 @@ class DesireHelper:
     noo_lane_change_configured = noo_lane_change_available
     noo_steering = noo_steering and self.noo_pose_trusted
     noo_lane_change_available = noo_lane_change_available and self.noo_pose_trusted
+    pocket_direction = (NavigationLaneChangeController.turn_pocket_direction(navigation_state, v_ego)
+                        if self.noo_turn_pocket and noo_lane_change_available else 0)
     # Pre-compute both sides every model frame, like carrot-wip SideState.
     # This prevents a single open frame from releasing a last-lane block.
     left_road_edge = self._road_edge_blocked(model_data, -1)
@@ -471,6 +478,8 @@ class DesireHelper:
       noo_probe_direction = int(noo_plan.get('direction', 0))
     if noo_probe_direction == 0:
       noo_probe_direction = int(self.noo_controller.requested_direction)
+    if noo_probe_direction == 0:
+      noo_probe_direction = pocket_direction
     noo_opposite_torque = carstate.steeringPressed and \
       ((noo_probe_direction < 0 and carstate.steeringTorque < 0) or
        (noo_probe_direction > 0 and carstate.steeringTorque > 0))
@@ -497,6 +506,24 @@ class DesireHelper:
     else:
       self.noo_controller.reset()
       noo_direction = 0
+    # carrot's atc->turn boundary: do not start a fresh lane change inside the
+    # turn window (the old fixed 45 m lane cutoff overlapped a wide road's
+    # 60 m turn window). An already executing lane change still finishes first.
+    turn_window = (navigation_state.get('fresh', False) and
+                   navigation_state.get('kind') == 'turn' and
+                   0.0 <= navigation_state.get('distance', -1.0) <=
+                   NavigationRouteData.turn_start_distance(navigation_state, v_ego))
+    if turn_window and self.lane_change_state not in (LaneChangeState.laneChangeStarting,
+                                                      LaneChangeState.laneChangeFinishing):
+      noo_direction = 0
+    # Keep preparation separate from permission to move. While the turn lane
+    # has not opened (or the camera cannot confirm it), only preLaneChange is
+    # allowed. The existing controller still owns route-compatible lane choice,
+    # open confirmation, completion and one-adjacent-lane-at-a-time tracking.
+    pocket_move_direction = noo_direction
+    if pocket_direction and not noo_direction and not self.noo_controller.canceled and \
+       not (noo_opposite_torque or noo_conflicting_blinker or carstate.brakePressed):
+      noo_direction = pocket_direction
     self.noo_direction = noo_direction
     # Diagnostics only: keep every lane-change gate and request unchanged.
     self.noo_reason = self.noo_controller.reason if noo_lane_change_available else ""
@@ -513,8 +540,13 @@ class DesireHelper:
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
       self.noo_reason = "blindspot" if blindspot else "road_edge"
+    if turn_window and not noo_direction and noo_lane_change_available:
+      self.noo_reason = "too_close"
     noo_lane_change_speed_min = self.noo_lane_change_speed_min
-    if noo_direction and v_ego < noo_lane_change_speed_min:
+    pocket_waiting = bool(pocket_direction and noo_direction == pocket_direction)
+    if pocket_waiting and not pocket_move_direction:
+      self.noo_reason = "pocket_wait"
+    if noo_direction and v_ego < (NOO_TURN_POCKET_MIN_SPEED if pocket_waiting else noo_lane_change_speed_min):
       self.noo_reason = "low_speed"
     if self.noo_enabled and not lateral_active:
       self.noo_reason = "standby"
@@ -543,6 +575,14 @@ class DesireHelper:
     # Remote lane changes use the lever's speed (AutoLaneChangeSpeed); NOO keeps its own.
     below_lane_change_speed = v_ego < (noo_lane_change_speed_min if (noo_auto_request and not remote_request)
                                        else self.lane_change_speed_min)
+    pocket_waiting = pocket_waiting and noo_auto_request and not remote_request
+    pocket_adjacent = (isinstance(ego_lane, dict) and
+                       ego_lane.get('left_adjacent' if direction < 0 else 'right_adjacent') is True)
+    pocket_can_start = (pocket_move_direction == direction and
+                        (not below_lane_change_speed or
+                         (v_ego >= NOO_TURN_POCKET_MIN_SPEED and pocket_adjacent)))
+    speed_allows_start = (not below_lane_change_speed or pocket_waiting) and \
+                         (not pocket_waiting or pocket_can_start)
     if noo_auto_request:
       self.road_edge = not (noo_left_open if direction < 0 else noo_right_open)
     else:
@@ -564,13 +604,15 @@ class DesireHelper:
       # 토크나 자동타이머 둘 다 "차선변경 시작 의사"로 오인하지 않는다. 반대방향
       # 토크(opposite_torque, turn_direction 계산부에서 이미 처리됨)는 여전히 취소로
       # 작동한다.
-      if noo_auto_request and self.lane_change_need_torque > 0:
+      if noo_auto_request and (self.lane_change_need_torque > 0 or
+                               (pocket_waiting and direction < 0)):
         # carrot "토크필요": NOO가 깜빡이만 세워 준비하고, 운전자가 같은 방향으로
         # 핸들을 살짝 밀어야(steeringPressed + 방향 일치) 차선변경을 시작한다.
         noo_nudge = carstate.steeringPressed and (
           (carstate.steeringTorque > 0 and noo_direction < 0) or
           (carstate.steeringTorque < 0 and noo_direction > 0))
-        torque_applied = noo_nudge
+        wait = self.remote_lane_wait if remote_request else self.noo_lane_wait
+        torque_applied = noo_nudge and (not pocket_waiting or self.lane_change_wait_timer >= wait)
       elif noo_auto_request:
         # Remote / NOO: signal first (exterior blinker via the B-CAN tap), move after its own delay
         # (RemoteLaneChangeDelay / NooLaneChangeDelay). The lever's AutoLaneChangeTimer does not apply.
@@ -587,7 +629,7 @@ class DesireHelper:
       # e.g. after it was raised below AutoLaneChangeSpeed.
       if self.lane_change_state == LaneChangeState.off and one_blinker and \
          (not self.prev_one_blinker or noo_auto_request) and \
-         not below_lane_change_speed and not carstate.brakePressed:
+         (not below_lane_change_speed or pocket_waiting) and not carstate.brakePressed:
         if left_blinker:
           self.lane_change_direction = LaneChangeDirection.left
         elif right_blinker:
@@ -607,9 +649,14 @@ class DesireHelper:
       elif self.lane_change_state == LaneChangeState.preLaneChange:
         self.lane_change_wait_timer += DT_MDL
 
-        if not one_blinker or below_lane_change_speed:
+        if not one_blinker or (below_lane_change_speed and not pocket_waiting):
           self.lane_change_state = LaneChangeState.off
           self.prev_lane_change = False
+
+        elif carstate.brakePressed or not speed_allows_start or (noo_auto_request and blindspot_detected):
+          # A waiting turn-pocket never moves on a missing lane, below 10 km/h,
+          # under the brake or through a BSD warning, even after a driver nudge.
+          pass
 
         elif torque_applied and blindspot_detected and self.auto_lane_change_timer != 10.0:
           self.auto_lane_change_timer = 10.0
@@ -676,7 +723,7 @@ class DesireHelper:
     turn_hard_cancel = self._noo_turn_hard_cancel(
       self.noo_enabled, self.noo_mode, lateral_active,
       carstate.brakePressed, self.lane_change_state,
-      guidance_fresh=navigation_state.get('fresh', False))
+      guidance_fresh=navigation_state.get('fresh', False) and self.noo_pose_trusted)
     if turn_hard_cancel:
       turn_direction = 0
       self._reset_noo_turn()

@@ -15,6 +15,7 @@ class FakeNoo:
     self.requested_direction = 0
     self.current_lane = 2
     self.target_lane = 1
+    self.canceled = False
 
   def lane_plan(self, *args, **kwargs):
     return {"direction": self.direction}

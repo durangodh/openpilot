@@ -15,7 +15,7 @@ import time
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
-from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT,
+from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT, NooHoldPlanner,
                                                      STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, BlinkRequestSource, LaneCrossDetector, hold_press_action, stopped_blink_action, HOLD_KEEPALIVE_S, HOLD_MAX_S, LaneTapPlanner, command_packet, lane_direction,
                                                      link_state, parse_status, write_status)
 
@@ -59,6 +59,7 @@ def main():
   rx = open_status_socket()
   tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   planner = LaneTapPlanner()
+  noo_hold = NooHoldPlanner()
   canceller = BlinkCancelPlanner()
   crosser = LaneCrossDetector()
   cancel_enabled = False
@@ -129,8 +130,12 @@ def main():
 
     if not enabled:
       planner = LaneTapPlanner()
-      time.sleep(0.25)
-      continue
+      # Let an already-owned hold reach the stop path below. A disabled service
+      # must never continue transmitting its automatic keepalive.
+      if hold_side is None:
+        noo_hold = NooHoldPlanner()
+        time.sleep(0.25)
+        continue
 
     sm.update(0)
     age = None if status_mono is None else now - status_mono
@@ -146,20 +151,38 @@ def main():
 
     plan = sm['lateralPlan']
     car = sm['carState']
-    changing = (sm['controlsState'].enabled and sm.alive['lateralPlan'] and
+    changing = (enabled and sm['controlsState'].enabled and sm.alive['lateralPlan'] and
                 plan.laneChangeState in CHANGING)
     direction = lane_direction(plan.laneChangeDirection)
     # Remote lane button = the lever: tap the exterior blinker at any speed (a second press while
     # ours still blinks and no lane change runs ends it). A lane change that follows counts this
     # tap as its first (planner) and may cancel it at the line crossing (canceller).
     lane_change_active = sm.alive['lateralPlan'] and str(plan.laneChangeState) != "off"
-    request = blink_requests.poll()
+    request = blink_requests.poll() if enabled else None
     if hold_enabled or hold_side is not None:
       action = hold_press_action(request, hold_side)
     else:
       action = stopped_blink_action(request, own_tap_time, now, lane_change_active)
+    if not enabled and hold_side is not None:
+      action = "C"
+    # The planner publishes the current NOO turn/one-lane request; remote lane
+    # requests are not included in nooLaneChangeDirection. Stale plans and a
+    # disengagement release only the hold this policy started.
+    noo_direction = 0
+    if enabled and sm.alive['lateralPlan'] and sm.valid['lateralPlan'] and \
+       sm.alive['carState'] and sm.valid['carState'] and \
+       sm.alive['controlsState'] and sm.valid['controlsState'] and sm['controlsState'].enabled and \
+       not car.brakePressed and str(car.gearShifter) == "drive":
+      noo_direction = plan.nooTurnDirection or plan.nooLaneChangeDirection
+    desired_noo = {-1: "L", 1: "R"}.get(noo_direction)
+    nav_action = noo_hold.update(desired_noo, hold_side,
+                                 enabled and hold_enabled and link == LINK_OK and bool(esp_ip),
+                                 remote_request=request,
+                                 lamps_on=car.leftBlinker or car.rightBlinker)
+    if action is None:
+      action = nav_action
     if action is None and hold_side is not None and now - hold_keep >= HOLD_KEEPALIVE_S:
-      if now - hold_start > HOLD_MAX_S or not hold_enabled:
+      if now - hold_start > HOLD_MAX_S or not hold_enabled or not enabled:
         action = "C"
         dlog.write(f"hold {hold_side} stop: {'max time' if hold_enabled else 'setting off'}")
       else:
@@ -205,8 +228,14 @@ def main():
         hold_keep = now
       else:
         dlog.write(f"remote: {action} NOT sent: link {link}")
+        if action == "C":
+          # Stop renewing our local lease even if the stop packet cannot get
+          # through. The ESP32's existing keepalive timeout then releases it.
+          hold_side = hold_seq = own_tap_time = None
 
     side = planner.update(now, changing, direction, car.leftBlinker, car.rightBlinker)
+    if hold_side is not None:
+      side = None  # the hold already signals; do not inject separate one-touch taps
     try:  # the log must never take the process down
       lc = (str(plan.laneChangeState), direction) if sm.alive['lateralPlan'] else None
       if lc != prev_lc and lc is not None and lc[0] != "off":

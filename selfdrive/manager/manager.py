@@ -60,6 +60,7 @@ def manager_init() -> None:
     ("EonClusterHudTmapIcon", "0"),
     ("NooTurnEndTime", "6"),
     ("NooLaneChangeSpeed", "30"),
+    ("NooTurnPocket", "1"),
     ("RemoteLaneChangeDelay", "10"),
     ("NooLaneChangeDelay", "10"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table

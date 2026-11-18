@@ -251,6 +251,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooMode", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
     {"NooLaneChangeSpeed", PERSISTENT},     // NOO 차선준비 최저속도(km/h)
+    {"NooTurnPocket", PERSISTENT},         // carrot turn-pocket wait / >=10 km/h start
     {"RemoteLaneChangeDelay", PERSISTENT},  // 리모컨 차선변경 시작 대기(0.1 s)
     {"NooLaneChangeDelay", PERSISTENT},     // NOO 차선변경 시작 대기(0.1 s)
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600

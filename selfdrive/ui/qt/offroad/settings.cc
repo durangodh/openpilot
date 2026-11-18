@@ -1167,8 +1167,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "NooLaneChangeSpeed", "NOO LANE CHANGE MIN SPEED",
-      "내비 안내에 따라 회전·분기 차로로 미리 옮기는 차선변경의 최저속도(km/h)입니다. 값 증가(+): 더 빠를 때만 차선 준비 / 값 감소(-): 정체 시내에서도 차선 준비. 깜빡이 자동 차선변경(AUTO LANE CHANGE MIN SPEED)과 별개입니다. 기본값: 30.",
+      "일반 NOO 차선준비의 최저속도(km/h)입니다. 회전차로 저속 대기가 켜져 있으면 현재 좌·우회전의 차로 준비는 예외로 10km/h 이상에서 실제 옆 차로·도로경계·BSD를 확인하고 시작합니다. 분기·다음 회전·리모컨·레버에는 예외가 적용되지 않습니다. 기본값: 30.",
       "../assets/offroad/icon_road.png", 10, 60, 10, 0, 30, this));
+  toggleLayout->addWidget(new ParamControl(
+      "NooTurnPocket", "NOO 회전차로 저속 대기",
+      "현재 좌·우회전의 차로 준비를 정차 중에도 대기합니다. 설정 최저속도 미만에서는 10km/h 이상·실제 옆 차로·도로경계·BSD 조건을 모두 확인해야 진입합니다. 왼쪽은 설정과 관계없이 같은 방향 핸들 토크 확인이 필요합니다. 브레이크·반대 조향·경로 이탈·위치 오류 시 진입하지 않습니다. 기본값: 켜짐.",
+      "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
       "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
       "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"

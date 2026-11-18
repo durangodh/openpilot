@@ -38,7 +38,8 @@ EARTH_RADIUS_M = 6371000.0
 
 def _number(value, default=-1.0):
   try:
-    return float(value)
+    number = float(value)
+    return number if math.isfinite(number) else default
   except (TypeError, ValueError):
     return default
 
@@ -91,7 +92,10 @@ class NavigationPoseTrust:
     except (TypeError, ValueError):
       self.reset()
       return False
-    if not (math.isfinite(lat) and math.isfinite(lon)):
+    if not (math.isfinite(lat) and math.isfinite(lon) and
+            -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0 and
+            abs(lat) > 1e-6 and abs(lon) > 1e-6 and
+            math.isfinite(v_ego) and math.isfinite(dt) and 0.0 < dt <= 0.5):
       self.reset()
       return False
 
@@ -526,7 +530,8 @@ class NavigationRouteData:
       return None
     lat = _number(_first(point, ("lat", "latitude", "y")), 0.0)
     lon = _number(_first(point, ("lon", "lng", "longitude", "x")), 0.0)
-    if abs(lat) < 1e-6 or abs(lon) < 1e-6:
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0) or \
+       abs(lat) < 1e-6 or abs(lon) < 1e-6:
       return None
     return lat, lon
 
@@ -801,16 +806,21 @@ class NavigationRouteData:
     return self.route_curvature_cache
 
   @staticmethod
-  def steering_request(state, v_ego):
-    if not state["fresh"] or state["kind"] not in ("turn", "uturn"):
-      return 0
+  def turn_start_distance(state, v_ego):
+    """Shared boundary between turn-lane preparation and the turn desire."""
     # carrot-wip: 들어갈 도로 폭 5→10 m 에 43→60 m. 폭을 모르면(네이버·카카오) 속도 기준.
     road_width = float(state.get("next_road_width", 0.0) or 0.0)
     if road_width > 0.0:
       trigger_distance = 43.0 + (60.0 - 43.0) * min(1.0, max(0.0, (road_width - 5.0) / 5.0))
     else:
       trigger_distance = max(45.0, min(60.0, v_ego * 4.0))
-    if 3.0 <= state["distance"] <= trigger_distance and v_ego <= 60.0 / 3.6:
+    return trigger_distance
+
+  @classmethod
+  def steering_request(cls, state, v_ego):
+    if not state["fresh"] or state["kind"] not in ("turn", "uturn"):
+      return 0
+    if 3.0 <= state["distance"] <= cls.turn_start_distance(state, v_ego) and v_ego <= 60.0 / 3.6:
       return state["direction"]
     return 0
 

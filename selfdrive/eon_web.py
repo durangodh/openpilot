@@ -124,6 +124,13 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <div class="actions"><button id="vision">주행 비전 시작</button>
 <button id="openScreen" aria-haspopup="dialog">이온 전체 화면 보기</button></div>
 <p id="visionStatus" aria-live="polite"></p></div>
+<details id="navigationPreview"><summary>내비 경로 미리보기</summary>
+<p class="hint">현재 내비 앱에서 받은 경로를 확인합니다. EON은 회전 안내 방식으로 동작하며 N16 지도 입력은 지원하지 않습니다.</p>
+<svg id="navigationMap" viewBox="0 0 256 256" role="img" aria-label="차량 앞쪽 내비 경로" hidden style="width:100%;max-height:320px;background:#080c10">
+<polyline id="navigationPath" fill="none" stroke="#f0ac73" stroke-width="5" stroke-linejoin="round"/>
+<path d="M128 184 L122 200 L128 197 L134 200 Z" fill="white"/></svg>
+<p id="navigationStatus" role="status"></p><p id="navigationGuidance"></p>
+</details>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
@@ -489,6 +496,36 @@ function loadDrive() {
   loadStatus();
   loadRecording();
 }
+const navigationDetails = document.querySelector('#navigationPreview');
+let navigationTimer = null;
+let navigationLoading = false;
+async function loadNavigationPreview() {
+  if (navigationLoading || !navigationDetails.open || document.querySelector('#drive').hidden || document.hidden) return;
+  navigationLoading = true;
+  try {
+    const data = await read('/api/navigation.json');
+    const visible = data.reason === 'ready';
+    document.querySelector('#navigationMap').toggleAttribute('hidden', !visible);
+    document.querySelector('#navigationPath').setAttribute('points', visible ? data.points.map(p => p.join(',')).join(' ') : '');
+    document.querySelector('#navigationStatus').textContent = data.status;
+    const labels = {turn:'회전', fork:'분기', uturn:'유턴', rotary:'회전교차로'};
+    document.querySelector('#navigationGuidance').textContent = [['현재', data.current], ['다음', data.next]]
+      .filter(([, guide]) => guide).map(([label, guide]) => label + ': ' +
+        (guide.text || labels[guide.kind] || '') + ' · ' + Math.round(guide.distance) + 'm').join(' / ');
+  } catch (_) {
+    document.querySelector('#navigationMap').toggleAttribute('hidden', true);
+    document.querySelector('#navigationGuidance').textContent = '';
+    document.querySelector('#navigationStatus').textContent = '내비 경로를 읽지 못했습니다.';
+  } finally { navigationLoading = false; }
+}
+navigationDetails.addEventListener('toggle', () => {
+  clearInterval(navigationTimer);
+  navigationTimer = null;
+  if (navigationDetails.open) {
+    loadNavigationPreview();
+    navigationTimer = setInterval(loadNavigationPreview, 1000);
+  }
+});
 const btStatus = document.querySelector('#btStatus');
 const btSaveStatus = document.querySelector('#btSaveStatus');
 const btMappings = document.querySelector('#btMappings');
@@ -1260,6 +1297,7 @@ class WebServer(HTTPServer):
   def __init__(self, *args):
     self.road_preview = RoadPreview()
     self.screen_preview = ScreenPreview()
+    self.navigation_route = None
     super().__init__(*args)
 
   def service_actions(self):
@@ -1403,6 +1441,13 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(git_info())
     elif path == "/api/device.json":
       self.send_json(read_device_state())
+    elif path == "/api/navigation.json":
+      # Keep numpy/route geometry out of the normal web-server startup path.
+      from selfdrive.controls.lib.navigation_route import NavigationRouteData
+      from selfdrive.eon_web_navigation import navigation_preview
+      if self.server.navigation_route is None:
+        self.server.navigation_route = NavigationRouteData()
+      self.send_json(navigation_preview(self.server.navigation_route.update()))
     elif path == "/api/tmux.json":
       status, output = command(["tmux", "capture-pane", "-p", "-S", "-300"])
       self.send_json({"output": output}, 503 if status else 200)
