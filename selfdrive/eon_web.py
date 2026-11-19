@@ -770,7 +770,8 @@ document.querySelector('#openScreen').addEventListener('click', async () => {
   if (screenDialog.open) return;
   stopVision();
   screenDialog.showModal();
-  screenView.requestFullscreen?.().catch(() => {});
+  const fullscreen = screenView.requestFullscreen?.();
+  fullscreen?.catch(() => {});
   screenStatus.textContent = '이온 화면 연결 중';
   const request = new AbortController();
   screenRequest = request;
@@ -778,18 +779,23 @@ document.querySelector('#openScreen').addEventListener('click', async () => {
     const started = performance.now();
     try {
       const response = await fetch('/api/screen.jpg', {cache:'no-store', signal:request.signal});
-      if (!response.ok) throw Error();
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw Error(detail.output || '이온 화면 요청 실패');
+      }
       const blob = await response.blob();
       if (request.signal.aborted) return;
       if (screenUrl) URL.revokeObjectURL(screenUrl);
       screenUrl = URL.createObjectURL(blob);
       screenImage.src = screenUrl;
+      if (screenImage.decode) await screenImage.decode();
+      if (request.signal.aborted) return;
       screenImage.hidden = false;
       screenStatus.textContent = '';
-    } catch (_) {
+    } catch (error) {
       if (request.signal.aborted) return;
       screenImage.hidden = true;
-      screenStatus.textContent = '이온 화면 연결 대기 중';
+      screenStatus.textContent = error.message || '이온 화면 연결 대기 중';
     }
     await new Promise(resolve => setTimeout(resolve, Math.max(0, 1050 - (performance.now() - started))));
   }
@@ -1586,9 +1592,9 @@ class Handler(BaseHTTPRequestHandler):
       except (ImportError, OSError, ValueError, subprocess.TimeoutExpired):
         frame = None
       if frame is None:
-        self.send_json({"output": "이온 화면 준비 중"}, 503)
+        self.send_json({"output": self.server.screen_preview.error or "이온 UI 화면 준비 중"}, 503)
       else:
-        self.send_data(frame, "image/jpeg")
+        self.send_data(frame, self.server.screen_preview.content_type)
     elif path.startswith("/api/replay/"):
       segment = path.rsplit("/", 1)[-1]
       if not SEGMENT.fullmatch(segment):

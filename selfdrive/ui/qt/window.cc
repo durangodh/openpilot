@@ -1,4 +1,5 @@
 #include "selfdrive/ui/qt/window.h"
+#include "selfdrive/ui/qt/web_screen.h"
 
 #include <QFontDatabase>
 
@@ -66,6 +67,9 @@ MainWindow::MainWindow(QWidget *parent) : QWidget(parent) {
     }
   )");
   setAttribute(Qt::WA_NoSystemBackground);
+
+  // Parent ownership keeps the timer/encoder within this UI window lifetime.
+  new WebScreenCapture(this);
 }
 
 void MainWindow::openSettings(int index) {
