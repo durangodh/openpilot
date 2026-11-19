@@ -84,7 +84,7 @@ from selfdrive.controls.lib.cruise_helper import CruiseHelper
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
-from selfdrive.hardware import HARDWARE, TICI, EON
+from selfdrive.hardware import HARDWARE, TICI
 from selfdrive.manager.process_config import managed_processes
 from selfdrive.controls.lib import live_tune
 
@@ -339,10 +339,8 @@ class Controls:
       self.events.add_from_msg(self.sm['driverMonitoringState'].events)
 
     # Create events for battery, temperature, disk space, and memory
-    if EON and (self.sm['peripheralState'].pandaType != PandaType.uno) and \
-       self.sm['deviceState'].batteryPercent < 1 and self.sm['deviceState'].chargingError:
-      # at zero percent battery, while discharging, OP should not allowed
-      self.events.add(EventName.lowBattery)
+    # No lowBattery event: this EON runs without its internal battery (always 0 %), so the
+    # "Low Battery" alert only blocked engagement and soft-disabled while driving.
     if self.sm['deviceState'].thermalStatus >= ThermalStatus.red:
       self.events.add(EventName.overheat)
     if self.sm['deviceState'].freeSpacePercent < 7 and not SIMULATION:
