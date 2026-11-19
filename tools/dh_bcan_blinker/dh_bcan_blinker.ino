@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-19b" FW_VARIANT
+#define FW_VERSION "2026-11-19c" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -96,6 +96,10 @@
 // Lever bits seen this soon after our tap ended are its tail (an aborted or late frame), not the
 // driver (2026-11-19 log: a hold ended "driver lever" 2 s after a bus error).
 #define LEVER_IGNORE_MS 400
+// The driver's lever wins: after the driver touches it, no tap or cancel of ours for this long
+// (covers the EON's lane-change repeats at 4.5 s and 9 s), so a remote or lane-change tap never
+// undoes what the driver just did with the lever.
+#define DRIVER_PRIORITY_MS 12000
 #define RESEND_MS 40
 #define COOLDOWN_MS 3500  // from the end of a tap; EON repeats a long lane change every 4.5 s
 #define STOCK_FRESH_MS 500
@@ -313,11 +317,16 @@ const char *startTap(char side, uint32_t now) {
   return "";
 }
 
+bool driverRecent(uint32_t now) {
+  return driverLeverMs && now - driverLeverMs < DRIVER_PRIORITY_MS;
+}
+
 const char *requestTap(char side, uint32_t now) {
   if (tap != TAP_IDLE) return "busy";
   if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
+  if (driverRecent(now)) return "lever";
   if (lampRecent(now)) return "lamp";
   cancelTap = false;
   return startTap(side, now);
@@ -390,6 +399,7 @@ const char *requestCancel(uint32_t now) {
     return "cooldown";
   }
   if (driverLeverMs && driverLeverMs > ownEndMs) return "lever";  // the driver took over
+  if (driverRecent(now)) return "lever";
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
   if (!lampRecent(now)) return "nolamp";  // already finished blinking
@@ -410,6 +420,7 @@ const char *cancelFlick(uint32_t now) {
   if (!lampRecent(now)) return "nolamp";  // already dark: nothing left to end
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
+  if (driverRecent(now)) return "lever";  // the driver took over since
   cancelTap = true;
   cancelTries++;
   const char *why = startTap(cancelOrigSide == 'L' ? 'R' : 'L', now);
