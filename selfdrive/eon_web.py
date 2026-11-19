@@ -145,14 +145,16 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <p id="paramSaveStatus" class="hint" role="status" hidden></p>
 <div class="settings-layout"><div id="paramGroups" role="group" aria-label="설정 카테고리"></div><div id="params"></div></div></section>
 <section id="tools" hidden><h2>도구</h2>
-<details id="jetlinkBench"><summary>S20 N16 연결·속도 시험</summary>
-<p class="hint">S20 Jetlink에서 N16 준비를 완료하고, 설정 → About의 Version을 7번 눌러 Developer를 켜세요. 같은 핫스팟에 연결한 뒤 앱에 표시된 Wi-Fi 주소와 포트를 입력합니다. 시동을 켜고 P단·인게이지 해제 상태에서 실행하세요.</p>
-<div class="actions"><label>S20 IP <input id="jetlinkHost" type="text" inputmode="decimal" placeholder="192.168.x.x" maxlength="15"></label>
-<label>포트 <input id="jetlinkPort" type="number" min="1024" max="65535" value="5599"></label>
+<details id="jetlinkBench"><summary>이온링크 / 젯링크 N16 연결·속도 시험</summary>
+<p class="hint">이온링크에서 연결 시작·N16 준비를 완료하세요. 같은 핫스팟에서 IP를 비워 두면 자동 검색합니다. 기존 젯링크는 앱 종류를 바꾸고 Developer의 IP·포트(5599)를 입력하세요. 시동을 켜고 P단·인게이지 해제 상태에서 실행하세요.</p>
+<div class="actions"><label>앱 <select id="jetlinkTransport"><option value="eonlink">이온링크</option><option value="jetlink">기존 젯링크</option></select></label><label>폰 IP <input id="jetlinkHost" type="text" inputmode="decimal" placeholder="비우면 자동 검색" maxlength="15"></label>
+<label>포트 <input id="jetlinkPort" type="number" min="1024" max="65535" value="5600"></label>
 <label>시간 <select id="jetlinkSeconds"><option value="60">1분</option><option value="600">10분</option></select></label>
 <label>입력 <select id="jetlinkSource"><option value="synthetic">N16 처리·전송 속도</option><option value="camera">EON 실제 카메라</option></select></label></div>
+<label><input id="jetlinkCompression" type="checkbox">무손실 압축 시험 (이온링크 전용)</label>
 <div class="actions"><button id="jetlinkStart">시험 시작</button><button id="jetlinkStop">중지</button>
-<a href="/api/jetlink-report.json" download="eon-n16-benchmark.json">최근 결과 저장</a></div>
+<a href="/api/jetlink-report.json" download="eon-n16-benchmark.json">최근 결과 저장</a>
+<a href="/api/jetlink-candidate.json" download="eon-n16-candidate.json">변환 출력 저장</a></div>
 <p id="jetlinkAction" role="status"></p><pre id="jetlinkStatus" aria-live="polite"></pre>
 <p class="hint">성능 확인용입니다. N16 출력은 조향·가감속에 적용하지 않습니다. EON 단일 카메라의 N16 영상 호환성은 미검증이며, 경로 지도 렌더러가 없으면 빈 지도 입력으로 측정합니다.</p></details>
 <details><summary>블루투스 리모컨</summary>
@@ -602,9 +604,11 @@ async function loadJetlinkBench() {
   const output = document.querySelector('#jetlinkStatus');
   try {
     const data = await read('/api/jetlink-bench');
-    const names = {idle:'시험 대기', starting:'시험 시작 중', connecting:'S20 연결 중', preparing:'N16 확인 중',
+    const names = {idle:'시험 대기', starting:'시험 시작 중', connecting:'폰 연결·검색 중', link_probe:'모델 없이 통신 지연 측정 중', preparing:'N16 확인 중',
       waiting_frames:'EON 영상·캘리브레이션 대기', measuring:'측정 중', finished:'측정 종료', stopped:'시험 중지', error:'시험 오류'};
     const lines = [names[data.stage] || data.stage || '시험 대기'];
+    if (data.host) lines.push('연결 주소 ' + data.host + ':' + data.port);
+    if (data.link_probe && Number.isFinite(data.link_probe.image_mean_ms)) lines.push('통신만 측정 · 작은 요청 ' + data.link_probe.small_mean_ms.toFixed(1) + 'ms · 영상 크기 요청 ' + data.link_probe.image_mean_ms.toFixed(1) + 'ms');
     if (data.peer) lines.push([data.peer.device, data.peer.backend].filter(Boolean).join(' · '));
     if (data.frames != null) lines.push('응답 ' + data.frames + '회 · 워밍업 제외 ' + data.samples + '회');
     if (data.samples > 0) lines.push('입력 시작→응답 p99 ' + data.input_to_reply_p99_ms.toFixed(1) + 'ms · 최대 ' + data.input_to_reply_max_ms.toFixed(1) + 'ms',
@@ -615,6 +619,29 @@ async function loadJetlinkBench() {
       '패킷 준비·해석 평균 ' + (data.pack_mean_ms + data.decode_mean_ms).toFixed(1) + 'ms · 상태 확인 ' + data.check_mean_ms.toFixed(1) + 'ms',
       '서버 외 평균 ' + data.nonserver_mean_ms.toFixed(1) + 'ms · 서버 큐 ' + data.queue_mean_ms.toFixed(1) + 'ms',
       '요청 평균 ' + data.request_mean_kib.toFixed(1) + 'KiB · 실제 응답 ' + (data.response_hz || 0).toFixed(1) + '회/초');
+    if (data.samples > 0 && data.timing_version >= 3) lines.push(
+      '폰 수신 평균 ' + data.phone_receive_mean_ms.toFixed(1) + 'ms · 폰 압축 해제 ' + data.phone_inflate_mean_ms.toFixed(1) + 'ms',
+      '폰 내부 엔진 왕복 ' + data.phone_engine_mean_ms.toFixed(1) + 'ms · 이온 압축 ' + data.compress_mean_ms.toFixed(1) + 'ms',
+      '압축 전 요청 ' + data.plain_request_mean_kib.toFixed(1) + 'KiB');
+    if (data.control_adapter) lines.push('N16 출력 변환 확인 · 차량 제어 미적용',
+      '2초 경로 좌우 ' + data.control_adapter.path_y_2s.toFixed(2) + 'm · 예측 속도 ' + data.control_adapter.speed_0s.toFixed(2) + 'm/s');
+    if (data.model_selection) {
+      const choice = data.model_selection;
+      const reasons = {warming_up:'정상 응답 누적 중', validation_pending:'영상·출력·복귀 검증 전',
+        disabled:'외부 모델 선택 꺼짐', late_response:'응답 기한 초과', stale_input:'입력 영상이 오래됨',
+        stale_result:'결과 유효 시간 초과', invalid_output:'출력 형식·수치 오류', synthetic_input:'합성 입력',
+        uncalibrated:'카메라 보정 대기', frame_mismatch:'응답 프레임 불일치', request_order:'요청 순서 오류',
+        frame_gap:'영상 프레임 누락', frame_out_of_window:'현재 영상과 결과 프레임 차이',
+        waiting_native_frame:'기존 모델의 같은 영상 처리 대기', native_unavailable:'기존 모델 상태 확인 대기',
+        recovery_latched:'해제 후 복구 대기', wait_disengaged:'인게이지 해제 대기',
+        overlapping_request:'중복 요청 차단', disconnected:'연결 없음', link_error:'통신·응답 오류',
+        observer_failed:'모델 상태 감시 오류', configuration_changed:'선택 설정 변경',
+        stopped:'시험 중지', finished:'시험 종료', external_ready:'외부 모델 선택 가능'};
+      const sources = {native:'기존 모델', external:'외부 모델', none:'선택 불가'};
+      lines.push('모델 선택 시험 · 차량 제어 미적용',
+        '판정 ' + (sources[choice.source] || choice.source) + ' · ' + (reasons[choice.reason] || choice.reason),
+        '연속 정상 최대 ' + choice.peak_healthy_frames + '회 · 응답 기한 초과 ' + (choice.counts.late_response || 0) + '회 · 복귀 판정 ' + (choice.counts.fallbacks || 0) + '회');
+    }
     if (data.nav_map) lines.push(data.nav_map === 'route' ? '경로 지도 입력' : '빈 지도 입력으로 측정');
     if (data.error) lines.push(data.error);
     output.textContent = lines.join('\n');
@@ -622,15 +649,44 @@ async function loadJetlinkBench() {
     document.querySelector('#jetlinkStop').disabled = !data.running;
   } catch (_) { output.textContent = '시험 상태를 읽지 못했습니다.'; }
 }
+const jetlinkFields = ['Host', 'Port', 'Transport', 'Compression'];
+function saveJetlinkSettings() {
+  try {
+    const value = {};
+    for (const field of jetlinkFields) {
+      const input = document.querySelector('#jetlink' + field);
+      value[field] = field === 'Compression' ? input.checked : input.value;
+    }
+    localStorage.setItem('eonlink-probe-v1', JSON.stringify(value));
+  } catch (_) {}
+}
+try {
+  const value = JSON.parse(localStorage.getItem('eonlink-probe-v1') || '{}');
+  for (const field of jetlinkFields) {
+    const input = document.querySelector('#jetlink' + field);
+    if (value[field] != null) {
+      if (field === 'Compression') input.checked = value[field] === true;
+      else input.value = value[field];
+    }
+  }
+} catch (_) {}
+for (const field of jetlinkFields) document.querySelector('#jetlink' + field).addEventListener('change', saveJetlinkSettings);
+document.querySelector('#jetlinkTransport').addEventListener('change', event => {
+  document.querySelector('#jetlinkPort').value = event.target.value === 'eonlink' ? '5600' : '5599';
+  document.querySelector('#jetlinkCompression').checked = false;
+  saveJetlinkSettings();
+});
 let jetlinkLoading = false;
 async function jetlinkAction(stop) {
   if (jetlinkLoading) return;
   jetlinkLoading = true;
+  saveJetlinkSettings();
   const target = document.querySelector('#jetlinkAction');
   target.textContent = stop ? '중지 요청 중…' : '시작 요청 중…';
   try {
     const path = stop ? '/api/jetlink-bench/stop' : '/api/jetlink-bench/start';
-    const payload = stop ? {} : {host:document.querySelector('#jetlinkHost').value.trim(),
+    const payload = stop ? {} : {host:document.querySelector('#jetlinkHost').value.trim() || 'auto',
+      transport:document.querySelector('#jetlinkTransport').value, compression:document.querySelector('#jetlinkCompression').checked,
       port:Number(document.querySelector('#jetlinkPort').value), seconds:Number(document.querySelector('#jetlinkSeconds').value),
       source:document.querySelector('#jetlinkSource').value};
     const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json',
@@ -731,7 +787,8 @@ document.querySelector('#openScreen').addEventListener('click', async () => {
   if (screenDialog.open) return;
   stopVision();
   screenDialog.showModal();
-  screenView.requestFullscreen?.().catch(() => {});
+  const fullscreen = screenView.requestFullscreen?.();
+  fullscreen?.catch(() => {});
   screenStatus.textContent = '이온 화면 연결 중';
   const request = new AbortController();
   screenRequest = request;
@@ -739,18 +796,23 @@ document.querySelector('#openScreen').addEventListener('click', async () => {
     const started = performance.now();
     try {
       const response = await fetch('/api/screen.jpg', {cache:'no-store', signal:request.signal});
-      if (!response.ok) throw Error();
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw Error(detail.output || '이온 화면 요청 실패');
+      }
       const blob = await response.blob();
       if (request.signal.aborted) return;
       if (screenUrl) URL.revokeObjectURL(screenUrl);
       screenUrl = URL.createObjectURL(blob);
       screenImage.src = screenUrl;
+      if (screenImage.decode) await screenImage.decode();
+      if (request.signal.aborted) return;
       screenImage.hidden = false;
       screenStatus.textContent = '';
-    } catch (_) {
+    } catch (error) {
       if (request.signal.aborted) return;
       screenImage.hidden = true;
-      screenStatus.textContent = '이온 화면 연결 대기 중';
+      screenStatus.textContent = error.message || '이온 화면 연결 대기 중';
     }
     await new Promise(resolve => setTimeout(resolve, Math.max(0, 1050 - (performance.now() - started))));
   }
@@ -1507,6 +1569,8 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(bt_remote_snapshot())
     elif path == "/api/jetlink-bench":
       self.send_json(self.server.jetlink_bench.snapshot())
+    elif path == "/api/jetlink-candidate.json":
+      self.send_json(self.server.jetlink_bench.candidate())
     elif path == "/api/jetlink-report.json":
       self.send_json(self.server.jetlink_bench.report())
     elif path == "/api/git.json":
@@ -1545,9 +1609,9 @@ class Handler(BaseHTTPRequestHandler):
       except (ImportError, OSError, ValueError, subprocess.TimeoutExpired):
         frame = None
       if frame is None:
-        self.send_json({"output": "이온 화면 준비 중"}, 503)
+        self.send_json({"output": self.server.screen_preview.error or "이온 UI 화면 준비 중"}, 503)
       else:
-        self.send_data(frame, "image/jpeg")
+        self.send_data(frame, self.server.screen_preview.content_type)
     elif path.startswith("/api/replay/"):
       segment = path.rsplit("/", 1)[-1]
       if not SEGMENT.fullmatch(segment):

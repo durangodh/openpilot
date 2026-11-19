@@ -3,6 +3,11 @@
 import bz2
 import io
 import math
+import json
+import os
+import stat
+import struct
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -55,28 +60,86 @@ class RoadPreview:
     return self.image
 
 
+SCREEN_HEADER = struct.Struct('<4sIQQIIII')
+MAX_SCREEN_BYTES = 2 * 1024 * 1024
+
+
 class ScreenPreview:
-  def __init__(self):
+  """Demand-only Qt UI snapshots; no Android compositor subprocess."""
+  def __init__(self, root=Path('/dev/shm'), clock=time.monotonic):
+    self.root = Path(root)
+    self.clock = clock
     self.image = None
+    self.content_type = 'image/jpeg'
+    self.captured = 0
     self.next_capture = 0
+    self.error = '이온 UI 화면 요청 중'
+
+  def _request(self):
+    fd = os.open(str(self.root / 'eon-web-screen.request'),
+                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+      if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise ValueError('invalid screen request file')
+      os.write(fd, str(int(self.clock() * 1e9)).encode('ascii'))
+    finally:
+      os.close(fd)
+
+  def _capture_error(self):
+    names = {'ui_hidden': '이온 UI 창이 표시되지 않아 캡처할 수 없습니다',
+             'grab_failed': '이온 UI 화면 읽기에 실패했습니다',
+             'encode_failed': '이온 UI 이미지 변환에 실패했습니다',
+             'write_failed': '이온 UI 캡처 파일 저장에 실패했습니다'}
+    try:
+      with open(self.root / 'eon-web-screen.error', 'rb') as source:
+        data = json.loads(source.read(513))
+      age = self.clock() - int(data['at_ns']) / 1e9
+      if 0 <= age < 3:
+        return names.get(data['error'], '이온 UI 캡처에 실패했습니다')
+    except (OSError, ValueError, KeyError, TypeError):
+      pass
+    return '이온 UI 캡처 응답 대기 중 · 업데이트 후 UI 재빌드·재시작을 확인하세요'
 
   def frame(self):
-    from PIL import Image
-
-    now = time.monotonic()
-    if now < self.next_capture:
+    try:
+      self._request()
+    except (OSError, ValueError):
+      self.image = None
+      self.error = '이온 UI 화면 요청 파일을 만들지 못했습니다'
+      return None
+    now = self.clock()
+    if now < self.next_capture and self.image is not None and 0 <= now - self.captured < 3:
       return self.image
     self.next_capture = now + SCREEN_FRAME_INTERVAL
     self.image = None
-    capture = subprocess.run(["/system/bin/screencap", "-p"], stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, timeout=1)
-    if capture.returncode:
-      return None
-    with Image.open(io.BytesIO(capture.stdout)) as image:
-      image.thumbnail((960, 540))
-      output = io.BytesIO()
-      image.convert("RGB").save(output, "JPEG", quality=68)
-    self.image = output.getvalue()
+    try:
+      fd = os.open(str(self.root / 'eon-web-screen.frame'), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+      with os.fdopen(fd, 'rb') as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or not SCREEN_HEADER.size < info.st_size <= MAX_SCREEN_BYTES + SCREEN_HEADER.size:
+          raise ValueError('invalid Qt snapshot file')
+        data = source.read(MAX_SCREEN_BYTES + SCREEN_HEADER.size + 1)
+      magic, version, captured, finished, width, height, format_id, size = SCREEN_HEADER.unpack_from(data)
+      now_ns = int(self.clock() * 1e9)
+      image = data[SCREEN_HEADER.size:]
+      if magic != b'EWS1' or version != 1 or not 0 < width <= 960 or not 0 < height <= 540 or size != len(image):
+        raise ValueError('invalid Qt snapshot header')
+      if not 0 < captured <= finished <= now_ns or now_ns - captured >= 3_000_000_000:
+        self.error = self._capture_error()
+        return None
+      if format_id == 1 and image.startswith(b'\xff\xd8') and image.endswith(b'\xff\xd9'):
+        self.content_type = 'image/jpeg'
+      elif format_id == 2 and image.startswith(b'\x89PNG\r\n\x1a\n'):
+        self.content_type = 'image/png'
+      else:
+        raise ValueError('invalid Qt snapshot image')
+      self.captured = captured / 1e9
+      self.image = image
+      self.error = ''
+    except FileNotFoundError:
+      self.error = self._capture_error()
+    except (OSError, ValueError, struct.error):
+      self.error = '이온 UI 캡처 파일을 읽지 못했습니다 · UI 재빌드·재시작을 확인하세요'
     return self.image
 
 
