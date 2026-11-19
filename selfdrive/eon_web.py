@@ -625,6 +625,23 @@ async function loadJetlinkBench() {
       '압축 전 요청 ' + data.plain_request_mean_kib.toFixed(1) + 'KiB');
     if (data.control_adapter) lines.push('N16 출력 변환 확인 · 차량 제어 미적용',
       '2초 경로 좌우 ' + data.control_adapter.path_y_2s.toFixed(2) + 'm · 예측 속도 ' + data.control_adapter.speed_0s.toFixed(2) + 'm/s');
+    if (data.model_selection) {
+      const choice = data.model_selection;
+      const reasons = {warming_up:'정상 응답 누적 중', validation_pending:'영상·출력·복귀 검증 전',
+        disabled:'외부 모델 선택 꺼짐', late_response:'응답 기한 초과', stale_input:'입력 영상이 오래됨',
+        stale_result:'결과 유효 시간 초과', invalid_output:'출력 형식·수치 오류', synthetic_input:'합성 입력',
+        uncalibrated:'카메라 보정 대기', frame_mismatch:'응답 프레임 불일치', request_order:'요청 순서 오류',
+        frame_gap:'영상 프레임 누락', frame_out_of_window:'현재 영상과 결과 프레임 차이',
+        waiting_native_frame:'기존 모델의 같은 영상 처리 대기', native_unavailable:'기존 모델 상태 확인 대기',
+        recovery_latched:'해제 후 복구 대기', wait_disengaged:'인게이지 해제 대기',
+        overlapping_request:'중복 요청 차단', disconnected:'연결 없음', link_error:'통신·응답 오류',
+        observer_failed:'모델 상태 감시 오류', configuration_changed:'선택 설정 변경',
+        stopped:'시험 중지', finished:'시험 종료', external_ready:'외부 모델 선택 가능'};
+      const sources = {native:'기존 모델', external:'외부 모델', none:'선택 불가'};
+      lines.push('모델 선택 시험 · 차량 제어 미적용',
+        '판정 ' + (sources[choice.source] || choice.source) + ' · ' + (reasons[choice.reason] || choice.reason),
+        '연속 정상 최대 ' + choice.peak_healthy_frames + '회 · 응답 기한 초과 ' + (choice.counts.late_response || 0) + '회 · 복귀 판정 ' + (choice.counts.fallbacks || 0) + '회');
+    }
     if (data.nav_map) lines.push(data.nav_map === 'route' ? '경로 지도 입력' : '빈 지도 입력으로 측정');
     if (data.error) lines.push(data.error);
     output.textContent = lines.join('\n');

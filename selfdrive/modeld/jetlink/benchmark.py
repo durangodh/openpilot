@@ -121,6 +121,7 @@ def run(args):
   statistics = Metrics()
   prediction = PredictionState()
   candidate = None
+  selection = None
   transport = getattr(args, 'transport', 'jetlink')
   status = {'running': True, 'stage': 'connecting', 'source': args.source, 'host': args.host,
             'port': args.port, 'model_sha256': SPEC['sha256'], 'driving_ready': False,
@@ -133,6 +134,8 @@ def run(args):
     now = time.monotonic()
     if force or now - status_at[0] >= 0.5:
       status_at[0] = now
+      if selection is not None:
+        status['model_selection'] = selection.snapshot()
       atomic_json(STATUS, dict(status, updated_at=time.time(), **statistics.snapshot()))
 
   def check():
@@ -177,6 +180,11 @@ def run(args):
     status['stage'] = 'preparing'
     write_status(True)
     status['peer'] = client.prepare()
+    if args.source == 'camera':
+      from selfdrive.modeld.jetlink.selection_monitor import SelectionMonitor
+      selection = SelectionMonitor()
+      selection.start()
+      selection.connect()
     from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
     navigation = NavigationRouteData(GUIDE_FILE)
     status['stage'] = 'waiting_frames' if args.source == 'camera' else 'measuring'
@@ -222,14 +230,18 @@ def run(args):
         frame_started, gap = now, 1
       packed = np.concatenate((packed, navigation_input(navigation.update())))
       nav_map, status['nav_map'] = route_map()
+      ticket = selection.begin(client.sequence + 1, frame_id, frame_started, bool(frame['flags'] & 2)) if selection is not None else None
       values, timings = client.infer(frame_id, images, packed, nav_map,
                                     reset=last_frame is None or gap != 1)
       converted = prediction.convert(values, frame_id)
+      if selection is not None:
+        selection.accept(ticket, frame_id, converted)
       status['control_adapter'] = dict(converted=True, applied=False, camera_compatible=False, **converted['summary'])
       if args.source == 'camera':
         candidate = dict(source='camera', frame_id=frame_id, captured_monotonic=frame_started,
                          started_at=status['started_at'], flags=frame['flags'], nav_map=status['nav_map'],
-                         applied=False, camera_compatible=False, **converted)
+                         applied=False, camera_compatible=False,
+                         model_selection=selection.snapshot() if selection is not None else None, **converted)
       statistics.add(timings, (time.monotonic() - frame_started) * 1000)
       last_frame = frame_id
       status.update(stage='measuring', last_frame_id=frame_id, last=timings,
@@ -239,10 +251,16 @@ def run(args):
       write_status()
     status['stage'] = 'finished'
   except Stopped as error:
+    if selection is not None:
+      selection.fail('stopped')
     status.update(stage='stopped', error=str(error))
   except (OSError, ValueError, LinkError, RuntimeError) as error:
+    if selection is not None:
+      selection.fail('link_error')
     status.update(stage='error', error=str(error)[:500])
   finally:
+    if selection is not None:
+      selection.close('finished' if status['stage'] == 'finished' else 'stopped' if status['stage'] == 'stopped' else 'link_error')
     if client:
       client.close()
     frames.close()
