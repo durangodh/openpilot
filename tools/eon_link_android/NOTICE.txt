@@ -1,0 +1,21 @@
+EON Link / 이온링크 0.1.0 — parked performance probe, no vehicle actuation.
+New Android shell and EON1 relay by durangodh. This build reuses the inference
+engine from bin9208/jetlink v0.9.0-carrot.46, source revision
+1133658a61df201ef8b1805fa3e03e493604355b, under the MIT license (JETLINK-LICENSE).
+Source: https://github.com/bin9208/jetlink
+Pinned upstream APK SHA-256:
+08a083207f58ce574f4ab0bfab13ec81123b7ab782bd24e7f21251e2eb73fd89
+
+Included native runtimes, unchanged and redistributed only within this app:
+ONNX Runtime 1.29.0: MIT, https://github.com/microsoft/onnxruntime/blob/v1.29.0/LICENSE
+Qualcomm QNN libraries: Qualcomm AI Stack License,
+https://www.qualcomm.com/developer/software/qualcomm-ai-stack
+Android C++ shared runtime: Apache 2.0 with LLVM exception,
+https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT
+See also upstream android/README.md (Licenses). No LiteRT/MediaTek/Tensor runtime
+is included. No separate distribution of the QNN libraries is intended.
+
+Model weights are not included. The original engine downloads/imports N16,
+checks its content hash, and owns its existing preparation and input validation.
+This app has a new package and its own private model cache. It cannot read the
+installed Jetlink app's data. No telemetry or automatic app update is added.

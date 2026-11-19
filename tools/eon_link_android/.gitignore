@@ -1,0 +1,4 @@
+build/
+*.keystore
+*.p12
+__pycache__/

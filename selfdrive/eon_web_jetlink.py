@@ -44,17 +44,22 @@ class JetlinkBench:
   def start(self, payload, blocked=None):
     if blocked:
       return 409, {'output': blocked}
-    if not isinstance(payload, dict) or set(payload) != {'host', 'port', 'seconds', 'source'}:
+    if not isinstance(payload, dict) or not {'host', 'port', 'seconds', 'source'} <= set(payload) or set(payload) - {'host', 'port', 'seconds', 'source', 'transport', 'compression'}:
       return 400, {'output': '시험 설정을 확인하세요'}
     try:
-      host = ipaddress.ip_address(payload['host'])
-      if host.version != 4 or not host.is_private or host.is_loopback or host.is_unspecified or host.is_multicast:
+      transport, compression = payload.get('transport', 'jetlink'), payload.get('compression', False)
+      if transport not in ('jetlink', 'eonlink') or type(compression) is not bool or (compression and transport != 'eonlink'):
         raise ValueError()
+      host = payload['host']
+      if not (host == 'auto' and transport == 'eonlink'):
+        host = ipaddress.ip_address(host)
+        if host.version != 4 or not host.is_private or host.is_loopback or host.is_unspecified or host.is_multicast:
+          raise ValueError()
       port, seconds, source = payload['port'], payload['seconds'], payload['source']
       if type(port) is not int or not 1024 <= port <= 65535 or type(seconds) is not int or seconds not in (60, 600) or source not in ('synthetic', 'camera'):
         raise ValueError()
     except (TypeError, ValueError):
-      return 400, {'output': 'S20에 표시된 Wi-Fi IPv4 주소·포트와 시험 시간을 확인하세요'}
+      return 400, {'output': '앱의 Wi-Fi IPv4 주소·포트와 시험 시간을 확인하세요. 자동 검색은 이온링크 전용입니다.'}
     if self.process is not None and self.process.poll() is None:
       return 409, {'output': '이미 시험 중입니다'}
     # Check the same OS lock used by the CLI; never start two model clients.
@@ -66,7 +71,8 @@ class JetlinkBench:
     with open(ROOT / 'eon-n16-worker.log', 'wb') as output:
       self.process = subprocess.Popen(
         [sys.executable, '-m', 'selfdrive.modeld.jetlink.benchmark', '--host', str(host),
-         '--port', str(port), '--seconds', str(seconds), '--source', source],
+         '--port', str(port), '--seconds', str(seconds), '--source', source, '--transport', transport] +
+        (['--compression'] if compression else []),
         cwd=self.basedir, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
         start_new_session=True, close_fds=True)
     return 202, {'output': 'N16 시험을 시작했습니다. 주행 제어는 기존 모델을 사용합니다.'}

@@ -66,6 +66,10 @@ class Client:
     if padded:
       views.append(memoryview(b'\0'))
     self.last_tx_bytes = HEADER.size + size + int(padded)
+    self._write_parts(views, deadline)
+    return self.sequence
+
+  def _write_parts(self, views, deadline):
     sendmsg = getattr(self.sock, 'sendmsg', None)
     if not callable(sendmsg):
       views = [memoryview(b''.join(views))]
@@ -81,7 +85,6 @@ class Client:
         sent -= len(views.pop(0))
       if views and sent:
         views[0] = views[0][sent:]
-    return self.sequence
 
   def _read(self, size, deadline):
     result = bytearray(size)
