@@ -242,7 +242,7 @@ def remote_learning_allowed(sm, params):
                           car.canValid, car.standstill, car.gearShifter == 'park')
 
 
-def main():
+def run():
   # Imported here so the reader and its tests load without the compiled cereal/params modules.
   from cereal import messaging
   from common.params import Params
@@ -449,6 +449,21 @@ def main():
     for node in nodes.values():
       node.close()
     log.write('stop / ' + link.summary())
+
+
+
+def main():
+  # The manager does not restart a process that died, and a dead bt_remote used to show
+  # "System Malfunction" (2026-11-19). Log the error and start over instead of exiting.
+  import traceback
+  while True:
+    try:
+      run()
+    except KeyboardInterrupt:
+      raise
+    except Exception:  # pylint: disable=broad-except
+      Log().write('crash: ' + traceback.format_exc().replace('\n', ' | '))
+      time.sleep(5)
 
 
 if __name__ == '__main__':
