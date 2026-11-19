@@ -42,6 +42,22 @@ def test_warmup_and_late_frames_do_not_become_driving_approval():
   json.dumps(result, allow_nan=False)
 
 
+def test_timing_split_keeps_server_outside_time_distinct_from_network_time():
+  stats = B.Metrics()
+  timing = {'roundtrip_ms': 125, 'server_ms':37, 'gpu_ms':36, 'queue_ms':0.2,
+            'pack_ms':1, 'send_ms':50, 'wait_ms':73, 'decode_ms':1,
+            'check_ms':5, 'tx_bytes':393492}
+  for _ in range(21):
+    stats.add(timing, 130)
+  result = stats.snapshot()
+  assert result['samples'] == 1
+  assert result['nonserver_mean_ms'] == 88
+  assert result['send_mean_ms'] == 50 and result['wait_mean_ms'] == 73
+  assert result['check_mean_ms'] == 5  # subset of send/wait, not added again
+  assert result['request_mean_kib'] == 393492 / 1024
+  assert result['driving_ready'] is False
+
+
 @pytest.mark.parametrize('state', ['moving','drive','engaged','active','stale'])
 def test_vehicle_guard_stops_in_motion_outside_park_or_without_valid_state(monkeypatch, state):
   class SubMaster:

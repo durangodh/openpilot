@@ -46,6 +46,8 @@ class Phone:
     self.port = self.listener.getsockname()[1]
     self.loaded, self.bad_spec, self.reply = loaded, bad_spec, reply
     self.inputs, self.errors = [], []
+    self.maps = []
+    self.last_map = bytes(MAP_BYTES)
     self.thread = threading.Thread(target=self.serve, daemon=True)
     self.thread.start()
 
@@ -67,6 +69,11 @@ class Phone:
         elif kind == 8:
           frame_id, flags = struct.unpack_from('<II', payload)
           assert len(payload) == 8 + WARPED_BYTES + 59 * 4 + (MAP_BYTES if flags & 8 else 0)
+          if flags & 1:
+            self.last_map = bytes(MAP_BYTES)
+          if flags & 8:
+            self.last_map = payload[-MAP_BYTES:]
+          self.maps.append(self.last_map)
           self.inputs.append((frame_id, flags, payload))
           if self.reply == 'timeout':
             time.sleep(0.15)
@@ -147,3 +154,64 @@ def test_navigation_input_contains_only_current_fresh_command_and_distance():
     assert navigation_input(dict(state, fresh=False)).sum() == 0
     assert navigation_input(dict(state, off_route=True)).sum() == 0
   assert navigation_input(dict(fresh=True, kind='turn', direction=1, distance=np.inf)).sum() == 0
+
+
+def test_unchanged_map_is_retained_changes_clear_it_and_reset_resends():
+  phone = Phone()
+  client = phone.client()
+  route, black = bytes([128]) * MAP_BYTES, bytes(MAP_BYTES)
+  cases = [(route, True, True, route), (route, False, False, route),
+           (black, False, True, black), (black, False, False, black),
+           (black, True, True, black), (None, True, False, black),
+           (route, False, True, route)]
+  try:
+    client.prepare()
+    for frame_id, (nav_map, reset, sent, expected) in enumerate(cases, start=1):
+      _, timing = client.infer(frame_id, bytes(WARPED_BYTES), np.zeros(59), nav_map, reset)
+      assert timing['map_sent'] is sent
+      assert timing['tx_bytes'] == 32 + 8 + WARPED_BYTES + 59 * 4 + (MAP_BYTES if sent else 0)
+      assert phone.maps[-1] == expected
+      assert timing['roundtrip_ms'] >= timing['send_ms'] >= 0
+      assert timing['roundtrip_ms'] >= timing['wait_ms'] >= 0
+      assert timing['check_ms'] >= 0
+  finally:
+    client.close()
+    phone.join()
+
+
+@pytest.mark.parametrize('vectored', [True, False])
+def test_partial_writes_preserve_header_images_and_scalars(vectored):
+  class ShortSocket:
+    def __init__(self, raw):
+      self.raw, self.calls = raw, 0
+      if not vectored:
+        self.sendmsg = None
+    def __getattr__(self, name):
+      return getattr(self.raw, name)
+    def limit(self):
+      self.calls += 1
+      return 7 if self.calls == 1 else 31 if self.calls == 2 else 8191
+    def send(self, view):
+      return self.raw.send(view[:self.limit()])
+    def sendmsg(self, views):
+      budget, limited = self.limit(), []
+      for view in views:
+        if not budget:
+          break
+        limited.append(view[:budget])
+        budget -= len(limited[-1])
+      return self.raw.sendmsg(limited)
+  phone = Phone()
+  raw = socket.create_connection(('127.0.0.1', phone.port), timeout=1)
+  client = Client(ShortSocket(raw))
+  images = bytes([37]) * WARPED_BYTES
+  packed = np.arange(59, dtype='<f4')
+  try:
+    client.prepare()
+    client.infer(8, images, packed, bytes(MAP_BYTES))
+    payload = phone.inputs[-1][2]
+    assert payload[8:8+WARPED_BYTES] == images
+    assert np.array_equal(np.frombuffer(payload, dtype='<f4', offset=8+WARPED_BYTES, count=59), packed)
+  finally:
+    client.close()
+    phone.join()
