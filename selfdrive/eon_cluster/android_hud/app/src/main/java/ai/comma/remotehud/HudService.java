@@ -5284,14 +5284,22 @@ public final class HudService extends Service {
 
         String song = HudNaverMusic.nowPlaying();
         if (!song.isEmpty()) {
+            // Same row as the clock, with a visible 56px gap after the time.
+            // Keep long titles out of the right-hand navigation/weather badges.
+            float songLeft = left + clockWidth + 56f;
+            float songRight = naviLayout
+                    ? NAVI_COL_LEFT - (NAVI_LANE_CX - DRIVE_MID) - 20f : 900f;
+            float songTextWidth = Math.min(270f, Math.max(1f, songRight - songLeft - 48f));
             p.setTextSize(22f);
             musicTextPaint.set(p);
             song = android.text.TextUtils.ellipsize(song, musicTextPaint,
-                    270f, android.text.TextUtils.TruncateAt.END).toString();
+                    songTextWidth, android.text.TextUtils.TruncateAt.END).toString();
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(frameDark ? Color.argb(210, 12, 18, 24) : Color.argb(225, 242, 246, 249));
             float songHalfWidth = (p.measureText(song) + 30f) / 2f + 9f;
+            int musicSave = c.save();
+            c.translate(songLeft - (DRIVE_MID - songHalfWidth), -36f);
             scratchRect.set(DRIVE_MID - songHalfWidth, 57f, DRIVE_MID + songHalfWidth, 88f);
             c.drawRoundRect(scratchRect, 6f, 6f, p);
             float iconX = DRIVE_MID - songHalfWidth + 21f;
@@ -5315,6 +5323,7 @@ public final class HudService extends Service {
             c.drawOval(scratchRect, p);
             text(c, p, song, iconX + 18f, 80f, 22f,
                     frameDark ? Color.WHITE : Color.rgb(20, 30, 36), Paint.Align.LEFT);
+            c.restoreToCount(musicSave);
         }
 
         if (signalValid) {
