@@ -610,6 +610,11 @@ async function loadJetlinkBench() {
     if (data.samples > 0) lines.push('입력 시작→응답 p99 ' + data.input_to_reply_p99_ms.toFixed(1) + 'ms · 최대 ' + data.input_to_reply_max_ms.toFixed(1) + 'ms',
       '왕복 평균 ' + data.roundtrip_mean_ms.toFixed(1) + 'ms · 서버 평균 ' + data.server_mean_ms.toFixed(1) + 'ms',
       '50ms 초과 ' + data.over_50ms + '/' + data.samples + ' · 건너뛴 영상 ' + data.skipped_source_frames);
+    if (data.samples > 0 && data.timing_version >= 2) lines.push(
+      '송신 호출 평균 ' + data.send_mean_ms.toFixed(1) + 'ms · 응답 대기 평균 ' + data.wait_mean_ms.toFixed(1) + 'ms',
+      '패킷 준비·해석 평균 ' + (data.pack_mean_ms + data.decode_mean_ms).toFixed(1) + 'ms · 상태 확인 ' + data.check_mean_ms.toFixed(1) + 'ms',
+      '서버 외 평균 ' + data.nonserver_mean_ms.toFixed(1) + 'ms · 서버 큐 ' + data.queue_mean_ms.toFixed(1) + 'ms',
+      '요청 평균 ' + data.request_mean_kib.toFixed(1) + 'KiB · 실제 응답 ' + (data.response_hz || 0).toFixed(1) + '회/초');
     if (data.nav_map) lines.push(data.nav_map === 'route' ? '경로 지도 입력' : '빈 지도 입력으로 측정');
     if (data.error) lines.push(data.error);
     output.textContent = lines.join('\n');

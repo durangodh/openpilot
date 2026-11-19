@@ -30,35 +30,57 @@ class Client:
     self.check = check
     self.sequence = 0
     self.peer = {}
+    self.last_map = None
+    self.check_seconds = 0.0
+    self.last_tx_bytes = 0
     self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
   def close(self):
     self.sock.close()
 
   def _timeout(self, deadline):
-    self.check()
+    started = time.monotonic()
+    try:
+      self.check()
+    finally:
+      self.check_seconds += time.monotonic() - started
     remaining = deadline - time.monotonic()
     if remaining <= 0:
       raise LinkError('Jetlink 응답 시간 초과')
     self.sock.settimeout(min(remaining, 0.2))
 
   def _send(self, kind, payload, deadline):
+    return self._send_parts(kind, (payload,), deadline)
+
+  def _send_parts(self, kind, parts, deadline):
     self.sequence += 1
     if self.sequence >= 0xffffffff:
       raise LinkError('sequence exhausted')
-    padded = (HEADER.size + len(payload)) % 512 == 0
-    data = HEADER.pack(MAGIC, VERSION, kind, self.sequence, PADDED if padded else 0,
-                       len(payload), 0) + payload + (b'\0' if padded else b'')
-    view = memoryview(data)
-    while view:
+    # Keep the image borrowed. Building header+images+scalars+map used to
+    # copy the entire ~450 KiB request several times on the EON CPU.
+    views = [memoryview(part) for part in parts if len(part)]
+    size = sum(view.nbytes for view in views)
+    padded = (HEADER.size + size) % 512 == 0
+    header = HEADER.pack(MAGIC, VERSION, kind, self.sequence, PADDED if padded else 0, size, 0)
+    views.insert(0, memoryview(header))
+    if padded:
+      views.append(memoryview(b'\0'))
+    self.last_tx_bytes = HEADER.size + size + int(padded)
+    sendmsg = getattr(self.sock, 'sendmsg', None)
+    if not callable(sendmsg):
+      views = [memoryview(b''.join(views))]
+    while views:
       self._timeout(deadline)
       try:
-        sent = self.sock.send(view)
+        sent = sendmsg(views) if callable(sendmsg) else self.sock.send(views[0])
       except socket.timeout:
         continue
       if not sent:
         raise LinkError('Jetlink 연결 종료')
-      view = view[sent:]
+      while views and sent >= len(views[0]):
+        sent -= len(views.pop(0))
+      if views and sent:
+        views[0] = views[0][sent:]
     return self.sequence
 
   def _read(self, size, deadline):
@@ -125,6 +147,7 @@ class Client:
     if not isinstance(spec, dict) or any(spec.get(key) != SPEC[key] for key in
                                         ('sha256', 'nbytes', 'frame_skip', 'input_shapes', 'output_shapes', 'output_slices')):
       raise LinkError('N16 모델 입출력 규격이 다릅니다')
+    self.last_map = None
     return {key: self.peer.get(key) for key in ('device', 'backend', 'runtime_version')}
 
   def infer(self, frame_id, images, packed, nav_map=None, reset=False, timeout=3.0):
@@ -134,13 +157,22 @@ class Client:
     if nav_map is not None and len(nav_map) != MAP_BYTES:
       raise LinkError('N16 지도 크기 오류')
     started = time.monotonic()
+    check_before = self.check_seconds
     deadline = started + timeout
-    flags = (RESET if reset else 0) | (NAV_MAP if nav_map is not None else 0)
-    payload = struct.pack('<II', frame_id, flags) + images + packed.tobytes()
     if nav_map is not None:
-      payload += nav_map
-    seq = self._send(8, payload, deadline)
+      nav_map = bytes(nav_map)
+    # The server retains its last map until reset. Re-send on a change or
+    # reset only, including one black map when a route becomes unavailable.
+    with_map = nav_map is not None and (reset or nav_map != self.last_map)
+    flags = (RESET if reset else 0) | (NAV_MAP if with_map else 0)
+    parts = (struct.pack('<II', frame_id, flags), images, packed.tobytes())
+    if with_map:
+      parts += (nav_map,)
+    prepared = time.monotonic()
+    seq = self._send_parts(8, parts, deadline)
+    sent_at = time.monotonic()
     payload = self._expect(9, seq, deadline)
+    received_at = time.monotonic()
     if len(payload) < INFER.size:
       raise LinkError('N16 출력 헤더 누락')
     answered, status, gpu, queue, total = INFER.unpack_from(payload)
@@ -155,7 +187,13 @@ class Client:
       raise LinkError('N16 출력 NaN/무한대')
     full = np.zeros(SPEC['output_shapes']['outputs'][1], dtype=np.float32)
     full[:start], full[stop:] = values[:start], values[start:]
-    return full, {'roundtrip_ms': (time.monotonic() - started) * 1000,
+    self.last_map = nav_map if with_map else None if reset else self.last_map
+    done = time.monotonic()
+    return full, {'roundtrip_ms': (done - started) * 1000,
+                  'pack_ms': (prepared - started) * 1000, 'send_ms': (sent_at - prepared) * 1000,
+                  'wait_ms': (received_at - sent_at) * 1000, 'decode_ms': (done - received_at) * 1000,
+                  'check_ms': (self.check_seconds - check_before) * 1000,
+                  'tx_bytes': self.last_tx_bytes, 'map_sent': with_map,
                   'gpu_ms': gpu / 1000.0, 'queue_ms': queue / 1000.0, 'server_ms': total / 1000.0}
 
 

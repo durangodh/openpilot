@@ -70,7 +70,9 @@ class Metrics:
     self.frames += 1
     # Exclude engine warm-up from percentiles but retain its count.
     if self.frames > 20:
-      self.rows.append([timings['roundtrip_ms'], timings['server_ms'], timings['gpu_ms'], age_ms])
+      self.rows.append([timings['roundtrip_ms'], timings['server_ms'], timings['gpu_ms'], age_ms] +
+                       [timings.get(key, 0.0) for key in
+                        ('pack_ms', 'send_ms', 'wait_ms', 'decode_ms', 'check_ms', 'tx_bytes', 'queue_ms')])
 
   def snapshot(self):
     result = {'frames': self.frames, 'samples': len(self.rows), 'skipped_source_frames': self.skipped,
@@ -80,10 +82,18 @@ class Metrics:
       result.update({'roundtrip_mean_ms': float(a[:, 0].mean()),
                      'roundtrip_p99_ms': float(np.percentile(a[:, 0], 99)),
                      'roundtrip_max_ms': float(a[:, 0].max()),
+                     'input_to_reply_mean_ms': float(a[:, 3].mean()),
                      'server_mean_ms': float(a[:, 1].mean()), 'gpu_mean_ms': float(a[:, 2].mean()),
                      'input_to_reply_p99_ms': float(np.percentile(a[:, 3], 99)),
                      'input_to_reply_max_ms': float(a[:, 3].max()),
                      'over_50ms': int((a[:, 3] > 50).sum())})
+      for column, name in enumerate(('pack', 'send', 'wait', 'decode', 'check'), start=4):
+        result[name + '_mean_ms'] = float(a[:, column].mean())
+      result['send_p99_ms'] = float(np.percentile(a[:, 5], 99))
+      result['wait_p99_ms'] = float(np.percentile(a[:, 6], 99))
+      result['request_mean_kib'] = float(a[:, 9].mean() / 1024)
+      result['queue_mean_ms'] = float(a[:, 10].mean())
+      result['nonserver_mean_ms'] = float((a[:, 0] - a[:, 1]).mean())
     return result
 
 
@@ -106,7 +116,8 @@ def run(args):
   status = {'running': True, 'stage': 'connecting', 'source': args.source, 'host': args.host,
             'port': args.port, 'model_sha256': SPEC['sha256'], 'driving_ready': False,
             'nav_map': 'blank', 'single_camera': args.source == 'camera',
-            'action_t': [0.2, 0.2], 'started_at': time.time(), 'pid': os.getpid()}
+            'action_t': [0.2, 0.2], 'started_at': time.time(), 'pid': os.getpid(),
+            'transport': 'tcp-v3', 'timing_version': 2}
   status_at = [0.0]
 
   def write_status(force=False):
@@ -192,6 +203,7 @@ def run(args):
       status.update(stage='measuring', last_frame_id=frame_id, last=timings,
                     output_floats=len(values), plan_y_2s=float(values[917 + 14 * 15 + 1]),
                     elapsed_s=time.monotonic() - started)
+      status['response_hz'] = statistics.frames / max(0.001, status['elapsed_s'])
       write_status()
     status['stage'] = 'finished'
   except Stopped as error:
