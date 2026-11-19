@@ -689,6 +689,7 @@ public final class HudService extends Service {
     private volatile long nextUsbAttemptElapsed;
     private long nextOpenStallRecoverElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.text.TextPaint musicTextPaint = new android.text.TextPaint();
     private final Matrix outMatrix = new Matrix();
     // 기어 팝업(EON NvgWindow::ctTextAnimStart/drawTextAnim 과 같은 동작).
     private final Matrix gearBoxMatrix = new Matrix();
@@ -5277,6 +5278,41 @@ public final class HudService extends Service {
         float left = DRIVE_MID - clockWidth / 2f;
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
         text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
+
+        String song = HudMusicService.nowPlaying;
+        if (!song.isEmpty()) {
+            p.setTextSize(22f);
+            musicTextPaint.set(p);
+            song = android.text.TextUtils.ellipsize(song, musicTextPaint,
+                    270f, android.text.TextUtils.TruncateAt.END).toString();
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(frameDark ? Color.argb(210, 12, 18, 24) : Color.argb(225, 242, 246, 249));
+            float songHalfWidth = (p.measureText(song) + 30f) / 2f + 9f;
+            scratchRect.set(DRIVE_MID - songHalfWidth, 57f, DRIVE_MID + songHalfWidth, 88f);
+            c.drawRoundRect(scratchRect, 6f, 6f, p);
+            float iconX = DRIVE_MID - songHalfWidth + 21f;
+            p.setColor(Color.rgb(96, 196, 235));
+            c.drawCircle(iconX, 72.5f, 12f, p);
+            p.setColor(Color.WHITE);
+            scratchPath.rewind();
+            scratchPath.moveTo(iconX - 4f, 66f);
+            scratchPath.lineTo(iconX + 6f, 64f);
+            scratchPath.lineTo(iconX + 6f, 75f);
+            scratchPath.lineTo(iconX + 4f, 75f);
+            scratchPath.lineTo(iconX + 4f, 68f);
+            scratchPath.lineTo(iconX - 2f, 69.2f);
+            scratchPath.lineTo(iconX - 2f, 77f);
+            scratchPath.lineTo(iconX - 4f, 77f);
+            scratchPath.close();
+            c.drawPath(scratchPath, p);
+            scratchRect.set(iconX - 8f, 74f, iconX - 2f, 79f);
+            c.drawOval(scratchRect, p);
+            scratchRect.set(iconX, 72f, iconX + 6f, 77f);
+            c.drawOval(scratchRect, p);
+            text(c, p, song, iconX + 18f, 80f, 22f,
+                    frameDark ? Color.WHITE : Color.rgb(20, 30, 36), Paint.Align.LEFT);
+        }
 
         if (signalValid) {
             long nowMs = SystemClock.elapsedRealtime();

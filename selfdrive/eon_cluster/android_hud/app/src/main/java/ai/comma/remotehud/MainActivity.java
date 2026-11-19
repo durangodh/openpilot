@@ -415,6 +415,17 @@ public final class MainActivity extends Activity {
 
         root.addView(permissionCard, cardParams());
 
+        LinearLayout musicCard = card();
+        musicCard.addView(text("HUD 음악 정보", 18.0f, Color.WHITE, Typeface.BOLD));
+        musicCard.addView(text(
+                "벅스·스포티파이 재생 중인 S20에서 알림 접근의 'EON HUD 음악 정보'를 허용하면 날짜·시간 아래에 곡명과 가수가 표시됩니다.",
+                15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL));
+        Button musicAccessButton = button("음악 정보 접근 설정", Color.rgb(40, 92, 132));
+        musicAccessButton.setOnClickListener(v ->
+                startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
+        musicCard.addView(musicAccessButton);
+        root.addView(musicCard, cardParams());
+
         LinearLayout updateCard = card();
         updateCard.addView(text("앱 업데이트", 18.0f, Color.WHITE, Typeface.BOLD));
         updateValue = text("현재 버전: " + appVersionName(), 14.0f,
