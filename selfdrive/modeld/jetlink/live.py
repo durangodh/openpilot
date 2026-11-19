@@ -83,8 +83,14 @@ class LiveWorker:
     if self.stopped or ipc.control() != (int(self.info['revision']), True):
       raise Changed('모델 선택 변경 또는 종료')
     state = ipc.native_state()
-    if not state or not state['native_available'] or not state['can_valid'] or not state['calibrated']:
-      raise LinkError('기존 모델·차량 CAN·카메라 보정 상태 대기 중')
+    if not state:
+      raise LinkError('modeld 상태 파일 미수신·만료: 재시작·모델 처리 지연 확인')
+    if not state['native_available']:
+      raise LinkError('기존 모델 정상 출력·처리 시각 확인 대기')
+    if not state['can_valid']:
+      raise LinkError('modeld의 차량 CAN·controlsState 수신 확인 대기')
+    if not state['calibrated']:
+      raise LinkError('modeld의 카메라 보정 완료·수신 확인 대기')
     self.status()
     return state
 
@@ -131,6 +137,8 @@ class LiveWorker:
           ipc.DEMAND.touch(); next_demand = now + .5
         frame = frames.latest(last_read)
         if frame is None:
+          if not self.info['frames']:
+            self.info['error'] = getattr(frames, 'reason', '영상 입력 대기')
           decision = self.policy.decide(native['frame_id'], native['native_available'], native['engaged'])
           self.info['selection'] = self.policy.snapshot(decision)
           if decision.source != 'external':
@@ -207,6 +215,7 @@ class LiveWorker:
         self.status(True)
         deadline = time.monotonic() + delay
         while not self.stopped and time.monotonic() < deadline and ipc.control() == (int(config['revision']), True):
+          self.status()  # retain the retry reason instead of appearing dead after 3s
           time.sleep(.05)
         delay = min(5., delay * 2)
     clear_results()

@@ -90,3 +90,24 @@ def test_original_route_map_abi_expires_and_clears_to_black(tmp_path):
   path.write_bytes(MAP_HEADER.pack(b'NMAP', 7, int(now*1e9), 1) + data)
   assert route_map(path, now + 0.1) == (data, 'route')
   assert route_map(path, now + 0.6) == (bytes(MAP_BYTES), 'blank')
+
+
+def test_frame_published_during_snapshot_is_not_discarded_as_future(tmp_path, monkeypatch):
+  from selfdrive.modeld.jetlink import frames as module
+  path = tmp_path / 'frame'
+  clock = [10.0]
+  path.write_bytes(FRAME_HEADER.pack(b'JLE1',1,2,10_001_000_000,10,3,*([0.]*8),1.,0.,55) + bytes(WARPED_BYTES))
+  original = module.mmap.mmap
+  def concurrent_mapping(*args, **kwargs):
+    clock[0] = 10.002  # producer wrote while the reader opened/mapped
+    return original(*args, **kwargs)
+  monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+  monkeypatch.setattr(module.mmap, 'mmap', concurrent_mapping)
+  reader = Frames(path)
+  try:
+    assert reader.latest()['frame_id'] == 10
+    assert reader.reason == '정상 영상'
+    assert reader.latest(now=10.) is None
+    assert '시각' in reader.reason
+  finally:
+    reader.close()

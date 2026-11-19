@@ -97,9 +97,11 @@ def save_profile(value, config_path=None, control_path=None):
 
 def native_state(path=None, now=None):
   path = STATE if path is None else path
-  now = time.monotonic() if now is None else now
   try:
     values = STATE_HEADER.unpack(read(path, STATE_HEADER.size))
+    # The producer may publish between entering this function and read().
+    # Sample after the snapshot, otherwise a brand-new state looks future-dated.
+    now = time.monotonic() if now is None else now
     magic, version, stamp, frame, flags, selected_frame, sequence, session, reason, reserved, finished, revision = values
     age = now - stamp / 1e9
     if magic != b'ELS1' or version != 1 or reserved or flags & ~63 or not 0 <= age < .25:

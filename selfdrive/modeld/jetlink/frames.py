@@ -22,6 +22,7 @@ class Frames:
     self.path = Path(path)
     self.file = None
     self.mapping = None
+    self.reason = '영상 파일 대기'
 
   def close(self):
     if self.mapping is not None:
@@ -31,13 +32,13 @@ class Frames:
     self.file = self.mapping = None
 
   def latest(self, last=None, now=None):
-    now = time.monotonic() if now is None else now
     try:
       if self.file is None:
         fd = os.open(str(self.path), os.O_RDONLY | os.O_NOFOLLOW)
         self.file = os.fdopen(fd, 'rb')
         st = os.fstat(fd)
         if st.st_size != FRAME_SIZE or not stat.S_ISREG(st.st_mode):
+          self.reason = '영상 파일 크기·종류 불일치'
           self.close()
           return None
         self.mapping = mmap.mmap(fd, FRAME_SIZE, access=mmap.ACCESS_READ)
@@ -47,16 +48,30 @@ class Frames:
       finally:
         fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
       magic, version, generation, started_ns, frame_id, flags, *rest = FRAME_HEADER.unpack_from(data)
-      if magic != b'JLE1' or version != 1 or not generation or generation & 1 or frame_id == last:
+      if magic != b'JLE1' or version != 1 or not generation or generation & 1:
+        self.reason = '영상 헤더·작성 완료 대기'
         return None
+      if frame_id == last:
+        self.reason = '새 영상 대기'
+        return None
+      # Sample after copying the snapshot: a concurrent fresh frame is not in
+      # the future just because latest() was entered before it was published.
+      now = time.monotonic() if now is None else now
       age = now - started_ns / 1e9
-      if not 0 <= age < 0.15 or flags & ~3 or not flags & 2 or not all(math.isfinite(x) for x in rest[:10]):
+      if not 0 <= age < 0.15:
+        self.reason = '영상 시각 범위 초과: %.1fms' % (age * 1000)
         return None
+      if flags & ~3 or not flags & 2 or not all(math.isfinite(x) for x in rest[:10]):
+        self.reason = '영상 보정·입력 검증 대기'
+        return None
+      self.reason = '정상 영상'
       return {'frame_id': frame_id, 'started': started_ns / 1e9, 'flags': flags,
               'desire': rest[:8], 'traffic': rest[8:10], 'camera_timestamp_ns': rest[10], 'images': data[FRAME_HEADER.size:]}
     except BlockingIOError:
+      self.reason = '영상 파일 사용 중'
       return None
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+      self.reason = '영상 파일 없음' if isinstance(error, FileNotFoundError) else '영상 읽기 오류: ' + str(error)[:120]
       self.close()
       return None
 

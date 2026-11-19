@@ -284,3 +284,43 @@ def test_authenticated_web_api_updates_real_selection_profile(paths):
     assert ipc.profile()['mode'] == 'native'
   finally:
     connection.close(); server.shutdown(); server.server_close(); thread.join(timeout=3)
+
+
+def test_native_state_written_during_read_is_not_misclassified_as_future(monkeypatch):
+  clock = [10.0]
+  def newly_published(*args):
+    # Producer wins the race after the reader entered native_state().
+    clock[0] = 10.002
+    return ipc.STATE_HEADER.pack(b'ELS1',1,10_001_000_000,100,1|4|32,0,0,0,2,0,10_000_000_000,77)
+  monkeypatch.setattr(ipc, 'read', newly_published)
+  monkeypatch.setattr(ipc.time, 'monotonic', lambda: clock[0])
+  state = ipc.native_state()
+  assert state is not None and state['native_available'] and state['can_valid'] and state['calibrated']
+  assert state['age_ms'] == pytest.approx(1.)
+  # Explicit time snapshots still reject actual future timestamps.
+  assert ipc.native_state(now=10.) is None
+
+
+def test_reconnect_backoff_keeps_web_status_alive(paths, monkeypatch):
+  from selfdrive.modeld.jetlink import live
+  ipc.save_profile(dict(mode='external',host='192.168.1.2',port=5600,compression=False))
+  clock = [10.]
+  monkeypatch.setattr(live.time, 'monotonic', lambda: clock[0])
+  monkeypatch.setattr(live.time, 'time', lambda: 1000. + clock[0])
+  monkeypatch.setattr(live.time, 'sleep', lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+  worker = live.LiveWorker()
+  def failing(config):
+    worker.info = dict(revision=config['revision'], frames=0)
+    raise live.LinkError('camera pending')
+  monkeypatch.setattr(worker, 'session', failing)
+  stamps = []
+  atomic = ipc.atomic
+  def capture(path, data):
+    atomic(path, data)
+    if path == ipc.STATUS:
+      stamps.append(json.loads(data)['updated_at'])
+      if clock[0] >= 20.: worker.stopped = True
+  monkeypatch.setattr(ipc, 'atomic', capture)
+  worker.run()
+  assert len(stamps) > 10
+  assert max(b-a for a,b in zip(stamps, stamps[1:])) < .6
