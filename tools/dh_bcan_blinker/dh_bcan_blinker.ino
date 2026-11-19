@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-19" FW_VARIANT
+#define FW_VERSION "2026-11-19b" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -89,6 +89,13 @@
 #define LEFT_BITS 0x02
 #define RIGHT_BITS 0x01
 #define TAP_MS 160
+// A cancel flick is held longer: the 2026-11-19 scan shows the driver's flick back holds 0x138 at
+// 31/32 for ~0.2 s (one full switch period) and the BCM stops at once, while our 0.16 s flick was
+// often ignored and only the verify re-flick 0.9 s later ended it (2-3 extra flashes).
+#define CANCEL_TAP_MS 300
+// Lever bits seen this soon after our tap ended are its tail (an aborted or late frame), not the
+// driver (2026-11-19 log: a hold ended "driver lever" 2 s after a bus error).
+#define LEVER_IGNORE_MS 400
 #define RESEND_MS 40
 #define COOLDOWN_MS 3500  // from the end of a tap; EON repeats a long lane change every 4.5 s
 #define STOCK_FRESH_MS 500
@@ -581,7 +588,8 @@ void onFrame(uint32_t now) {  // frame in gRx
     memcpy(stock, m.data, 8);
     stockValid = true;
     stockMs = now;
-    if (tap == TAP_IDLE && (m.data[0] & LEVER_MASK)) driverLeverMs = now;  // the driver's lever
+    if (tap == TAP_IDLE && (m.data[0] & LEVER_MASK) && now - lastTapEnd > LEVER_IGNORE_MS)
+      driverLeverMs = now;  // the driver's lever
     if (m.data[0] != last138) {
       outf("%9lu  0x138 lever  %02X\n", (unsigned long)now, m.data[0]);
       last138 = m.data[0];
@@ -1037,7 +1045,7 @@ void loop() {
 
   if (tap == TAP_WAIT_STOCK && now - cmdMs > WAIT_STOCK_MS) endTap("nobcan");
   if (tap == TAP_SENDING) {
-    if (now - tapStart >= TAP_MS) {
+    if (now - tapStart >= (cancelTap ? CANCEL_TAP_MS : TAP_MS)) {
       endTap("ok");
     } else if (now - lastSend >= RESEND_MS) {
       lastSend = now;
