@@ -11,11 +11,11 @@ ROOT = Path('/dev/shm')
 REPORT = Path('/data/eon-n16-benchmark.json')
 
 
-def read_json(path):
+def read_json(path, limit=65536):
   try:
     with open(path, 'rb') as source:
-      raw = source.read(65537)
-    if len(raw) <= 65536:
+      raw = source.read(limit + 1)
+    if len(raw) <= limit:
       data = json.loads(raw)
       if isinstance(data, dict):
         return data
@@ -84,3 +84,10 @@ class JetlinkBench:
   def report(self):
     data = read_json(REPORT)
     return data or {'output': '저장된 시험 결과가 없습니다'}
+
+  def candidate(self):
+    data = read_json(REPORT.with_suffix('.candidate.json'), limit=262144)
+    report = read_json(REPORT)
+    if data and data.get('source') == 'camera' and data.get('applied') is False and data.get('started_at') == report.get('started_at'):
+      return data
+    return {'output': '최근 실제 카메라 시험의 변환 출력이 없습니다. 실제 카메라 시험을 먼저 실행하세요.'}

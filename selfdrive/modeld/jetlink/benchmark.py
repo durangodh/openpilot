@@ -17,6 +17,7 @@ import numpy as np
 
 from selfdrive.modeld.jetlink.client import Client, LinkError, SPEC, WARPED_BYTES, navigation_input
 from selfdrive.modeld.jetlink.frames import DEMAND, Frames, route_map
+from selfdrive.modeld.jetlink.prediction import PredictionState
 
 STATUS = Path('/dev/shm/eon-n16-status.json')
 STOP = Path('/dev/shm/eon-n16-stop')
@@ -118,6 +119,8 @@ def run(args):
   frames = Frames()
   client = None
   statistics = Metrics()
+  prediction = PredictionState()
+  candidate = None
   transport = getattr(args, 'transport', 'jetlink')
   status = {'running': True, 'stage': 'connecting', 'source': args.source, 'host': args.host,
             'port': args.port, 'model_sha256': SPEC['sha256'], 'driving_ready': False,
@@ -221,6 +224,12 @@ def run(args):
       nav_map, status['nav_map'] = route_map()
       values, timings = client.infer(frame_id, images, packed, nav_map,
                                     reset=last_frame is None or gap != 1)
+      converted = prediction.convert(values, frame_id)
+      status['control_adapter'] = dict(converted=True, applied=False, camera_compatible=False, **converted['summary'])
+      if args.source == 'camera':
+        candidate = dict(source='camera', frame_id=frame_id, captured_monotonic=frame_started,
+                         started_at=status['started_at'], flags=frame['flags'], nav_map=status['nav_map'],
+                         applied=False, camera_compatible=False, **converted)
       statistics.add(timings, (time.monotonic() - frame_started) * 1000)
       last_frame = frame_id
       status.update(stage='measuring', last_frame_id=frame_id, last=timings,
@@ -242,6 +251,8 @@ def run(args):
     write_status(True)
     report = dict(status, updated_at=time.time(), **statistics.snapshot())
     atomic_json(args.report, report)
+    if candidate is not None:
+      atomic_json(Path(args.report).with_suffix('.candidate.json'), candidate)
     lock.close()
   print(json.dumps(report, ensure_ascii=False, allow_nan=False))
   return 0 if status['stage'] == 'finished' else 1

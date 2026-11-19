@@ -153,7 +153,8 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <label>입력 <select id="jetlinkSource"><option value="synthetic">N16 처리·전송 속도</option><option value="camera">EON 실제 카메라</option></select></label></div>
 <label><input id="jetlinkCompression" type="checkbox">무손실 압축 시험 (이온링크 전용)</label>
 <div class="actions"><button id="jetlinkStart">시험 시작</button><button id="jetlinkStop">중지</button>
-<a href="/api/jetlink-report.json" download="eon-n16-benchmark.json">최근 결과 저장</a></div>
+<a href="/api/jetlink-report.json" download="eon-n16-benchmark.json">최근 결과 저장</a>
+<a href="/api/jetlink-candidate.json" download="eon-n16-candidate.json">변환 출력 저장</a></div>
 <p id="jetlinkAction" role="status"></p><pre id="jetlinkStatus" aria-live="polite"></pre>
 <p class="hint">성능 확인용입니다. N16 출력은 조향·가감속에 적용하지 않습니다. EON 단일 카메라의 N16 영상 호환성은 미검증이며, 경로 지도 렌더러가 없으면 빈 지도 입력으로 측정합니다.</p></details>
 <details><summary>블루투스 리모컨</summary>
@@ -622,6 +623,8 @@ async function loadJetlinkBench() {
       '폰 수신 평균 ' + data.phone_receive_mean_ms.toFixed(1) + 'ms · 폰 압축 해제 ' + data.phone_inflate_mean_ms.toFixed(1) + 'ms',
       '폰 내부 엔진 왕복 ' + data.phone_engine_mean_ms.toFixed(1) + 'ms · 이온 압축 ' + data.compress_mean_ms.toFixed(1) + 'ms',
       '압축 전 요청 ' + data.plain_request_mean_kib.toFixed(1) + 'KiB');
+    if (data.control_adapter) lines.push('N16 출력 변환 확인 · 차량 제어 미적용',
+      '2초 경로 좌우 ' + data.control_adapter.path_y_2s.toFixed(2) + 'm · 예측 속도 ' + data.control_adapter.speed_0s.toFixed(2) + 'm/s');
     if (data.nav_map) lines.push(data.nav_map === 'route' ? '경로 지도 입력' : '빈 지도 입력으로 측정');
     if (data.error) lines.push(data.error);
     output.textContent = lines.join('\n');
@@ -1543,6 +1546,8 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json(bt_remote_snapshot())
     elif path == "/api/jetlink-bench":
       self.send_json(self.server.jetlink_bench.snapshot())
+    elif path == "/api/jetlink-candidate.json":
+      self.send_json(self.server.jetlink_bench.candidate())
     elif path == "/api/jetlink-report.json":
       self.send_json(self.server.jetlink_bench.report())
     elif path == "/api/git.json":
