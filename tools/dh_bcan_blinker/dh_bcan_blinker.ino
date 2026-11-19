@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-19c" FW_VARIANT
+#define FW_VERSION "2026-11-19d" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -155,6 +155,7 @@ static uint32_t tapFrames = 0, txFail = 0;
 static char tapSide = 0;          // side of the tap in progress
 static char ownSide = 0;          // side of our last successful one-touch (0: none / cancelled)
 static uint32_t ownEndMs = 0, driverLeverMs = 0;
+static bool driverAbort = false;  // the driver moved the lever during our tap: stop it
 static bool cancelTap = false;
 static char holdSide = 0;
 static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;
@@ -274,11 +275,11 @@ void endTap(const char *res) {
   tap = TAP_IDLE;
   uint32_t now = millis();
   lastTapEnd = now;
-  if (!done && strcmp(res, "nobcan")) {
+  if (!done && strcmp(res, "nobcan") && strcmp(res, "lever")) {
     errSeen = true;
     errMs = now;
   }
-  if (!done && holdSide) {
+  if (!done && holdSide && strcmp(res, "lever")) {
     holdFails++;
     holdRetryMs = now + 500;  // a failed hold re-tap waits before the next try
   }
@@ -599,13 +600,22 @@ void onFrame(uint32_t now) {  // frame in gRx
     memcpy(stock, m.data, 8);
     stockValid = true;
     stockMs = now;
-    if (tap == TAP_IDLE && (m.data[0] & LEVER_MASK) && now - lastTapEnd > LEVER_IGNORE_MS)
-      driverLeverMs = now;  // the driver's lever
+    // The driver's lever. Bits of our own tap's side right after it ended are its tail; any other
+    // lever bits, also during our tap (e.g. a flick the other way to end a remote blinker), are
+    // the driver, who always wins: our tap stops at once.
+    uint8_t lever = m.data[0] & LEVER_MASK;
+    bool ourTail = lever == tapBits && (tap == TAP_SENDING || now - lastTapEnd <= LEVER_IGNORE_MS);
+    if (lever && !ourTail) {
+      driverLeverMs = now;
+      if (tap != TAP_IDLE) driverAbort = true;
+    }
     if (m.data[0] != last138) {
       outf("%9lu  0x138 lever  %02X\n", (unsigned long)now, m.data[0]);
       last138 = m.data[0];
     }
-    if (tap == TAP_WAIT_STOCK) {  // right behind the stock frame: ~0.2 s until the next one
+    if (driverAbort) {
+      // loop() ends the tap; send nothing more
+    } else if (tap == TAP_WAIT_STOCK) {  // right behind the stock frame: ~0.2 s until the next one
       tap = TAP_SENDING;
       tapStart = lastSend = now;
       sendLever(tapBits);
@@ -1054,6 +1064,13 @@ void loop() {
     endTap("abort");
   }
 
+  if (driverAbort) {
+    driverAbort = false;
+    if (tap != TAP_IDLE) {
+      out("! driver's lever during our tap: stop\n");
+      endTap("lever");
+    }
+  }
   if (tap == TAP_WAIT_STOCK && now - cmdMs > WAIT_STOCK_MS) endTap("nobcan");
   if (tap == TAP_SENDING) {
     if (now - tapStart >= (cancelTap ? CANCEL_TAP_MS : TAP_MS)) {
