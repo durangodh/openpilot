@@ -278,12 +278,15 @@ class NooHoldPlanner:
     return None
 
 
-def hold_press_action(request, hold_side):
-  """Remote press in hold mode -> 'HL' / 'HR' to start holding, 'C' to stop, or None."""
+def hold_press_action(request, hold_side, lit=None):
+  """Remote press in hold mode -> 'HL' / 'HR' to start holding, 'C' to stop, or None.
+  lit: the side whose lamp is flashing now ('L' / 'R' / None). The other button while one side
+  flashes always stops it, also when the EON lost track of the hold (a failed first tap answered
+  'abort' while the ESP32 kept holding: the first press started the other side, 2026-11-19)."""
   if request not in ("L", "R"):
     return None
   if hold_side is None:
-    return "H" + request
+    return "C" if lit in ("L", "R") and lit != request else "H" + request
   return "C" if request != hold_side else None
 
 

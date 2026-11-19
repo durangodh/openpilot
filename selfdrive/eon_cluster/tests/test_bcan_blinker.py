@@ -204,5 +204,9 @@ def test_hold_mode_press_actions():
   assert hold_press_action("R", "L") == "C"        # the other button stops it
   assert hold_press_action("L", "L") is None       # same button: keeps holding
   assert hold_press_action(None, "L") is None
+  # the EON lost the hold but the left side flashes: the right button stops it
+  assert hold_press_action("R", None, lit="L") == "C"
+  assert hold_press_action("L", None, lit="L") == "HL"
+  assert hold_press_action("R", None, lit=None) == "HR"
   assert command_packet(3, "HR") == b"DHBL1 3 HR"
   assert command_packet(4, "KL") == b"DHBL1 4 KL"

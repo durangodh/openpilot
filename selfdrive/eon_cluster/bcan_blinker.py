@@ -115,7 +115,9 @@ def main():
                    f"ESP32 packets {parsed.get('rx')}, last '{parsed.get('lc')}', failed re-taps {parsed.get('hf')})")
         hold_side = None
       if hold_seq is not None and parsed["seq"] == hold_seq and parsed["res"]:
-        if parsed["res"] != "ok" and hold_side is not None:
+        # A failed first tap does not end the hold on the ESP32 (it taps again); only its
+        # hold flag does.
+        if parsed["res"] != "ok" and hold_side is not None and parsed.get("hold") == 0:
           dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
           hold_side = None
         hold_seq = None
@@ -160,7 +162,9 @@ def main():
     lane_change_active = sm.alive['lateralPlan'] and str(plan.laneChangeState) != "off"
     request = blink_requests.poll() if enabled else None
     if hold_enabled or hold_side is not None:
-      action = hold_press_action(request, hold_side)
+      lit = "L" if car.leftBlinker and not car.rightBlinker else \
+            "R" if car.rightBlinker and not car.leftBlinker else None
+      action = hold_press_action(request, hold_side, lit if sm.alive['carState'] else None)
     else:
       action = stopped_blink_action(request, own_tap_time, now, lane_change_active)
     if not enabled and hold_side is not None:
