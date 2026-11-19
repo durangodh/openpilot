@@ -98,7 +98,10 @@ SIMULATION = "SIMULATION" in os.environ
 NOSENSOR = "NOSENSOR" in os.environ
 IGNORE_PROCESSES = {"rtshield", "uploader", "deleter", "loggerd", "logmessaged", "tombstoned",
                     "logcatd", "proclogd", "clocksd", "updated", "timezoned", "manage_athenad",
-                    "statsd", "shutdownd"} | \
+                    "statsd", "shutdownd",
+                    # EON accessories (remotes, HUD, blinker, web): none of them feeds the
+                    # controls, so one crashing must not block engagement (2026-11-19: bt_remote).
+                    "bt_remote", "remote_hud", "bcan_blinker", "eon_web"} | \
                    {k for k, v in managed_processes.items() if not v.enabled}
 
 ThermalStatus = log.DeviceState.ThermalStatus
