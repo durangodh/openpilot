@@ -22,6 +22,8 @@ on:
       - "selfdrive/eon_cluster/voice_params.py"
       - "selfdrive/eon_cluster/tests/test_voice_params.py"
       - "selfdrive/eon_cluster/android_hud/**"
+      - "selfdrive/eon_cluster/android_common/**"
+      - "selfdrive/eon_cluster/tests/MusicSessionStateCheck.java"
       - "selfdrive/eon_cluster/naver_bridge/**"
       - ".github/workflows/build-remote-hud.yml"
 
@@ -77,6 +79,11 @@ jobs:
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_navi_envelope.py
           python3 ../tests/test_kma_weather_source.py
+      - name: Check embedded music metadata
+        run: |
+          javac -d "$RUNNER_TEMP/hud-music-check" selfdrive/eon_cluster/android_common/src/ai/comma/hudcommon/MusicSessionState.java selfdrive/eon_cluster/tests/MusicSessionStateCheck.java
+          java -cp "$RUNNER_TEMP/hud-music-check" ai.comma.hudcommon.MusicSessionStateCheck
+          python3 selfdrive/eon_cluster/android_hud/tests/test_music_bridge.py
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

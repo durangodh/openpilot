@@ -50,6 +50,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             bridge = new NaverBridge(app);
                             bridge.start();
                             int hooks = 0;
+                            hooks += safeHook("Music", () -> NaverMusic.install(app, target.classLoader));
                             hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));
                             hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));

@@ -77,6 +77,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class HudService extends Service {
 
     private static volatile HudService activeInstance;
+    private HudNaverMusic naverMusic;
 
     private static final int UDP_PACKET_MAX_BYTES = 65507;
 
@@ -954,6 +955,8 @@ public final class HudService extends Service {
             registerReceiver(navForegroundReceiver, navFilter);
         }
         navForegroundReceiverRegistered = true;
+        naverMusic = new HudNaverMusic(this);
+        naverMusic.start();
     }
 
     @Override
@@ -5279,7 +5282,7 @@ public final class HudService extends Service {
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
         text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
 
-        String song = HudMusicService.nowPlaying;
+        String song = HudNaverMusic.nowPlaying();
         if (!song.isEmpty()) {
             p.setTextSize(22f);
             musicTextPaint.set(p);
@@ -8386,6 +8389,8 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
+        if (naverMusic != null) naverMusic.stop();
+        naverMusic = null;
         VoiceAssistant assistant = voice;
         if (assistant != null) assistant.shutdown();
         voice = null;

@@ -14,6 +14,8 @@ import java.util.List;
 /** Observes playback metadata on the HUD phone, without reading notification contents. */
 public final class HudMusicService extends NotificationListenerService {
     static volatile String nowPlaying = "";
+    static volatile boolean sessionPlaying;
+    static volatile String sessionPackage = "";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<MediaController> controllers = new ArrayList<>();
     private MediaSessionManager manager;
@@ -103,6 +105,8 @@ public final class HudMusicService extends NotificationListenerService {
             }
         }
         nowPlaying = best == null ? "" : song;
+        sessionPlaying = best != null && bestScore == 2;
+        sessionPackage = best == null ? "" : best.getPackageName();
     }
 
     private void disconnect() {
@@ -112,6 +116,8 @@ public final class HudMusicService extends NotificationListenerService {
         controllers.clear();
         handler.removeCallbacksAndMessages(null);
         nowPlaying = "";
+        sessionPlaying = false;
+        sessionPackage = "";
     }
 
     @Override public void onListenerDisconnected() {
