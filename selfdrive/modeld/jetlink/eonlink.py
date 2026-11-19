@@ -5,6 +5,7 @@ No frame queue, no lossy image conversion, no model/control publishers.
 import hashlib
 import ipaddress
 import json
+import os
 import socket
 import struct
 import time
@@ -17,12 +18,36 @@ LIMIT, DEFLATE, ECHO = 1048576, 1, 2
 DISCOVERY = b'EONLINK_DISCOVER_V1'
 
 
+def interface_names():
+  # Android/Termux Python 3.8 may omit if_nameindex entirely. Prefer the
+  # native API when present, then use Linux interface names without guessing
+  # a hotspot subnet or hard-coding wlan0.
+  enumerate_names = getattr(socket, 'if_nameindex', None)
+  if enumerate_names is not None:
+    try:
+      return [name for _, name in enumerate_names()]
+    except (OSError, NotImplementedError):
+      pass
+  try:
+    names = os.listdir('/sys/class/net')
+    if names:
+      return sorted(names)
+  except OSError:
+    pass
+  try:
+    with open('/proc/net/dev') as source:
+      return sorted({line.split(':', 1)[0].strip() for line in source if ':' in line})
+  except OSError:
+    # Global broadcast remains available even if Android restricts both files.
+    return []
+
+
 def broadcasts():
   # Query actual interface broadcasts: hotspots need not use a /24 subnet.
   import fcntl
   targets = {'255.255.255.255'}
   with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-    for _, name in socket.if_nameindex():
+    for name in interface_names():
       try:
         result = fcntl.ioctl(sock.fileno(), 0x8919, struct.pack('256s', name[:15].encode()))
         targets.add(socket.inet_ntoa(result[20:24]))
