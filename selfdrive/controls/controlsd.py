@@ -231,8 +231,6 @@ class Controls:
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI)
 
-    from selfdrive.modeld.jetlink.live_ipc import FallbackMonitor
-    self.eonlink_fallback = FallbackMonitor()
     self.initialized = False
     self.state = State.disabled
     self.enabled = False
@@ -324,9 +322,6 @@ class Controls:
     if not self.initialized:
       self.events.add(EventName.controlsInitializing)
       return
-
-    if self.eonlink_fallback.update():
-      self.events.add(EventName.modeldLagging)
 
     # Block resume if cruise never previously enabled
     resume_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise)

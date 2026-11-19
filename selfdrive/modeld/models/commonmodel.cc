@@ -52,19 +52,6 @@ ModelFrame::~ModelFrame() {
   CL_CHECK(clReleaseCommandQueue(q));
 }
 
-const float* ModelFrame::current_for_benchmark(float *prepared, cl_mem *output) {
-  if (prepared != nullptr) return prepared + MODEL_FRAME_SIZE;
-  if (output == nullptr) return nullptr;
-  // Export the current transformed YUV through our own one-frame float
-  // buffer. Backend-owned input allocations may have a different layout or
-  // host-access policy; optional export must not depend on reading them.
-  loadyuv_queue(&loadyuv, q, y_cl, u_cl, v_cl, net_input_cl);
-  cl_int err = clEnqueueReadBuffer(q, net_input_cl, CL_TRUE, 0,
-                                  MODEL_FRAME_SIZE * sizeof(float),
-                                  &input_frames[MODEL_FRAME_SIZE], 0, nullptr, nullptr);
-  return err == CL_SUCCESS ? &input_frames[MODEL_FRAME_SIZE] : nullptr;
-}
-
 void softmax(const float* input, float* output, size_t len) {
   const float max_val = *std::max_element(input, input + len);
   float denominator = 0;
