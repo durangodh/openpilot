@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-18" FW_VARIANT
+#define FW_VERSION "2026-11-19" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -274,9 +274,11 @@ void endTap(const char *res) {
   if (done && !cancelTap) {
     ownSide = tapSide;
     ownEndMs = now;
-  } else {
-    ownSide = 0;  // a cancel (or a failed tap) leaves nothing to cancel
+  } else if (done && cancelTap) {
+    ownSide = 0;  // our one-touch was ended
   }
+  // A failed tap (bus error) keeps the previous one: its flashes are still running and the other
+  // button must still be able to end them (2026-11-17 log: cancel answered "nothing" after one).
   if (cancelTap && done) {
     cancelEndMs = now;
     cancelVerifyMs = now + CANCEL_VERIFY_MS;
