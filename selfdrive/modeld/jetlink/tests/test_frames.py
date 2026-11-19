@@ -27,7 +27,8 @@ int main(int argc, char **argv) {
   float desire[8] = {0,1,0,0,0,0,0,0}, traffic[2] = {1,0};
   bool ok = output.publish(a.data(), b.data(), desire, traffic, 44,
     eon_jetlink::monotonic_ns(), 55, 3);
-  std::printf("%d", int(ok));
+  if (argc > 3) std::printf("%d %u", int(ok), unsigned(output.status()));
+  else std::printf("%d", int(ok));
   return 0;
 }
 ''')
@@ -111,3 +112,66 @@ def test_frame_published_during_snapshot_is_not_discarded_as_future(tmp_path, mo
     assert '시각' in reader.reason
   finally:
     reader.close()
+
+
+def test_native_export_reports_demand_and_file_creation_failure(exporter, tmp_path):
+  demand, path = tmp_path / 'demand', tmp_path / 'frame'
+  assert subprocess.check_output([str(exporter), str(demand), str(path), 'status']) == b'0 111'
+  demand.touch()
+  missing = tmp_path / 'missing' / 'frame'
+  assert subprocess.check_output([str(exporter), str(demand), str(missing), 'status']) == b'0 113'
+  assert subprocess.check_output([str(exporter), str(demand), str(path), 'status']) == b'1 116'
+
+
+def test_actual_gpu_export_reads_its_own_single_frame_buffer(tmp_path):
+  compiler = shutil.which('g++')
+  if not compiler: pytest.skip('host C++ compiler unavailable')
+  root = Path(__file__).resolve().parents[4]
+  source = (root / 'selfdrive/modeld/models/commonmodel.cc').read_text()
+  method = source[source.index('const float* ModelFrame::current_for_benchmark'):source.index('void softmax(')]
+  fixture = tmp_path / 'gpu_export.cc'
+  fixture.write_text(r'''
+#include <cassert>
+#include <cstddef>
+#include <memory>
+using cl_mem = int;
+using cl_int = int;
+constexpr int CL_SUCCESS = 0, CL_TRUE = 1;
+int read_calls = 0, pack_calls = 0, failure = 0;
+void loadyuv_queue(int*, int, int y, int u, int v, cl_mem out) {
+  ++pack_calls;
+  assert(y == 1 && u == 2 && v == 3 && out == 99);
+}
+cl_int clEnqueueReadBuffer(int, cl_mem mem, int blocking, size_t offset, size_t bytes,
+                          void *destination, int, void*, void*) {
+  ++read_calls;
+  assert(mem == 99 && blocking == CL_TRUE && offset == 0 && bytes == 8*sizeof(float));
+  auto data = static_cast<float*>(destination);
+  for (int i=0; i<8; ++i) data[i] = float(20+i);
+  return failure;
+}
+class ModelFrame {
+public:
+  static constexpr int MODEL_FRAME_SIZE = 8;
+  std::unique_ptr<float[]> input_frames{new float[16]};
+  int q=0, loadyuv=0, y_cl=1, u_cl=2, v_cl=3, net_input_cl=99;
+  const float* current_for_benchmark(float*, cl_mem*);
+};
+''' + method + r'''
+int main() {
+  ModelFrame model;
+  cl_mem private_backend = 123;
+  auto current = model.current_for_benchmark(nullptr, &private_backend);
+  assert(current && current[0]==20 && current[7]==27);
+  assert(read_calls==1 && pack_calls==1 && private_backend==123);
+  failure = -5;
+  assert(model.current_for_benchmark(nullptr, &private_backend)==nullptr);
+  float cpu[16] = {};
+  assert(model.current_for_benchmark(cpu, nullptr)==cpu+8);
+  assert(read_calls==2 && pack_calls==2);
+  assert(model.current_for_benchmark(nullptr, nullptr)==nullptr);
+}
+''')
+  binary = tmp_path / 'gpu_export'
+  subprocess.run([compiler, '-std=c++14', '-Wall', '-Werror', str(fixture), '-o', str(binary)], check=True)
+  subprocess.run([str(binary)], check=True)

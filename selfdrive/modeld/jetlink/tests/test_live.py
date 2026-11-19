@@ -324,3 +324,13 @@ def test_reconnect_backoff_keeps_web_status_alive(paths, monkeypatch):
   worker.run()
   assert len(stamps) > 10
   assert max(b-a for a,b in zip(stamps, stamps[1:])) < .6
+
+
+def test_native_camera_export_reason_keeps_model_health_separate(tmp_path):
+  path = tmp_path / 'state'
+  path.write_bytes(ipc.STATE_HEADER.pack(b'ELS1',1,10_000_000_000,100,1|4|32,0,0,0,112,0,9_990_000_000,77))
+  state = ipc.native_state(path, now=10.01)
+  assert state['native_available'] and state['can_valid'] and state['calibrated']
+  assert not state['applied']
+  assert ipc.camera_reason(state['reason']) == '전처리된 GPU 영상 읽기 실패'
+  assert ipc.camera_reason(2) == ''

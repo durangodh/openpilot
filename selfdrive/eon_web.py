@@ -528,10 +528,12 @@ async function loadLiveModel() {
     }
     const worker = data.worker || {};
     const reasons = ['기존 모델', '정상 응답 대기', '응답 지연·새 영상 대기', '출력 검증 실패', '인게이지 해제 후 재연결 필요', '외부 적용', '기존 모델 이상'];
+    const cameraReasons = {110:'modeld 영상 내보내기 호출 대기',111:'modeld 영상 요청 확인 대기',
+      112:'전처리된 GPU 영상 읽기 실패',113:'공유 영상 파일 생성·매핑 실패',114:'영상 파일 잠금 사용 중',115:'GPU 영상 수치 검증 실패'};
     const lines = ['실제 적용: ' + (data.applied ? '외부 N16 · 실험용' : '기존 이온 모델'),
       '요청 설정: ' + (data.config.mode === 'external' ? '외부 N16' : '기존 이온 모델')];
     if (data.native) {
-      lines.push('발행 상태: ' + (reasons[data.native.reason] || '확인 중'));
+      lines.push('발행 상태: ' + (cameraReasons[data.native.reason] || reasons[data.native.reason] || '확인 중'));
       if (data.native.latched) lines.push('외부 적용 중단: 인게이지를 해제한 뒤 정상 응답을 다시 확인하세요.');
     }
     if (worker.phase) lines.push('연결: ' + worker.phase);

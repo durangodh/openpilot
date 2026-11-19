@@ -36,6 +36,13 @@ inline uint64_t monotonic_ns() {
   return uint64_t(ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
 }
 
+// Values are also reported in LiveState.reason while no external model is
+// applied, so a missing camera file has an observable native-side cause.
+enum class ExportStatus : uint32_t {
+  Idle = 110, NoDemand = 111, MissingInput = 112, FileFailure = 113,
+  Busy = 114, InvalidPixels = 115, Published = 116,
+};
+
 class FrameExport {
 public:
   FrameExport(const char *demand = "/dev/shm/eon-n16-demand",
@@ -67,13 +74,16 @@ public:
     return wanted_;
   }
 
+  ExportStatus status() const { return status_; }
+
   bool publish(const float *main, const float *wide, const float *desire,
                const float *traffic, uint32_t frame_id, uint64_t started_ns,
                uint64_t camera_ns, uint32_t flags) {
-    if (!main || !wide || !desire || !traffic || !wanted()) return false;
-    if (!mapping_ && !open_mapping()) return false;
+    if (!wanted()) { status_ = ExportStatus::NoDemand; return false; }
+    if (!main || !wide || !desire || !traffic) { status_ = ExportStatus::MissingInput; return false; }
+    if (!mapping_ && !open_mapping()) { status_ = ExportStatus::FileFailure; return false; }
     // A slow diagnostic reader must never stall the internal model.
-    if (flock(fd_, LOCK_EX | LOCK_NB) != 0) return false;
+    if (flock(fd_, LOCK_EX | LOCK_NB) != 0) { status_ = ExportStatus::Busy; return false; }
     Header *h = static_cast<Header*>(mapping_);
     h->generation = ++generation_;
     h->input_started_ns = started_ns;
@@ -92,6 +102,7 @@ public:
     if (valid) h->generation = ++generation_;
     else ++generation_;  // leave this frame odd/invalid
     flock(fd_, LOCK_UN);
+    status_ = valid ? ExportStatus::Published : ExportStatus::InvalidPixels;
     return valid;
   }
 
@@ -120,5 +131,6 @@ private:
   void *mapping_ = nullptr;
   uint64_t generation_ = 0, next_check_ = 0;
   bool wanted_ = false;
+  ExportStatus status_ = ExportStatus::Idle;
 };
 }  // namespace eon_jetlink

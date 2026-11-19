@@ -30,11 +30,16 @@ jobs:
         with:
           packages: platforms;android-35 build-tools;35.0.0
       - name: Install native publication test dependencies
-        run: sudo apt-get update && sudo apt-get install -y capnproto libcapnp-dev
+        run: sudo apt-get update && sudo apt-get install -y capnproto libcapnp-dev libeigen3-dev libzmq3-dev
       - name: Test Python client against the actual Java relay
         run: |
           python -m pip install numpy==1.26.4 pytest==8.4.2 pycapnp==2.2.4
           python -m pytest -q selfdrive/modeld/jetlink/tests
+      - name: Check native model and camera export compilation
+        run: |
+          mkdir -p cereal/gen/cpp
+          capnp compile --src-prefix=cereal -oc++:cereal/gen/cpp cereal/log.capnp cereal/car.capnp cereal/legacy.capnp
+          g++ -std=c++17 -fsyntax-only -Wno-deprecated-declarations -I. -Icereal -Ithird_party/snpe/include -Ithird_party/opencl/include selfdrive/modeld/modeld.cc selfdrive/modeld/models/commonmodel.cc selfdrive/modeld/models/driving.cc
       - name: Build with the existing Android signing key
         env:
           KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}

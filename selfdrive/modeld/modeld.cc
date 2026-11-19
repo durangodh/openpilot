@@ -176,6 +176,10 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
         state.session = live_gate.packet().session;
       }
       state.reason = uint32_t(live_gate.reason()); state.native_finished = last_native_finished;
+      if (live_requested && !live_gate.active() && !live_gate.latched() && car_valid && calibrated) {
+        if (!model.live_export.wanted()) state.reason = uint32_t(ExportStatus::NoDemand);
+        else if (model.live_export.status() != ExportStatus::Published) state.reason = uint32_t(model.live_export.status());
+      }
       write_live_state("/dev/shm/eonlink-native-state", state);
     };
     // Advertise the incoming frame before exporting it. Readiness still refers

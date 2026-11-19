@@ -138,14 +138,14 @@ class LiveWorker:
         frame = frames.latest(last_read)
         if frame is None:
           if not self.info['frames']:
-            self.info['error'] = getattr(frames, 'reason', '영상 입력 대기')
+            self.info['error'] = ' · '.join(filter(None, (ipc.camera_reason(native.get('reason', 0)), getattr(frames, 'reason', '영상 입력 대기'))))
           decision = self.policy.decide(native['frame_id'], native['native_available'], native['engaged'])
           self.info['selection'] = self.policy.snapshot(decision)
           if decision.source != 'external':
             try: ipc.RESULT.unlink()
             except FileNotFoundError: pass
           if now > waiting_until:
-            raise LinkError('실제 카메라 입력 없음: modeld 재빌드·보정 상태를 확인하세요')
+            raise LinkError('실제 카메라 입력 없음: ' + self.info.get('error', 'modeld 재빌드·보정 상태 확인'))
           time.sleep(.005)
           continue
         waiting_until = now + 3

@@ -140,3 +140,16 @@ class FallbackMonitor:
     state = native_state(now=now)
     self.failed = bool(enabled and state and state['revision'] == str(revision) and state['latched'])
     return self.failed
+
+
+def camera_reason(reason):
+  # Native ExportStatus, reported separately from network/selection failures.
+  return {
+    110: 'modeld 영상 내보내기 호출 대기',
+    111: 'modeld가 영상 요청 파일을 확인하지 못함',
+    112: '전처리된 GPU 영상 읽기 실패',
+    113: '공유 영상 파일 생성·크기 설정·메모리 매핑 실패',
+    114: '공유 영상 파일 잠금 사용 중',
+    115: 'GPU 영상에 유효하지 않은 수치 포함',
+    116: 'modeld 영상 파일 작성 완료',
+  }.get(reason, '')
