@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <algorithm>
 #include <cstdlib>
 #include <mutex>
 #include <cmath>
@@ -13,6 +14,7 @@
 #include "selfdrive/common/util.h"
 #include "selfdrive/hardware/hw.h"
 #include "selfdrive/modeld/models/driving.h"
+#include "selfdrive/modeld/jetlink/live_model.h"
 
 ExitHandler do_exit;
 
@@ -61,6 +63,9 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
   PubMaster pm({"modelV2", "cameraOdometry"});
   SubMaster sm({"lateralPlan", "roadCameraState", "liveCalibration"});
   std::unique_ptr<SubMaster> benchmark_guard;
+  eon_jetlink::LiveGate live_gate;
+  bool last_native_ok = false;
+  uint64_t last_native_finished = 0, previous_camera_ns = 0;
 
   // setup filter to track dropped frames
   FirstOrderFilter frame_dropped_filter(0., 10., 1. / MODEL_FREQ);
@@ -120,6 +125,7 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
     if (sm.updated("liveCalibration")) {
       auto extrinsic_matrix = sm["liveCalibration"].getLiveCalibration().getExtrinsicMatrix();
       Eigen::Matrix<float, 3, 4> extrinsic_matrix_eigen;
+      if (extrinsic_matrix.size() != 12) { live_calib_seen = false; continue; }
       for (int i = 0; i < 4*3; i++) {
         extrinsic_matrix_eigen(i / 4, i % 4) = extrinsic_matrix[i];
       }
@@ -135,8 +141,12 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
     }
 
     double mt1 = millis_since_boot();
-    bool benchmark_allowed = false;
-    if (model.benchmark_export.wanted()) {
+    const auto live_control = live_gate.control();
+    const bool live_requested = Hardware::EON() && live_control.enabled;
+    const bool calibrated = live_calib_seen && sm.alive("liveCalibration") && sm.valid("liveCalibration") &&
+                            sm["liveCalibration"].getLiveCalibration().getCalStatus() == 1;
+    bool benchmark_allowed = false, live_allowed = false, car_valid = false, engaged = true;
+    if (model.benchmark_export.wanted() || live_requested) {
       if (!benchmark_guard) {
         benchmark_guard = std::make_unique<SubMaster>(std::vector<const char *>{"carState", "controlsState"});
       }
@@ -144,19 +154,41 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
       if (benchmark_guard->allAliveAndValid()) {
         const auto car = (*benchmark_guard)["carState"].getCarState();
         const auto controls = (*benchmark_guard)["controlsState"].getControlsState();
-        benchmark_allowed = car.getCanValid() && std::isfinite(car.getVEgo()) &&
-                            std::abs(car.getVEgo()) < 0.1 &&
-                            car.getGearShifter() == cereal::CarState::GearShifter::PARK &&
-                            !controls.getEnabled() && !controls.getActive();
+        car_valid = car.getCanValid() && std::isfinite(car.getVEgo());
+        engaged = controls.getEnabled() || controls.getActive();
+        benchmark_allowed = car_valid && std::abs(car.getVEgo()) < 0.1 &&
+                            car.getGearShifter() == cereal::CarState::GearShifter::PARK && !engaged;
+        live_allowed = live_requested && car_valid && calibrated;
       }
     } else {
       benchmark_guard.reset();
     }
+    auto write_live = [&](bool native_ok) {
+      using namespace eon_jetlink;
+      LiveState state = {};
+      memcpy(state.magic, "ELS1", 4); state.version = 1; state.stamp = monotonic_ns();
+      state.frame = meta_main.frame_id; state.revision = live_control.revision;
+      state.flags = (native_ok ? LIVE_NATIVE_OK : 0) | (engaged ? LIVE_ENGAGED : 0) |
+                    (calibrated ? LIVE_CALIBRATED : 0) | (live_gate.active() ? LIVE_EXTERNAL : 0) |
+                    (live_gate.latched() ? LIVE_LATCHED : 0) | (car_valid ? LIVE_CAN_OK : 0);
+      if (live_gate.active()) {
+        state.selected_frame = live_gate.packet().frame; state.sequence = live_gate.packet().sequence;
+        state.session = live_gate.packet().session;
+      }
+      state.reason = uint32_t(live_gate.reason()); state.native_finished = last_native_finished;
+      write_live_state("/dev/shm/eonlink-native-state", state);
+    };
+    // Advertise the incoming frame before exporting it. Readiness still refers
+    // to the verified native backup; publication rechecks the current backup.
+    if (live_requested || live_gate.active()) write_live(last_native_ok);
     ModelOutput *model_output = model_eval_frame(&model, buf_main, buf_extra, model_transform_main, model_transform_extra,
                                                 vec_desire, meta_main.frame_id, meta_main.timestamp_eof,
-                                                !use_extra_client, live_calib_seen, benchmark_allowed);
+                                                !use_extra_client, live_calib_seen, benchmark_allowed, live_allowed);
     double mt2 = millis_since_boot();
     float model_execution_time = (mt2 - mt1) / 1000.0;
+    last_native_ok = live_calib_seen && std::all_of(model.output.begin(), model.output.begin() + OUTPUT_SIZE,
+                                                 [](float value) { return std::isfinite(value); });
+    last_native_finished = eon_jetlink::monotonic_ns();
 
     // tracked dropped frames
     uint32_t vipc_dropped_frames = meta_main.frame_id - last_vipc_frame_id - 1;
@@ -169,13 +201,22 @@ void run_model(ModelState &model, VisionIpcClient &vipc_client_main, VisionIpcCl
 
     float frame_drop_ratio = frames_dropped / (1 + frames_dropped);
 
-    model_publish(pm, meta_main.frame_id, meta_extra.frame_id, frame_id, frame_drop_ratio, *model_output, meta_main.timestamp_eof, model_execution_time,
-                  kj::ArrayPtr<const float>(model.output.data(), model.output.size()), live_calib_seen);
-    posenet_publish(pm, meta_main.frame_id, vipc_dropped_frames, *model_output, meta_main.timestamp_eof, live_calib_seen);
+    const eon_jetlink::PublicationContext publication{
+      meta_main.frame_id, last_vipc_frame_id, meta_main.timestamp_eof, previous_camera_ns,
+      eon_jetlink::monotonic_ns(), Hardware::EON(), last_native_ok, car_valid, calibrated, engaged};
+    const bool external_published = eon_jetlink::publish_selected_model(live_gate, publication,
+      [&](MessageBuilder &message) { return pm.send("modelV2", message); },
+      [&]() { model_publish(pm, meta_main.frame_id, meta_extra.frame_id, frame_id, frame_drop_ratio, *model_output,
+                            meta_main.timestamp_eof, model_execution_time,
+                            kj::ArrayPtr<const float>(model.output.data(), model.output.size()), last_native_ok); });
+    // Native odometry remains the calibration/localization source on this EON.
+    posenet_publish(pm, meta_main.frame_id, vipc_dropped_frames, *model_output, meta_main.timestamp_eof, last_native_ok);
+    if (live_requested || live_gate.latched() || external_published) write_live(last_native_ok);
 
     //printf("model process: %.2fms, from last %.2fms, vipc_frame_id %u, frame_id, %u, frame_drop %.3f\n", mt2 - mt1, mt1 - last, extra.frame_id, frame_id, frame_drop_ratio);
     last = mt1;
     last_vipc_frame_id = meta_main.frame_id;
+    previous_camera_ns = meta_main.timestamp_eof;
   }
 }
 

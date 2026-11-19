@@ -29,6 +29,8 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platforms;android-35 build-tools;35.0.0
+      - name: Install native publication test dependencies
+        run: sudo apt-get update && sudo apt-get install -y capnproto libcapnp-dev
       - name: Test Python client against the actual Java relay
         run: |
           python -m pip install numpy==1.26.4 pytest==8.4.2 pycapnp==2.2.4
@@ -70,7 +72,8 @@ jobs:
           if ! gh release view eon-link-android >/dev/null 2>&1; then
             gh release create eon-link-android --target "$GITHUB_SHA" --prerelease \
               --title '이온링크 Android 시험 앱' \
-              --notes '이온 전용 N16 통신·성능 시험 앱입니다. 기존 Jetlink와 별도 설치되며 모델을 한 번 다시 받아야 합니다. 기존 Jetlink는 종료하고 사용하세요. 차량 제어에는 적용되지 않으며 기기 성능은 재시험이 필요합니다. 사용법: tools/eon_link_android/README.md'
+              --notes '이온링크 실험용 N16 연산 서버. 이온웹 주행 메뉴에서 실제 주행 모델을 선택합니다. 단일 카메라 실차 호환성은 검증 전입니다. 사용법: tools/eon_link_android/README.md'
           fi
+          gh release edit eon-link-android --title '이온링크 0.2.0 · 실험용 N16 연결' --notes '이온웹 → 주행 → 주행 모델에서 선택합니다. EON g_blinker 업데이트와 C++ 재빌드가 필요합니다. 0.1.0 업데이트 시 모델 캐시를 유지합니다. 단일 카메라 실차 검증 전이며 응답 지연 시 기존 모델로 복귀합니다. 사용법: tools/eon_link_android/README.md'
           gh release upload eon-link-android tools/eon_link_android/build/EON-Link.apk \
             tools/eon_link_android/build/EON-Link.apk.sha256 --clobber

@@ -1,4 +1,4 @@
-"""N16 -> legacy EON model fields, for offline compatibility inspection only.
+"""N16 -> legacy EON model fields for live publication and offline inspection.
 
 No publishers or controller imports. Model arrays are not legacy ModelOutput
 memory: N16 has one plan, three explicit leads and a different meta stride.

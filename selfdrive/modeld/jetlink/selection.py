@@ -133,7 +133,7 @@ class ModelSelector:
   """
   def __init__(self, limits=Limits(), clock=time.monotonic):
     self.limits, self.clock = limits, clock
-    self.enabled, self.validation = False, Validation()
+    self.enabled, self.validation, self.experimental = False, Validation(), False
     self.session, self.connected = '', False
     self.pending = self.candidate = None
     self.last_sequence, self.last_frame, self.healthy = 0, None, 0
@@ -145,10 +145,10 @@ class ModelSelector:
     self.events = deque(maxlen=64)
     self._last_event = None
 
-  def configure(self, enabled=False, validation=Validation()):
-    if type(enabled) is not bool or not isinstance(validation, Validation):
+  def configure(self, enabled=False, validation=Validation(), experimental=False):
+    if type(enabled) is not bool or type(experimental) is not bool or not isinstance(validation, Validation):
       raise ValueError('invalid model selector configuration')
-    self.enabled, self.validation = enabled, validation
+    self.enabled, self.validation, self.experimental = enabled, validation, experimental
     self._drop('configuration_changed')
 
   def connect(self):
@@ -181,7 +181,6 @@ class ModelSelector:
     if type(sequence) is not int or not self.last_sequence < sequence < 0xffffffff or type(frame_id) is not int or not 0 <= frame_id <= 0xffffffff:
       self._drop('request_order')
       return None
-    self.last_sequence = sequence
     if self.last_requested_frame is not None:
       gap = (frame_id - self.last_requested_frame) & 0xffffffff
       if gap == 0 or gap >= 0x80000000:
@@ -190,6 +189,7 @@ class ModelSelector:
     if not math.isfinite(started) or started > now or now - started > self.limits.response_s:
       self._drop('stale_input')
       return None
+    self.last_sequence = sequence
     self.last_requested_frame = frame_id
     self.pending = Ticket(self.session, sequence, frame_id, started, real_camera is True, calibrated is True)
     return self.pending
@@ -252,7 +252,7 @@ class ModelSelector:
         reason = self.reason
       elif self.healthy < self.limits.recovery_frames:
         reason = 'warming_up'
-      elif not self.validation.complete:
+      elif not self.validation.complete and not self.experimental:
         reason = 'validation_pending'
       elif not self.enabled:
         reason = 'disabled'
@@ -276,7 +276,7 @@ class ModelSelector:
 
   def snapshot(self, decision):
     return dict(source=decision.source, reason=decision.reason, disengage_required=decision.disengage_required,
-                connected=self.connected, enabled=self.enabled, validation_complete=self.validation.complete,
+                connected=self.connected, enabled=self.enabled, experimental=self.experimental, validation_complete=self.validation.complete,
                 healthy_frames=self.healthy, peak_healthy_frames=self.peak_healthy, recovery_frames=self.limits.recovery_frames,
                 recovery_latched=self.latch, counts=dict(self.counts), history=list(self.events),
                 session=self.session, candidate_frame=None if self.candidate is None else self.candidate.frame_id,

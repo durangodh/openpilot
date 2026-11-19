@@ -120,6 +120,14 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 </style>
 <main><header class="page-header"><h1>EON 웹</h1><button id="openWebSettings" aria-haspopup="dialog">웹 설정</button></header>
 <section id="drive"><h2>주행</h2>
+<div class="card"><h3>주행 모델 · 이온링크</h3>
+<label>모델 <select id="liveMode"><option value="native">기존 이온 모델</option><option value="external">외부 N16 · 실험용</option></select></label>
+<label>폰 IP <input id="liveHost" maxlength="15" placeholder="비우면 자동 검색"></label>
+<label>포트 <input id="livePort" type="number" min="1024" max="65535" value="5600"></label>
+<label><input id="liveCompression" type="checkbox"> 영상 전송 압축</label>
+<button id="liveApply">모델 선택 적용</button>
+<p class="hint">외부 선택은 P단 정차·인게이지 해제 상태에서 가능합니다. 실제 적용되면 조향·가감속 계획에 사용됩니다. 단일 카메라 입력은 실차 검증 전이며, 지연·연결 이상 시 기존 모델로 복귀하고 인게이지 중이면 해제 경고를 표시합니다.</p>
+<pre id="liveStatus" role="status">실제 적용 상태 확인 중</pre><p id="liveMessage" role="status"></p></div>
 <div class="card"><h3>전방 화면</h3><img id="roadImage" alt="실시간 전방 카메라" hidden>
 <div class="actions"><button id="vision">주행 비전 시작</button>
 <button id="openScreen" aria-haspopup="dialog">이온 전체 화면 보기</button></div>
@@ -504,7 +512,52 @@ async function loadGit() {
     updateBranchButton();
   } catch (_) { gitInfo.textContent = 'Git 정보를 읽지 못했습니다.'; }
 }
+let liveInitialized = false;
+let liveLoading = false;
+async function loadLiveModel() {
+  if (liveLoading || document.hidden || document.querySelector('#drive').hidden) return;
+  liveLoading = true;
+  try {
+    const data = await read('/api/eonlink-live');
+    if (!liveInitialized) {
+      document.querySelector('#liveMode').value = data.config.mode;
+      document.querySelector('#liveHost').value = data.config.host === 'auto' ? '' : data.config.host;
+      document.querySelector('#livePort').value = data.config.port;
+      document.querySelector('#liveCompression').checked = data.config.compression;
+      liveInitialized = true;
+    }
+    const worker = data.worker || {};
+    const reasons = ['기존 모델', '정상 응답 대기', '응답 지연·새 영상 대기', '출력 검증 실패', '인게이지 해제 후 재연결 필요', '외부 적용', '기존 모델 이상'];
+    const lines = ['실제 적용: ' + (data.applied ? '외부 N16 · 실험용' : '기존 이온 모델'),
+      '요청 설정: ' + (data.config.mode === 'external' ? '외부 N16' : '기존 이온 모델')];
+    if (data.native) {
+      lines.push('발행 상태: ' + (reasons[data.native.reason] || '확인 중'));
+      if (data.native.latched) lines.push('외부 적용 중단: 인게이지를 해제한 뒤 정상 응답을 다시 확인하세요.');
+    }
+    if (worker.phase) lines.push('연결: ' + worker.phase);
+    if (worker.host) lines.push('폰: ' + worker.host + ':' + (worker.port || 5600));
+    if (worker.frames) lines.push('응답: ' + worker.frames + '회');
+    if (worker.error) lines.push(worker.error);
+    document.querySelector('#liveStatus').textContent = lines.join('\n');
+  } catch (_) { document.querySelector('#liveStatus').textContent = '모델 적용 상태를 읽지 못했습니다.'; }
+  finally { liveLoading = false; }
+}
+document.querySelector('#liveApply').addEventListener('click', async () => {
+  const button = document.querySelector('#liveApply'); button.disabled = true;
+  try {
+    const response = await fetch('/api/eonlink-live', {method:'POST', headers:{'Content-Type':'application/json', 'X-EON-Action':'set-live-model'},
+      body:JSON.stringify({mode:document.querySelector('#liveMode').value, host:document.querySelector('#liveHost').value.trim() || 'auto',
+        port:Number(document.querySelector('#livePort').value), compression:document.querySelector('#liveCompression').checked})});
+    const data = await response.json();
+    document.querySelector('#liveMessage').textContent = data.output;
+    await loadLiveModel();
+  } catch (_) { document.querySelector('#liveMessage').textContent = '모델 선택 요청에 실패했습니다.'; }
+  finally { button.disabled = false; }
+});
+setInterval(loadLiveModel, 1000);
+
 function loadDrive() {
+  loadLiveModel();
   loadStatus();
   loadRecording();
 }
@@ -1423,6 +1476,8 @@ class WebServer(HTTPServer):
     self.navigation_route = None
     from selfdrive.eon_web_jetlink import JetlinkBench
     self.jetlink_bench = JetlinkBench(BASEDIR)
+    from selfdrive.eon_web_live import LiveControl
+    self.live_control = LiveControl()
     super().__init__(*args)
 
   def service_actions(self):
@@ -1472,7 +1527,7 @@ class Handler(BaseHTTPRequestHandler):
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
-              "/api/bt-remote": "set-bt-mapping",
+              "/api/bt-remote": "set-bt-mapping", "/api/eonlink-live": "set-live-model",
               "/api/jetlink-bench/start": "jetlink-start", "/api/jetlink-bench/stop": "jetlink-stop",
               "/api/logs/delete": "delete-route", "/api/logs/delete-all": "delete-all-routes",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
@@ -1488,7 +1543,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping", "jetlink-start", "jetlink-stop"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping", "jetlink-start", "jetlink-stop", "set-live-model"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -1500,7 +1555,9 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
           self.send_json({"output": "잘못된 요청입니다."}, 400)
           return
-        if action == "jetlink-start":
+        if action == "set-live-model":
+          status, result = self.server.live_control.save(payload)
+        elif action == "jetlink-start":
           status, result = self.server.jetlink_bench.start(payload, maintenance_block_reason())
         elif action == "jetlink-stop":
           status, result = self.server.jetlink_bench.stop()
@@ -1567,6 +1624,8 @@ class Handler(BaseHTTPRequestHandler):
       trace_http.serve(self.connection, path, allow_delete=False)
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
+    elif path == "/api/eonlink-live":
+      self.send_json(self.server.live_control.snapshot())
     elif path == "/api/jetlink-bench":
       self.send_json(self.server.jetlink_bench.snapshot())
     elif path == "/api/jetlink-candidate.json":

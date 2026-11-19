@@ -58,8 +58,8 @@ void model_init(ModelState* s, cl_device_id device_id, cl_context context) {
 ModelOutput* model_eval_frame(ModelState* s, VisionBuf* buf, VisionBuf* wbuf,
                               const mat3 &transform, const mat3 &transform_wide, float *desire_in,
                               uint32_t frame_id, uint64_t camera_ns, bool single_camera, bool calibrated,
-                              bool benchmark_allowed) {
-  uint64_t benchmark_started = benchmark_allowed ? eon_jetlink::monotonic_ns() : 0;
+                              bool benchmark_allowed, bool live_allowed) {
+  uint64_t benchmark_started = (benchmark_allowed || live_allowed) ? eon_jetlink::monotonic_ns() : 0;
 #ifdef DESIRE
   if (desire_in != NULL) {
     for (int i = 1; i < DESIRE_LEN; i++) {
@@ -86,12 +86,16 @@ ModelOutput* model_eval_frame(ModelState* s, VisionBuf* buf, VisionBuf* wbuf,
     s->m->addExtra(net_extra_buf, s->wide_frame->buf_size);
     LOGT("Extra image added");
   }
-  if (benchmark_allowed && s->benchmark_export.wanted() && wbuf != nullptr) {
-    s->benchmark_export.publish(
-      s->frame->current_for_benchmark(net_input_buf, static_cast<cl_mem*>(s->m->getInputBuf())),
-      s->wide_frame->current_for_benchmark(net_extra_buf, static_cast<cl_mem*>(s->m->getExtraBuf())),
-      s->pulse_desire, s->traffic_convention, frame_id, benchmark_started, camera_ns,
-      (single_camera ? 1U : 0U) | (calibrated ? 2U : 0U));
+  const bool export_benchmark = benchmark_allowed && s->benchmark_export.wanted();
+  const bool export_live = live_allowed && s->live_export.wanted();
+  if ((export_benchmark || export_live) && wbuf != nullptr) {
+    const auto *main_current = s->frame->current_for_benchmark(net_input_buf, static_cast<cl_mem*>(s->m->getInputBuf()));
+    const auto *wide_current = s->wide_frame->current_for_benchmark(net_extra_buf, static_cast<cl_mem*>(s->m->getExtraBuf()));
+    const uint32_t flags = (single_camera ? 1U : 0U) | (calibrated ? 2U : 0U);
+    if (export_benchmark) s->benchmark_export.publish(main_current, wide_current, s->pulse_desire, s->traffic_convention,
+                                                    frame_id, benchmark_started, camera_ns, flags);
+    if (export_live) s->live_export.publish(main_current, wide_current, s->pulse_desire, s->traffic_convention,
+                                          frame_id, benchmark_started, camera_ns, flags);
   }
   s->m->execute();
   LOGT("Execution finished");

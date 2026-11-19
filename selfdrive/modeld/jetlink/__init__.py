@@ -1,1 +1,1 @@
-"""Experimental EON -> Jetlink N16 benchmark. No vehicle-control output."""
+"""Experimental EON Link N16 inference, model publication and parked diagnostics."""

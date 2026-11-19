@@ -29,7 +29,7 @@ public final class MainActivity extends Activity {
     layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(32, 40, 32, 40);
     layout.setBackgroundColor(Color.rgb(16, 23, 34)); scroll.addView(layout); setContentView(scroll);
     TextView title = text("이온링크", 32); layout.addView(title);
-    layout.addView(text("이온 전용 N16 연결·성능 시험  0.1.0\nSnapdragon NPU · 기존 이온 모델로 주행", 15));
+    layout.addView(text("이온 전용 N16 연산 서버  0.2.0\nSnapdragon NPU · 실험용 모델 연결", 15));
     state = text("중지됨", 20); state.setPadding(0, 32, 0, 24); layout.addView(state);
     button(layout, "연결 시작", () -> send(null));
     button(layout, "N16 다운로드", () -> send(LinkService.DOWNLOAD));
@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
     button(layout, "연결 중지", () -> stopService(new Intent(this, LinkService.class)));
     button(layout, "진행 상태 / 로그 전환", () -> { showLogs = !showLogs; });
     details = text("", 15); details.setTextIsSelectable(true); details.setPadding(0, 24, 0, 24); layout.addView(details);
-    layout.addView(text("1. 같은 핫스팟에 연결하고 기존 젯링크는 종료하세요.\n2. 연결 시작 → N16 다운로드 후 완료되면 N16 준비 / 사용을 누르세요.\n3. 이온웹에서 이온링크를 선택하고 자동 검색 또는 위 주소로 1분 시험을 시작하세요.\n\n화면을 꺼도 알림이 있는 동안 실행됩니다. 별도 앱이므로 모델을 한 번 다시 받아야 합니다. 현재는 차량 제어에 적용되지 않습니다.\n\nJetlink Carrot .46 계산 엔진 재사용 · MIT 및 포함 런타임 라이선스는 앱의 assets/NOTICE.txt 참조.", 14));
+    layout.addView(text("1. 같은 핫스팟에 연결하고 기존 젯링크는 종료하세요.\n2. 연결 시작 → N16 다운로드 후 완료되면 N16 준비 / 사용을 누르세요.\n3. 이온웹 → 주행 → 주행 모델에서 외부 N16을 선택하세요. 자동 검색 또는 위 IP를 사용합니다.\n\n화면을 꺼도 알림이 있는 동안 실행됩니다. 0.1.0에서 업데이트하면 받은 모델을 유지합니다. 외부 모델 선택 시 조향·가감속 계획에 사용됩니다. 단일 카메라 실차 호환성은 검증 전입니다.\n\nJetlink Carrot .46 계산 엔진 재사용 · MIT 및 포함 런타임 라이선스는 앱의 assets/NOTICE.txt 참조.", 14));
     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
       requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 2);
   }

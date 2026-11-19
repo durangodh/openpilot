@@ -259,6 +259,7 @@ struct ModelState {
   std::array<float, NET_OUTPUT_SIZE> output = {};
   std::unique_ptr<RunModel> m;
   eon_jetlink::FrameExport benchmark_export;
+  eon_jetlink::FrameExport live_export{"/dev/shm/eonlink-live-demand", "/dev/shm/eonlink-live-frame"};
 #ifdef DESIRE
   float prev_desire[DESIRE_LEN] = {};
   float pulse_desire[DESIRE_LEN] = {};
@@ -272,7 +273,7 @@ void model_init(ModelState* s, cl_device_id device_id, cl_context context);
 ModelOutput *model_eval_frame(ModelState* s, VisionBuf* buf, VisionBuf* buf_wide,
                               const mat3 &transform, const mat3 &transform_wide, float *desire_in,
                               uint32_t frame_id, uint64_t camera_ns, bool single_camera, bool calibrated,
-                              bool benchmark_allowed);
+                              bool benchmark_allowed, bool live_allowed = false);
 void model_free(ModelState* s);
 void model_publish(PubMaster &pm, uint32_t vipc_frame_id, uint32_t vipc_frame_id_extra, uint32_t frame_id, float frame_drop,
                    const ModelOutput &net_outputs, uint64_t timestamp_eof,

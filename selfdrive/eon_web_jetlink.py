@@ -42,6 +42,9 @@ class JetlinkBench:
     return data or {'running': False, 'stage': 'idle', 'driving_ready': False}
 
   def start(self, payload, blocked=None):
+    from selfdrive.modeld.jetlink import live_ipc
+    if live_ipc.control()[1]:
+      return 409, {'output': '주행 모델을 기존 이온으로 선택한 뒤 N16 시험을 실행하세요'}
     if blocked:
       return 409, {'output': blocked}
     if not isinstance(payload, dict) or not {'host', 'port', 'seconds', 'source'} <= set(payload) or set(payload) - {'host', 'port', 'seconds', 'source', 'transport', 'compression'}:

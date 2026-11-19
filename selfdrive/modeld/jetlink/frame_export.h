@@ -1,6 +1,6 @@
 #pragma once
 
-// Opt-in, non-blocking snapshot for the N16 benchmark. This never reads a
+// Opt-in, non-blocking snapshot for N16 diagnostics or live inference. This never reads a
 // remote model result or changes modeld's recurrent/output buffers.
 #include <algorithm>
 #include <cmath>

@@ -53,7 +53,7 @@ class Frames:
       if not 0 <= age < 0.15 or flags & ~3 or not flags & 2 or not all(math.isfinite(x) for x in rest[:10]):
         return None
       return {'frame_id': frame_id, 'started': started_ns / 1e9, 'flags': flags,
-              'desire': rest[:8], 'traffic': rest[8:10], 'images': data[FRAME_HEADER.size:]}
+              'desire': rest[:8], 'traffic': rest[8:10], 'camera_timestamp_ns': rest[10], 'images': data[FRAME_HEADER.size:]}
     except BlockingIOError:
       return None
     except (OSError, ValueError):

@@ -31,7 +31,7 @@ public final class LinkService extends Service {
     PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
     PendingIntent stop = PendingIntent.getService(this, 1, new Intent(this, LinkService.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
     Notification n = new Notification.Builder(this, "eonlink").setSmallIcon(ai.comma.eonlink.R.drawable.link_icon)
-      .setContentTitle("이온링크").setContentText("N16 연결 시험 · 차량 제어 미적용")
+      .setContentTitle("이온링크").setContentText("N16 연산 제공 · 모델 선택은 이온웹")
       .setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null, "중지", stop).build()).build();
     startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
     cpu = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "eonlink:serving");

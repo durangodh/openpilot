@@ -1,4 +1,4 @@
-"""EON Link v1 lossless envelope over Jetlink v3; timing probe only.
+"""EON Link v1 lossless envelope over Jetlink v3.
 
 No frame queue, no lossy image conversion, no model/control publishers.
 """

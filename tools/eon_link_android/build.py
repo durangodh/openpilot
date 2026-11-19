@@ -26,7 +26,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--sdk', default=os.environ.get('ANDROID_HOME'))
   parser.add_argument('--upstream', type=Path, default=ROOT / 'build/jetlink-carrot.46.apk')
-  parser.add_argument('--output', type=Path, default=ROOT / 'build/EON-Link-0.1.0.apk')
+  parser.add_argument('--output', type=Path, default=ROOT / 'build/EON-Link-0.2.0.apk')
   parser.add_argument('--keystore', type=Path, required=True)
   parser.add_argument('--alias', default='androiddebugkey')
   parser.add_argument('--store-pass-env', default='EONLINK_STORE_PASSWORD')
