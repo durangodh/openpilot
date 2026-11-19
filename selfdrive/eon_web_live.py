@@ -1,6 +1,7 @@
 """Authenticated web control of the actual EON Link model source."""
 import fcntl
 import ipaddress
+import math
 import time
 
 from selfdrive.modeld.jetlink import live_ipc as ipc
@@ -18,8 +19,8 @@ def activation_block_reason():
     car, controls = sm['carState'], sm['controlsState']
     if controls.enabled or controls.active:
       return '외부 모델 선택은 인게이지를 해제한 뒤 실행하세요'
-    if not car.canValid or not abs(car.vEgo) < .1 or str(car.gearShifter) != 'park':
-      return '외부 모델 선택은 시동을 켠 P단 정차 상태에서 실행하세요'
+    if not car.canValid or not math.isfinite(car.vEgo):
+      return '차량 CAN·속도 상태를 확인할 수 없습니다'
     return None
   return '차량·인게이지 상태를 확인할 수 없습니다'
 

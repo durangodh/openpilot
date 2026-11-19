@@ -126,7 +126,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <label>포트 <input id="livePort" type="number" min="1024" max="65535" value="5600"></label>
 <label><input id="liveCompression" type="checkbox"> 영상 전송 압축</label>
 <button id="liveApply">모델 선택 적용</button>
-<p class="hint">외부 선택은 P단 정차·인게이지 해제 상태에서 가능합니다. 실제 적용되면 조향·가감속 계획에 사용됩니다. 단일 카메라 입력은 실차 검증 전이며, 지연·연결 이상 시 기존 모델로 복귀하고 인게이지 중이면 해제 경고를 표시합니다.</p>
+<p class="hint">외부 선택은 인게이지 해제 상태에서 가능합니다. D단·이동 중에도 선택할 수 있습니다. 실제 적용되면 조향·가감속 계획에 사용됩니다. 단일 카메라 입력은 실차 검증 전이며, 지연·연결 이상 시 기존 모델로 복귀하고 인게이지 중이면 해제 경고를 표시합니다.</p>
 <pre id="liveStatus" role="status">실제 적용 상태 확인 중</pre><p id="liveMessage" role="status"></p></div>
 <div class="card"><h3>전방 화면</h3><img id="roadImage" alt="실시간 전방 카메라" hidden>
 <div class="actions"><button id="vision">주행 비전 시작</button>
