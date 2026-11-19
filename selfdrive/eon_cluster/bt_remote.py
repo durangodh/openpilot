@@ -242,12 +242,7 @@ def remote_learning_allowed(sm, params):
                           car.canValid, car.standstill, car.gearShifter == 'park')
 
 
-def run():
-  # Imported here so the reader and its tests load without the compiled cereal/params modules.
-  from cereal import messaging
-  from common.params import Params
-  params = Params()
-  sm = messaging.SubMaster(['carState', 'deviceState'])
+def run(sm, params):
   writer = RemoteCommandSync(params)
   link = LinkTracker()
   log = Log()
@@ -456,9 +451,16 @@ def main():
   # The manager does not restart a process that died, and a dead bt_remote used to show
   # "System Malfunction" (2026-11-19). Log the error and start over instead of exiting.
   import traceback
+  # Imported here so the reader and its tests load without the compiled cereal/params modules.
+  from cereal import messaging
+  from common.params import Params
+  # Subscribed once: every new subscriber takes a msgq reader slot that a dead one never gives
+  # back, and a full carState queue evicts all its readers (controlsd too).
+  params = Params()
+  sm = messaging.SubMaster(['carState', 'deviceState'])
   while True:
     try:
-      run()
+      run(sm, params)
     except KeyboardInterrupt:
       raise
     except Exception:  # pylint: disable=broad-except
