@@ -63,7 +63,7 @@ HISTORY_S = 1.0
 
 
 class LateralAutoTune:
-  def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None):
+  def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None, factor_learned=False):
     self.base_factor = float(base_factor)
     self.base_friction = float(base_friction)
     self.factor = float(factor) if factor else self.base_factor
@@ -85,6 +85,9 @@ class LateralAutoTune:
     self.t = 0.0
     self.next_eval = EVAL_S
     self.updates = 0
+    # True once both curve sides were enough for a factor estimate; stays true (saved), so the
+    # halving after each estimate does not bring the "curves needed" display back.
+    self.factor_learned = bool(factor_learned)
 
   def update(self, active, v_ego, steering_pressed, lane_change, saturated, desired, actual,
              f, p, i, d, steer_delay):
@@ -162,6 +165,7 @@ class LateralAutoTune:
   def _evaluate(self):
     changed = False
     if len(self.left) >= SIDE_MIN and len(self.right) >= SIDE_MIN:
+      self.factor_learned = True
       target = 0.5 * (float(np.median(self.left)) + float(np.median(self.right)))
       lo, hi = (b * self.base_factor for b in FACTOR_BOUNDS)
       target = float(np.clip(target, lo, hi))
@@ -216,4 +220,5 @@ class LateralAutoTune:
       "delay_windows": self.delay_windows,
       "sad": None if self.sad is None else round(self.sad, 3),
       "updates": self.updates,
+      "factor_learned": self.factor_learned,
     }

@@ -121,3 +121,11 @@ def test_lane_auto_center_moves_toward_the_middle():
     c.update(True, 25.0, 0.0, x, np.full(33, 2.0), np.full(33, -1.5), 0.3, 0.9)
   assert c.offset == 0.0
   assert LaneAutoCenter(1.0).offset == BOUNDS[1]
+
+
+def test_factor_learned_sticks_after_the_halving():
+  tuner = LateralAutoTune(2.75, 0.10)
+  assert not tuner.status()["factor_learned"]
+  drive_curves(tuner, 2.6, 5 * 60)
+  assert tuner.status()["factor_learned"]
+  assert LateralAutoTune(2.75, 0.10, 2.7, 0.1, None, True).status()["factor_learned"]

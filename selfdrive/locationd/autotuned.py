@@ -33,7 +33,7 @@ def load(params, base_factor, base_friction, sad):
   if saved.get("base_factor") != round(base_factor, 4) or saved.get("base_friction") != round(base_friction, 4):
     return LateralAutoTune(base_factor, base_friction, sad=saved.get("sad") or sad)
   return LateralAutoTune(base_factor, base_friction, saved.get("factor"), saved.get("friction"),
-                         saved.get("sad") or sad)
+                         saved.get("sad") or sad, bool(saved.get("factor_learned")))
 
 
 def save(params, tuner):
@@ -86,7 +86,7 @@ def status_text(params, tuner, learner):
       windows = st['delay_windows']
       wait = f" ({windows}/{DELAY_MIN_WINDOWS})" if windows < DELAY_MIN_WINDOWS else ""
       parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''}{wait}")
-      if min(st['samples_left'], st['samples_right']) < SIDE_MIN:
+      if not st['factor_learned']:
         parts.append(f"CURVE {st['samples_left']}/{st['samples_right']} ({SIDE_MIN})")
       else:
         # learned: what drives the next step instead of counts. LAG > 0: small moves late
