@@ -3646,12 +3646,16 @@ public final class HudService extends Service {
 
         drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
+        float musicTop = REMOTE_TOP;
         if (!linkStale) {
-            drawRemoteStatus(c, p, s.optJSONObject("remote"));
+            JSONObject remote = s.optJSONObject("remote");
+            drawRemoteStatus(c, p, remote);
+            if (remote != null) musicTop = REMOTE_BOTTOM + BLINKER_GAP;
             JSONObject blinker = s.optJSONObject("blinker");
-            drawBlinkerStatus(c, p, blinker,
-                    s.optJSONObject("remote") != null ? REMOTE_BOTTOM + BLINKER_GAP : REMOTE_TOP);
+            drawBlinkerStatus(c, p, blinker, musicTop);
+            if (blinker != null) musicTop += REMOTE_LINE_H + BLINKER_GAP;
         }
+        drawMusicStatus(c, p, musicTop);
 
         // Driving layout keeps NOO above the EON box. The navi layout
         // renders NOO separately at the map's bottom edge, after map overlays.
@@ -5266,30 +5270,11 @@ public final class HudService extends Service {
         c.restoreToCount(coolSave);
     }
 
-    /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
-    private void drawTopClock(Canvas c, Paint p, JSONObject state, boolean signalValid) {
-        java.util.Date now = new java.util.Date();
-        String date = new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(now);
-        String time = new SimpleDateFormat("HH:mm", Locale.KOREA).format(now);
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(24f);
-        float dateW = p.measureText(date);
-        p.setTextSize(36f);
-        float timeW = p.measureText(time);
-        float gap = 14f;
-        float clockWidth = dateW + gap + timeW;
-        float left = DRIVE_MID - clockWidth / 2f;
-        text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
-        text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
-
+    /** Music follows the left-hand connection badges, outside the clock/signal area. */
+    private void drawMusicStatus(Canvas c, Paint p, float top) {
         String song = HudNaverMusic.nowPlaying();
         if (!song.isEmpty()) {
-            // Same row as the clock, with a visible 56px gap after the time.
-            // Keep long titles out of the right-hand navigation/weather badges.
-            float songLeft = left + clockWidth + 56f;
-            float songRight = naviLayout
-                    ? NAVI_COL_LEFT - (NAVI_LANE_CX - DRIVE_MID) - 20f : 900f;
-            float songTextWidth = Math.min(270f, Math.max(1f, songRight - songLeft - 48f));
+            float songTextWidth = REMOTE_RIGHT - REMOTE_LEFT - 48f;
             p.setTextSize(22f);
             musicTextPaint.set(p);
             song = android.text.TextUtils.ellipsize(song, musicTextPaint,
@@ -5299,7 +5284,7 @@ public final class HudService extends Service {
             p.setColor(frameDark ? Color.argb(210, 12, 18, 24) : Color.argb(225, 242, 246, 249));
             float songHalfWidth = (p.measureText(song) + 30f) / 2f + 9f;
             int musicSave = c.save();
-            c.translate(songLeft - (DRIVE_MID - songHalfWidth), -36f);
+            c.translate(REMOTE_LEFT - (DRIVE_MID - songHalfWidth), top - 57f);
             scratchRect.set(DRIVE_MID - songHalfWidth, 57f, DRIVE_MID + songHalfWidth, 88f);
             c.drawRoundRect(scratchRect, 6f, 6f, p);
             float iconX = DRIVE_MID - songHalfWidth + 21f;
@@ -5325,6 +5310,24 @@ public final class HudService extends Service {
                     frameDark ? Color.WHITE : Color.rgb(20, 30, 36), Paint.Align.LEFT);
             c.restoreToCount(musicSave);
         }
+    }
+
+    /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
+    private void drawTopClock(Canvas c, Paint p, JSONObject state, boolean signalValid) {
+        java.util.Date now = new java.util.Date();
+        String date = new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(now);
+        String time = new SimpleDateFormat("HH:mm", Locale.KOREA).format(now);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(24f);
+        float dateW = p.measureText(date);
+        p.setTextSize(36f);
+        float timeW = p.measureText(time);
+        float gap = 14f;
+        float clockWidth = dateW + gap + timeW;
+        float left = DRIVE_MID - clockWidth / 2f;
+        text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
+        text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
+
 
         if (signalValid) {
             long nowMs = SystemClock.elapsedRealtime();
