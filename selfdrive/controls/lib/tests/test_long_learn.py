@@ -70,3 +70,9 @@ def test_apply_step_floors_and_slow_decrease():
   other_gap = apply_step(up, {"t_follow": 1.0}, 2, 1.2, 6.0)
   assert other_gap["t_follow"] == 1.2 and "stop_distance" not in other_gap
   assert apply_step({}, {}, 3, 1.4, 6.0) == {"gap": 3}               # not enough records
+
+
+def test_apply_keeps_a_shorter_own_setting():
+  from selfdrive.controls.lib.long_learn import apply_step
+  a = apply_step({}, {"t_follow": 1.0}, 2, 1.1, 6.0)
+  assert a["t_follow"] == 1.1                                         # not raised to 1.2, not lowered

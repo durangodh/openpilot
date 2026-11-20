@@ -177,7 +177,11 @@ def apply_step(applied, rec, gap_now, t_follow_now, stop_now):
   t_prev = applied.get("t_follow") if applied.get("gap") == gap_now else None
   t_prev = t_follow_now if t_prev is None else t_prev
   if rec.get("t_follow") is not None:
-    out["t_follow"] = round(float(np.clip(_toward(t_prev, rec["t_follow"], T_FOLLOW_DOWN), *T_FOLLOW_BOUNDS)), 3)
+    # The floor is 1.2 s, or the driver's own setting for this gap when that is already shorter
+    # (a learned habit must not lengthen a gap the driver chose, nor shorten it below 1.2 s).
+    floor = min(T_FOLLOW_BOUNDS[0], t_follow_now)
+    out["t_follow"] = round(float(np.clip(_toward(t_prev, rec["t_follow"], T_FOLLOW_DOWN),
+                                          floor, T_FOLLOW_BOUNDS[1])), 3)
   stop_prev = applied.get("stop_distance", stop_now)
   if rec.get("stop_distance_m") is not None and rec.get("StopDistance") is not None:
     out["stop_distance"] = round(float(np.clip(_toward(stop_prev, rec["StopDistance"] / 100.0, STOP_DOWN),

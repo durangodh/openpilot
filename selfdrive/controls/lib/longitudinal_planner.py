@@ -136,7 +136,8 @@ class LongitudinalPlanner:
         learned = json.loads(self.params.get("LongLearnApplied", encoding="utf8") or "{}")
         gap = int(learned.get("gap", 0))
         if learned.get("t_follow") is not None and 1 <= gap <= 4:
-          self.mpc.tfollow_gaps[gap - 1] = float(clip(float(learned["t_follow"]), 1.2, 2.5))
+          floor = min(1.2, self.mpc.tfollow_gaps[gap - 1])   # or the driver's shorter setting
+          self.mpc.tfollow_gaps[gap - 1] = float(clip(float(learned["t_follow"]), floor, 2.5))
         if learned.get("stop_distance") is not None:
           self.mpc.stop_distance = float(clip(float(learned["stop_distance"]), 3.5, 10.0))
       except (TypeError, ValueError, AttributeError):

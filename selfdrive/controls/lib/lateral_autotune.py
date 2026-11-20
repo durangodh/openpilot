@@ -53,7 +53,7 @@ FRICTION_BOUNDS = (0.6, 1.5)  # x the car's tune
 # delay (report only)
 DELAY_WINDOW_S = 10.0
 DELAY_SEARCH = (0.0, 0.8)    # s
-DELAY_MIN_STD = 0.3          # m/s^2 of desired lateral accel in the window
+DELAY_MIN_STD = 0.15         # m/s^2 of desired lateral accel in the window (0.3: no window in 20 min, 2026-11-20)
 DELAY_PLAN_LEAD = 0.2        # s the controller adds to SteerActuatorDelay (drive_helpers)
 DELAY_MIN_WINDOWS = 10
 SAD_BOUNDS = (0.05, 0.6)     # s

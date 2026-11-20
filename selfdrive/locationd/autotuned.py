@@ -85,9 +85,11 @@ def status_text(params, tuner, learner):
       parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''} ({st['delay_windows']})")
       parts.append(f"L{st['samples_left']} R{st['samples_right']}")
     if center:
+      # nothing learned yet: the planner still uses the manual PathOffset (cm)
+      raw = params.get("LateralAutoCenterValue", encoding="utf8")
       try:
-        offset = float(params.get("LateralAutoCenterValue", encoding="utf8") or "nan")
-        parts.append(f"OFS {offset * 100:+.0f}cm")
+        offset = float(raw) * 100 if raw else float(params.get("PathOffset", encoding="utf8") or 0)
+        parts.append(f"OFS {offset:+.0f}cm{'' if raw else ' (set)'}")
       except (TypeError, ValueError):
         parts.append("OFS -")
     lines.append("  ".join(parts))
@@ -105,15 +107,19 @@ def status_text(params, tuner, learner):
         applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
       except (TypeError, ValueError):
         applied = {}
-      tf = applied.get("t_follow", tf_now) if applied.get("gap") == gap else tf_now
-      stop = applied.get("stop_distance", stop_now)
+      tf = applied.get("t_follow") if applied.get("gap") == gap else None
+      stop = applied.get("stop_distance")
       head = "LONG apply"
     else:
       tf = rec.get("t_follow")
       stop = rec.get("stop_distance_m")
       head = "LONG learn"
-    tf_s = "-" if tf is None else f"{tf:.2f}s"
-    stop_s = "-" if stop is None else f"{stop:.1f}m"
+    if long_apply_on:   # not learned enough yet: the setting is what the car uses
+      tf_s = f"{tf_now:.2f}s(set)" if tf is None else f"{tf:.2f}s"
+      stop_s = f"{stop_now:.1f}m(set)" if stop is None else f"{stop:.1f}m"
+    else:
+      tf_s = "-" if tf is None else f"{tf:.2f}s"
+      stop_s = "-" if stop is None else f"{stop:.1f}m"
     lines.append(f"{head}  GAP{gap} {tf_s}  STOP {stop_s}  ({min(c['gap'], 999)}s {c['stops']}stop {c['starts']}go)")
   return "\n".join(lines)
 
