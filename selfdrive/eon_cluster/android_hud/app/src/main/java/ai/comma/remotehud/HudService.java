@@ -5466,12 +5466,12 @@ public final class HudService extends Service {
             String key = space > 0 ? token.substring(0, space) : token;
             String value = space > 0 ? token.substring(space + 1) : "";
             float x = 18f + (n % 2) * cw;
-            float y = top + 42f + (n / 2) * 62f;
-            text(c, p, learnLabel(key), x, y + 20f, 20f, muted, Paint.Align.LEFT);
-            text(c, p, value, x, y + 52f, 30f, white, Paint.Align.LEFT);
+            float y = top + 40f + (n / 2) * 54f;   // 3 rows per learner fit the 496 box
+            text(c, p, learnLabel(key), x, y + 19f, 19f, muted, Paint.Align.LEFT);
+            text(c, p, value, x, y + 47f, 27f, white, Paint.Align.LEFT);
             n++;
         }
-        return top + 42f + ((n + 1) / 2) * 62f;
+        return top + 40f + ((n + 1) / 2) * 54f;
     }
 
     private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {
