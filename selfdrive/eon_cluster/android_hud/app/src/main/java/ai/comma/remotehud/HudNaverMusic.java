@@ -7,6 +7,12 @@ import android.content.IntentFilter;
 import android.os.Build;
 import android.os.SystemClock;
 
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+
 /** Receives Naver's private player metadata from the LSPosed module on this phone. */
 final class HudNaverMusic {
     private static final String NAVER = "com.nhn.android.nmap";
@@ -14,6 +20,10 @@ final class HudNaverMusic {
     private static final String REQUEST = "ai.comma.remotehud.NAVER_MUSIC_REQUEST";
     private static volatile Snapshot latest;
     private static int activeReceivers;
+    // Same-phone UDP from the Naver module (127.0.0.1). Unlike a cross-app broadcast, Android's
+    // package visibility rules cannot filter it out; the broadcast stays as a second path.
+    static final int LOCAL_PORT = 7215;
+    private static DatagramSocket localSocket;
     private final Context context;
     private boolean registered;
 
@@ -36,21 +46,69 @@ final class HudNaverMusic {
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context ignored, Intent intent) {
             if (!UPDATE.equals(intent.getAction())) return;
-            long sentAt = intent.getLongExtra("sentAt", -1L);
-            long age = SystemClock.elapsedRealtime() - sentAt;
-            // Cached broadcasts must not resurrect a song after the module stopped.
-            if (sentAt < 0 || age < 0 || age > 35000L) return;
-            Snapshot previous = latest;
-            if (previous != null && sentAt < previous.sentAt) return;
-            String title = clean(intent.getStringExtra("title"));
-            String artist = clean(intent.getStringExtra("artist"));
-            int state = intent.getIntExtra("state", 0);
-            // -1 supports embedded players that have not published a playback state yet.
-            if (state != 3 && state != -1) title = "";
-            String song = title.isEmpty() ? "" : title + (artist.isEmpty() ? "" : " · " + artist);
-            latest = new Snapshot(song, state, sentAt, intent.getIntExtra("hooks", -1));
+            accept(intent.getStringExtra("title"), intent.getStringExtra("artist"),
+                    intent.getIntExtra("state", 0), intent.getLongExtra("sentAt", -1L),
+                    intent.getIntExtra("hooks", -1));
         }
     };
+
+    private static synchronized void accept(String rawTitle, String rawArtist, int state, long sentAt, int hooks) {
+        long age = SystemClock.elapsedRealtime() - sentAt;
+        // Cached broadcasts must not resurrect a song after the module stopped.
+        if (sentAt < 0 || age < 0 || age > 35000L) return;
+        Snapshot previous = latest;
+        if (previous != null && sentAt < previous.sentAt) return;
+        String title = clean(rawTitle);
+        String artist = clean(rawArtist);
+        // -1 supports embedded players that have not published a playback state yet.
+        if (state != 3 && state != -1) title = "";
+        String song = title.isEmpty() ? "" : title + (artist.isEmpty() ? "" : " · " + artist);
+        latest = new Snapshot(song, state, sentAt, hooks);
+    }
+
+    /** "NMUS1\nsentAt\nstate\nhooks\ntitle\nartist" (title / artist without newlines). */
+    static void acceptDatagram(byte[] data, int length) {
+        String[] f = new String(data, 0, length, StandardCharsets.UTF_8).split("\n", -1);
+        if (f.length < 6 || !"NMUS1".equals(f[0])) return;
+        try {
+            accept(f[4], f[5], Integer.parseInt(f[2]), Long.parseLong(f[1]), Integer.parseInt(f[3]));
+        } catch (NumberFormatException ignored) {
+            // not ours
+        }
+    }
+
+    private static synchronized void openLocal() {
+        if (localSocket != null) return;
+        try {
+            DatagramSocket socket = new DatagramSocket(null);
+            socket.setReuseAddress(true);
+            socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), LOCAL_PORT));
+            localSocket = socket;
+        } catch (Exception error) {
+            return;  // the broadcast path still works where Android allows it
+        }
+        final DatagramSocket socket = localSocket;
+        Thread reader = new Thread(() -> {
+            byte[] buffer = new byte[2048];
+            while (!socket.isClosed()) {
+                try {
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    socket.receive(packet);
+                    acceptDatagram(packet.getData(), packet.getLength());
+                } catch (Exception error) {
+                    if (socket.isClosed()) return;
+                }
+            }
+        }, "HudNaverMusicLocal");
+        reader.setDaemon(true);
+        reader.start();
+    }
+
+    private static synchronized void closeLocal() {
+        if (localSocket == null) return;
+        localSocket.close();
+        localSocket = null;
+    }
 
     void start() {
         if (registered) return;
@@ -62,6 +120,7 @@ final class HudNaverMusic {
         }
         registered = true;
         activeReceivers++;
+        openLocal();
         // The player may already be running when the HUD starts/restarts.
         context.sendBroadcast(new Intent(REQUEST).setPackage(NAVER));
     }
@@ -71,7 +130,10 @@ final class HudNaverMusic {
         context.unregisterReceiver(receiver);
         registered = false;
         activeReceivers--;
-        if (activeReceivers == 0) latest = null;
+        if (activeReceivers == 0) {
+            closeLocal();
+            latest = null;
+        }
     }
 
     static String nowPlaying() {

@@ -127,6 +127,18 @@ public final class HudNaverMusicCheck {
   context.receiver.onReceive(context, update("새 곡", 3, SystemClock.now));
   bridge.stop();
   check(context.receiver == null && HudNaverMusic.nowPlaying().isEmpty(), "Unregister and clear on stop");
+  // Same-phone UDP path (the module's main transport): accepted while a receiver is running.
+  bridge.start();
+  try (java.net.DatagramSocket out = new java.net.DatagramSocket()) {
+   byte[] data = ("NMUS1\\n" + SystemClock.now + "\\n3\\n2\\n로컬 곡\\n로컬 가수").getBytes("UTF-8");
+   out.send(new java.net.DatagramPacket(data, data.length, java.net.InetAddress.getByName("127.0.0.1"), HudNaverMusic.LOCAL_PORT));
+  } catch (Exception e) { throw new AssertionError(e); }
+  for (int i = 0; i < 100 && !HudNaverMusic.nowPlaying().equals("로컬 곡 · 로컬 가수"); i++) {
+   try { Thread.sleep(20); } catch (InterruptedException e) { break; }
+  }
+  check(HudNaverMusic.nowPlaying().equals("로컬 곡 · 로컬 가수"), "Local UDP update");
+  HudNaverMusic.acceptDatagram("junk".getBytes(), 4);
+  bridge.stop();
   Build.VERSION.SDK_INT = 26;
   bridge.start();
   check(context.receiver != null, "Old Android registration");

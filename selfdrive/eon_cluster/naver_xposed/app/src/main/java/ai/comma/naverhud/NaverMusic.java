@@ -11,6 +11,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import ai.comma.hudcommon.MusicSessionState;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -21,6 +28,11 @@ final class NaverMusic {
     private static final String UPDATE = "ai.comma.remotehud.NAVER_MUSIC";
     private static final String REQUEST = "ai.comma.remotehud.NAVER_MUSIC_REQUEST";
     private static final String HUD = "ai.comma.remotehud";
+    // HudNaverMusic.LOCAL_PORT: same-phone UDP, which Android's package visibility cannot block.
+    private static final int LOCAL_PORT = 7215;
+    private final ExecutorService sender = Executors.newSingleThreadExecutor();
+    private DatagramSocket socket;
+    private boolean localFailLogged;
     private static NaverMusic instance;
     private final Context context;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -146,6 +158,28 @@ final class NaverMusic {
 
     private final Runnable sendChanged = () -> publish(false);
 
+    private static String line(String value) {
+        return value == null ? "" : value.replace('\n', ' ').replace('\r', ' ');
+    }
+
+    /** Off the main thread (network on it throws). */
+    private void sendLocal(String title, String artist, int songState, long sentAt) {
+        final byte[] data = ("NMUS1\n" + sentAt + "\n" + songState + "\n" + metadataHooks + "\n"
+                + line(title) + "\n" + line(artist)).getBytes(StandardCharsets.UTF_8);
+        sender.execute(() -> {
+            try {
+                if (socket == null) socket = new DatagramSocket();
+                socket.send(new DatagramPacket(data, data.length,
+                        InetAddress.getByName("127.0.0.1"), LOCAL_PORT));
+            } catch (Throwable error) {
+                if (!localFailLogged) {
+                    localFailLogged = true;
+                    NaverHudLog.line("music local send failed: " + error);
+                }
+            }
+        });
+    }
+
     private void publish(boolean force) {
         MusicSessionState.Song song = state.current();
         boolean changed = !song.title.equals(lastTitle) || !song.artist.equals(lastArtist)
@@ -157,6 +191,7 @@ final class NaverMusic {
         lastTitle = song.title;
         lastArtist = song.artist;
         lastState = song.state;
+        sendLocal(song.title, song.artist, song.state, SystemClock.elapsedRealtime());
         try {
             context.sendBroadcast(new Intent(UPDATE).setPackage(HUD)
                     .putExtra("title", song.title).putExtra("artist", song.artist)
