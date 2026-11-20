@@ -3646,16 +3646,13 @@ public final class HudService extends Service {
 
         drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
-        float musicTop = REMOTE_TOP;
         if (!linkStale) {
-            JSONObject remote = s.optJSONObject("remote");
-            drawRemoteStatus(c, p, remote);
-            if (remote != null) musicTop = REMOTE_BOTTOM + BLINKER_GAP;
+            drawRemoteStatus(c, p, s.optJSONObject("remote"));
             JSONObject blinker = s.optJSONObject("blinker");
-            drawBlinkerStatus(c, p, blinker, musicTop);
-            if (blinker != null) musicTop += REMOTE_LINE_H + BLINKER_GAP;
+            drawBlinkerStatus(c, p, blinker,
+                    s.optJSONObject("remote") != null ? REMOTE_BOTTOM + BLINKER_GAP : REMOTE_TOP);
         }
-        drawMusicStatus(c, p, musicTop);
+        drawMusicStatus(c, p);
 
         // Driving layout keeps NOO above the EON box. The navi layout
         // renders NOO separately at the map's bottom edge, after map overlays.
@@ -5270,11 +5267,12 @@ public final class HudService extends Service {
         c.restoreToCount(coolSave);
     }
 
-    /** Music follows the left-hand connection badges, outside the clock/signal area. */
-    private void drawMusicStatus(Canvas c, Paint p, float top) {
+    /** Music sits below the ego car, alongside the odometer at the bottom of the screen. */
+    private void drawMusicStatus(Canvas c, Paint p) {
         String song = HudNaverMusic.nowPlaying();
         if (!song.isEmpty()) {
-            float songTextWidth = REMOTE_RIGHT - REMOTE_LEFT - 48f;
+            float songAreaWidth = naviLayout ? WIDTH - NAVI_DRIVE_LEFT : 400f;
+            float songTextWidth = Math.min(270f, songAreaWidth - 32f - 48f);
             p.setTextSize(22f);
             musicTextPaint.set(p);
             song = android.text.TextUtils.ellipsize(song, musicTextPaint,
@@ -5284,7 +5282,8 @@ public final class HudService extends Service {
             p.setColor(frameDark ? Color.argb(210, 12, 18, 24) : Color.argb(225, 242, 246, 249));
             float songHalfWidth = (p.measureText(song) + 30f) / 2f + 9f;
             int musicSave = c.save();
-            c.translate(REMOTE_LEFT - (DRIVE_MID - songHalfWidth), top - 57f);
+            float songCenter = naviLayout ? NAVI_DRIVE_CX : DRIVE_MID;
+            c.translate(songCenter - DRIVE_MID, HEIGHT - 44f - 57f);
             scratchRect.set(DRIVE_MID - songHalfWidth, 57f, DRIVE_MID + songHalfWidth, 88f);
             c.drawRoundRect(scratchRect, 6f, 6f, p);
             float iconX = DRIVE_MID - songHalfWidth + 21f;
