@@ -30,6 +30,21 @@ _param_cache = {}
 PARAM_CACHE_S = 1.0
 
 
+def _learn_lines():
+  """autotuned's LearnStatusText (LAT ... / LONG ...), read like the other params at most once a cache period."""
+  now = time.monotonic()
+  cached = _param_cache.get("LearnStatusText")
+  if cached is not None and now - cached[0] < PARAM_CACHE_S:
+    return cached[1]
+  try:
+    raw = _params.get("LearnStatusText", encoding="utf8") or ""
+  except (TypeError, ValueError, UnknownKeyName):
+    raw = ""
+  lines = [line for line in raw.split("\n") if line.strip()][:2]
+  _param_cache["LearnStatusText"] = (now, lines)
+  return lines
+
+
 def _bounded_int(key, default, minimum, maximum):
   now = time.monotonic()
   cached = _param_cache.get(key)
@@ -145,8 +160,9 @@ def _packet(sm, *args, **kwargs):
   packet["hudNightBrightness"] = _bounded_int("EonClusterHudNightBrightness", 35, 1, 100)
   packet["hudJpegQuality"] = _bounded_int("EonClusterHudJpegQuality", 55, 20, 95)
   packet["hudScreenMode"] = _bounded_int("EonClusterHudScreenMode", 1, 1, 3)
-  # EON 박스 자리: 1 HUD 정보(기존), 2 주행요약. 경고 팝업은 어느 쪽이든 그 위에 덮는다.
-  packet["hudInfoBox"] = _bounded_int("EonClusterHudInfoBox", 1, 1, 2)
+  # EON 박스 자리: 1 HUD 정보(기존), 2 주행요약, 3 학습(오토튠). 경고 팝업은 어느 쪽이든 그 위에 덮는다.
+  packet["hudInfoBox"] = _bounded_int("EonClusterHudInfoBox", 1, 1, 3)
+  packet["learn"] = _learn_lines()
   _update_trip(sm)
   packet["trip"] = _trip_report.snapshot()
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)

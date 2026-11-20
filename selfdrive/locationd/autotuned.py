@@ -83,7 +83,7 @@ def status_text(params, tuner, learner):
       parts.append(f"F {st['factor']:.2f}/{st['base_factor']:.2f}  FR {st['friction']:.3f}")
       sad = st.get("sad")
       parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''} ({st['delay_windows']})")
-      parts.append(f"L{st['samples_left']} R{st['samples_right']}")
+      parts.append(f"CURVE {st['samples_left']}/{st['samples_right']}")
     if center:
       # nothing learned yet: the planner still uses the manual PathOffset (cm)
       raw = params.get("LateralAutoCenterValue", encoding="utf8")
@@ -120,7 +120,7 @@ def status_text(params, tuner, learner):
     else:
       tf_s = "-" if tf is None else f"{tf:.2f}s"
       stop_s = "-" if stop is None else f"{stop:.1f}m"
-    lines.append(f"{head}  GAP{gap} {tf_s}  STOP {stop_s}  ({min(c['gap'], 999)}s {c['stops']}stop {c['starts']}go)")
+    lines.append(f"{head}  GAP{gap} {tf_s}  STOP {stop_s}  REC {min(c['gap'], 999)}s/{c['stops']}/{c['starts']}")
   return "\n".join(lines)
 
 

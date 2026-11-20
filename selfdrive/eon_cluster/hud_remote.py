@@ -117,12 +117,12 @@ class RemoteCommandSync:
         if lane_change_possible(*self.vehicle):
           atomic_json(self.lane_file, payload)
       elif command == "hud_box":
-        # HUD info box: 1 = HUD info, 2 = trip summary.
+        # HUD info box: 1 = HUD info, 2 = trip summary, 3 = auto-tune learning; the button cycles.
         try:
           box = int(self.params.get("EonClusterHudInfoBox") or 1)
         except (ValueError, TypeError):
           box = 1
-        self.params.put("EonClusterHudInfoBox", "1" if box == 2 else "2")
+        self.params.put("EonClusterHudInfoBox", str(box % 3 + 1 if 1 <= box <= 3 else 1))
       elif command == "voice":
         previous = read_json(VOICE_FILE)
         seq = previous.get("seq", 0) if isinstance(previous, dict) else 0

@@ -2366,7 +2366,7 @@ public final class HudService extends Service {
         configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
         configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
         configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
-        configuredInfoBox = Math.max(1, Math.min(2, currentState.optInt("hudInfoBox", 1)));
+        configuredInfoBox = Math.max(1, Math.min(3, currentState.optInt("hudInfoBox", 1)));
         int requestedOrientation = currentState.optInt("hudOrientation", configuredOrientation) == 2 ? 2 : 0;
         boolean requestedMirror = currentState.optInt("hudMirror", configuredMirror ? 1 : 0) != 0;
         if (requestedOrientation != configuredOrientation) {
@@ -5394,6 +5394,80 @@ public final class HudService extends Service {
      * C2 온도·사용률 / S9 온도·사용률 + TPMS 카드, 날짜·시간 + 기어, 주행모드·LIMIT·E2E 사유 + 차간거리.
      */
     /** 주행요약(carrot-wip 클러스터 TRIP SUMMARY): EON 박스 안(475 x EON_BOX_H). */
+    /**
+     * 학습(EonClusterHudInfoBox = 3): EON autotuned 의 LearnStatusText 두 줄
+     * ("LAT auto  F 2.71/2.75  FR 0.104  SAD 0.27* (12)  CURVE 812/640  OFS +3cm",
+     *  "LONG apply  GAP3 1.45s  STOP 4.8m  REC 210s/3/2") 을 조향 / 롱컨 칸으로 나눠 그린다.
+     */
+    private void drawLearnBox(Canvas c, Paint p, JSONArray lines) {
+        int muted = Color.rgb(190, 205, 235);
+        int white = Color.WHITE;
+        int latColor = Color.rgb(154, 216, 255);
+        int longColor = Color.rgb(184, 240, 154);
+        float w = 475f;
+        eonBoxRect(c, p, 0f, 0f, w, EON_BOX_H, Color.argb(240, 16, 22, 40), 2f, Color.WHITE);
+        text(c, p, lang("학습", "LEARNING"), 18f, 42f, 28f, muted, Paint.Align.LEFT);
+        String lat = null, lng = null;
+        for (int i = 0; lines != null && i < lines.length(); i++) {
+            String line = lines.optString(i, "");
+            if (line.startsWith("LAT")) lat = line;
+            else if (line.startsWith("LONG")) lng = line;
+        }
+        float y = 62f;
+        y = drawLearnSection(c, p, lat, lang("조향", "STEERING"), latColor, y, muted, white);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(Color.rgb(90, 105, 140));
+        c.drawLine(18f, y + 4f, w - 18f, y + 4f, p);
+        p.setStyle(Paint.Style.FILL);
+        drawLearnSection(c, p, lng, lang("롱컨", "LONG"), longColor, y + 14f, muted, white);
+    }
+
+    private String learnLabel(String key) {
+        if (key.equals("F")) return "FACTOR";
+        if (key.equals("FR")) return "FRICTION";
+        if (key.equals("SAD")) return lang("조향 지연", "STEER DELAY");
+        if (key.equals("CURVE")) return lang("커브 좌/우", "CURVES L/R");
+        if (key.equals("OFS")) return lang("중앙 보정", "CENTER");
+        if (key.startsWith("GAP")) return lang("차간 ", "GAP ") + key.substring(3);
+        if (key.equals("STOP")) return lang("정지 거리", "STOP DIST");
+        if (key.equals("REC")) return lang("기록 차간/정지/출발", "REC GAP/STOP/GO");
+        return key;
+    }
+
+    /** One learner: "LAT auto" heading, then "KEY value" tokens in two columns. Returns the bottom y. */
+    private float drawLearnSection(Canvas c, Paint p, String line, String title, int color, float top,
+                                   int muted, int white) {
+        float w = 475f;
+        if (line == null) {
+            text(c, p, title, 18f, top + 30f, 26f, color, Paint.Align.LEFT);
+            text(c, p, lang("꺼짐", "OFF"), w - 18f, top + 30f, 24f, muted, Paint.Align.RIGHT);
+            return top + 44f;
+        }
+        String[] tokens = line.split("  ");
+        String[] head = tokens[0].split(" ");
+        String mode = head.length > 1 ? head[1] : "";
+        String modeText = mode.equals("auto") || mode.equals("apply") ? lang("적용 중", "APPLIED")
+                : lang("학습만", "LEARNING");
+        text(c, p, title, 18f, top + 30f, 26f, color, Paint.Align.LEFT);
+        text(c, p, modeText, w - 18f, top + 30f, 22f, color, Paint.Align.RIGHT);
+        float cw = (w - 36f) / 2f;
+        int n = 0;
+        for (int i = 1; i < tokens.length; i++) {
+            String token = tokens[i].trim();
+            if (token.isEmpty()) continue;
+            int space = token.indexOf(' ');
+            String key = space > 0 ? token.substring(0, space) : token;
+            String value = space > 0 ? token.substring(space + 1) : "";
+            float x = 18f + (n % 2) * cw;
+            float y = top + 42f + (n / 2) * 62f;
+            text(c, p, learnLabel(key), x, y + 20f, 20f, muted, Paint.Align.LEFT);
+            text(c, p, value, x, y + 52f, 30f, white, Paint.Align.LEFT);
+            n++;
+        }
+        return top + 42f + ((n + 1) / 2) * 62f;
+    }
+
     private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {
         // 지도 위에 반투명으로 겹쳐 낮에 글자가 안 보였다(2026-10-18). 불투명한 어두운 카드에
         // 굵고 밝은 글자로 그린다.
@@ -5463,6 +5537,11 @@ public final class HudService extends Service {
         JSONObject trip = s.optJSONObject("trip");
         if (configuredInfoBox == 2 && trip != null) {
             drawTripSummaryBox(c, p, trip);
+            c.restoreToCount(save);
+            return;
+        }
+        if (configuredInfoBox == 3) {
+            drawLearnBox(c, p, s.optJSONArray("learn"));
             c.restoreToCount(save);
             return;
         }
