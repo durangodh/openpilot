@@ -28,6 +28,9 @@ DEFAULT_PATH_OFFSET = 0
 
 
 
+LANE_MODE_BLEND_TIME = 1.5  # s, lane-line <-> laneless path blend
+
+
 class LateralPlanner:
   def __init__(self, CP, wide_camera=False, debug=False):
     self.params = Params()
@@ -172,7 +175,13 @@ class LateralPlanner:
     else:
       curve_speed = 200.0
     lane_line_blend_target = 0.0 if use_laneless else 1.0
-    self.lane_line_blend = lane_line_blend_target
+    # Move between lane-line and laneless paths over LANE_MODE_BLEND_TIME, not in one frame.
+    # A lane change fades the lane lines, which drops lane mode at once; the path then jumped
+    # from the lane centre to the model's lane-change path and the car swerved in above
+    # UseLaneLineSpeed (2026-11-20; the 1.5 s blend was lost in the 11-09 aPilot port).
+    step = DT_MDL / LANE_MODE_BLEND_TIME
+    self.lane_line_blend = float(np.clip(lane_line_blend_target, self.lane_line_blend - step,
+                                         self.lane_line_blend + step))
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend, curve_speed)
     # Feed the selected lane/model blend into MPC. Previously this result was
