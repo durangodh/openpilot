@@ -15,8 +15,8 @@ import cereal.messaging as messaging
 from cereal import car, log
 from common.params import Params
 from selfdrive.controls.lib import live_tune
-from selfdrive.controls.lib.lateral_autotune import LateralAutoTune
-from selfdrive.controls.lib.long_learn import LongLearn, apply_step
+from selfdrive.controls.lib.lateral_autotune import DELAY_MIN_WINDOWS, SIDE_MIN, LateralAutoTune
+from selfdrive.controls.lib.long_learn import MIN_GAP_SAMPLES, MIN_STOPS, LongLearn, apply_step
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LongCtrlState = car.CarControl.Actuators.LongControlState
@@ -82,8 +82,18 @@ def status_text(params, tuner, learner):
     if lat_tune or lat_delay:
       parts.append(f"F {st['factor']:.2f}/{st['base_factor']:.2f}  FR {st['friction']:.3f}")
       sad = st.get("sad")
-      parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''} ({st['delay_windows']})")
-      parts.append(f"CURVE {st['samples_left']}/{st['samples_right']}")
+      # progress only while something is still missing; once enough, the counts mean nothing more
+      windows = st['delay_windows']
+      wait = f" ({windows}/{DELAY_MIN_WINDOWS})" if windows < DELAY_MIN_WINDOWS else ""
+      parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''}{wait}")
+      if min(st['samples_left'], st['samples_right']) < SIDE_MIN:
+        parts.append(f"CURVE {st['samples_left']}/{st['samples_right']} ({SIDE_MIN})")
+      else:
+        # learned: what drives the next step instead of counts. LAG > 0: small moves late
+        # (friction goes up), < 0: early / overshoot (friction goes down); UPD: adjustments made.
+        lag = st.get("last_lag")
+        parts.append(f"LAG {'-' if lag is None else f'{lag:+.2f}s'}")
+        parts.append(f"UPD {st['updates']}")
     if center:
       # nothing learned yet: the planner still uses the manual PathOffset (cm)
       raw = params.get("LateralAutoCenterValue", encoding="utf8")
@@ -120,7 +130,17 @@ def status_text(params, tuner, learner):
     else:
       tf_s = "-" if tf is None else f"{tf:.2f}s"
       stop_s = "-" if stop is None else f"{stop:.1f}m"
-    lines.append(f"{head}  GAP{gap} {tf_s}  STOP {stop_s}  REC {min(c['gap'], 999)}s/{c['stops']}/{c['starts']}")
+    line = f"{head}  GAP{gap} {tf_s}  STOP {stop_s}"
+    if c['gap'] < MIN_GAP_SAMPLES or c['stops'] < MIN_STOPS:   # progress until both are learned
+      line += f"  REC {min(c['gap'], MIN_GAP_SAMPLES)}/{MIN_GAP_SAMPLES}s {min(c['stops'], MIN_STOPS)}/{MIN_STOPS}"
+    else:
+      # learned: the driver's own habit the applied values move toward, and how they brake / start
+      line += f"  TARGET {rec['t_follow']:.2f}s/{rec['stop_distance_m']:.1f}m"
+      if rec.get("stop_decel_last_1s") is not None:
+        line += f"  BRAKE {rec['stop_decel_last_1s']:.1f}m/s2"
+      if rec.get("start_delay_s") is not None:
+        line += f"  GO {rec['start_delay_s']:.1f}s"
+    lines.append(line)
   return "\n".join(lines)
 
 

@@ -5396,8 +5396,9 @@ public final class HudService extends Service {
     /** 주행요약(carrot-wip 클러스터 TRIP SUMMARY): EON 박스 안(475 x EON_BOX_H). */
     /**
      * 학습(EonClusterHudInfoBox = 3): EON autotuned 의 LearnStatusText 두 줄
-     * ("LAT auto  F 2.71/2.75  FR 0.104  SAD 0.27* (12)  CURVE 812/640  OFS +3cm",
-     *  "LONG apply  GAP3 1.45s  STOP 4.8m  REC 210s/3/2") 을 조향 / 롱컨 칸으로 나눠 그린다.
+     * ("LAT auto  F 2.71/2.75  FR 0.104  SAD 0.27* (3/10)  CURVE 375/163 (300)  OFS +3cm",
+     *  "LONG apply  GAP3 1.40s(set)  STOP 4.8m  REC 210/300s 3/5") 을 조향 / 롱컨 칸으로 나눠 그린다.
+     * CURVE / REC 와 지연 측정 횟수는 학습에 필요한 양이 다 찰 때까지만 온다.
      */
     private void drawLearnBox(Canvas c, Paint p, JSONArray lines) {
         int muted = Color.rgb(190, 205, 235);
@@ -5427,11 +5428,16 @@ public final class HudService extends Service {
         if (key.equals("F")) return "FACTOR";
         if (key.equals("FR")) return "FRICTION";
         if (key.equals("SAD")) return lang("조향 지연", "STEER DELAY");
-        if (key.equals("CURVE")) return lang("커브 좌/우", "CURVES L/R");
+        if (key.equals("CURVE")) return lang("커브 좌/우 기록 (필요)", "CURVES L/R (NEED)");
         if (key.equals("OFS")) return lang("중앙 보정", "CENTER");
         if (key.startsWith("GAP")) return lang("차간 ", "GAP ") + key.substring(3);
         if (key.equals("STOP")) return lang("정지 거리", "STOP DIST");
-        if (key.equals("REC")) return lang("기록 차간/정지/출발", "REC GAP/STOP/GO");
+        if (key.equals("REC")) return lang("기록 차간/정지 (필요)", "REC GAP/STOP (NEED)");
+        if (key.equals("LAG")) return lang("작은 조향 늦음(+)/빠름(-)", "SMALL STEER LAG");
+        if (key.equals("UPD")) return lang("조정 횟수", "ADJUSTMENTS");
+        if (key.equals("TARGET")) return lang("내 운전 차간/정지", "MY GAP/STOP");
+        if (key.equals("BRAKE")) return lang("내 정지 감속", "MY STOP DECEL");
+        if (key.equals("GO")) return lang("내 출발 반응", "MY START DELAY");
         return key;
     }
 
