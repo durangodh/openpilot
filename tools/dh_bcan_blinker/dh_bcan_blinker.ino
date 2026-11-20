@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-19e" FW_VARIANT
+#define FW_VERSION "2026-11-20" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -188,8 +188,13 @@ static bool wifiUp = false;
 // full every print waited for the USB timeout, the loop stalled for seconds, the CAN queue overflowed
 // ("bcan 0") and requests and status packets were held up (2026-11-15 road log: the lamps came on
 // only as the lane change finished, status gaps of 3-10 s). A line that does not fit is dropped.
+// The serial log also goes into this ring, shown at http://<board IP>/log (no laptop needed).
+#define LOG_RING 8192
+static char logRing[LOG_RING];
+static uint32_t logHead = 0;  // total bytes ever written
 void out(const char *s) {
   int n = (int)strlen(s);
+  for (int i = 0; i < n; i++) logRing[(logHead++) % LOG_RING] = s[i];
   if (Serial && Serial.availableForWrite() >= n) Serial.print(s);
 #if ARDUINO_USB_CDC_ON_BOOT
   if (Serial0.availableForWrite() >= n) Serial0.print(s);
@@ -549,6 +554,20 @@ void scanFrame(const twai_message_t &m, uint32_t now) {
   memcpy(t.data, m.data, 8);
 }
 
+void webLog() {
+  uint32_t n = logHead < LOG_RING ? logHead : LOG_RING;
+  String o;
+  o.reserve(n + 64);
+  o += "now ";
+  o += String((unsigned long)millis());
+  o += " ms\n";
+  for (uint32_t i = logHead - n; i != logHead; i++) {
+    char ch = logRing[i % LOG_RING];
+    if (ch) o += ch;
+  }
+  gWeb.send(200, "text/plain; charset=utf-8", o);
+}
+
 void webScan() {
   uint32_t now = millis();
   if (gWeb.hasArg("start")) startScan(now);
@@ -656,6 +675,7 @@ void pollUdp(uint32_t now) {
   if (!hold && !keep && (cmd[1] || (side != 'L' && side != 'R' && side != 'C'))) return;
   if (seq == lastSeq) return;  // repeats of the same request
   lastSeq = seq;
+  if (!keep) outf("%9lu  EON cmd %s seq %d\n", (unsigned long)now, cmd, seq);
   if (keep) {  // keepalive: only refreshes a hold still running, never starts one
     keepCount++;
     if (holdSide == side) {
@@ -903,6 +923,7 @@ void startWeb() {
   gWeb.on("/update", HTTP_GET, webUpdatePage);
   gWeb.on("/update", HTTP_POST, webUpdateDone, webUpdateUpload);
   gWeb.on("/scan", webScan);
+  gWeb.on("/log", webLog);
   gWeb.onNotFound(webOther);
   gWeb.begin();
   webStarted = true;
