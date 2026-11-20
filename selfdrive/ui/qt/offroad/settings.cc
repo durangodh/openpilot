@@ -1831,6 +1831,12 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "앞차 정지와 신호정지의 기본 여유거리입니다. 값 증가(+): 더 멀리 정차 / 값 감소(-): 더 가까이 정차. aPilot 기본값: 600cm.",
       "../assets/offroad/icon_road.png", 200, 1000, 50, 0, 600, this));
 
+  list->addItem(new ParamControl("LongLearn",
+      "LONG LEARN (내 운전 기록)",
+      "켜짐: 롱컨·SCC 없이 직접 운전할 때 차간 시간, 앞차 뒤 정지 거리, 정지 감속, 출발 반응, 가속 세기를 기록합니다.\n"
+      "설정은 바꾸지 않습니다. 추천값 보기: python selfdrive/debug/long_learn.py",
+      "../assets/offroad/icon_road.png", this));
+
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   layout->addWidget(scroller);

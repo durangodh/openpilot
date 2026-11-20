@@ -254,6 +254,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooTurnPocket", PERSISTENT},         // carrot turn-pocket wait / >=10 km/h start
     {"RemoteLaneChangeDelay", PERSISTENT},  // 리모컨 차선변경 시작 대기(0.1 s)
     {"NooLaneChangeDelay", PERSISTENT},     // NOO 차선변경 시작 대기(0.1 s)
+    {"LongLearn", PERSISTENT},                  // record the driver's own long habits (autotuned)
+    {"LongLearnData", PERSISTENT},              // those records (JSON); selfdrive/debug/long_learn.py
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"HumanAcceleration", PERSISTENT},
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
