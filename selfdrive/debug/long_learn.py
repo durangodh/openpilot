@@ -72,7 +72,15 @@ def main():
 
   print("\n[가속] (가속 페달, 1초 평균)")
   print(f"  앞차 없음 {fmt(r['accel_free'], ' m/s²')}, 앞차 가까이 {fmt(r['accel_lead'], ' m/s²')}")
-  print("\n추천값은 설정 화면에서 직접 바꾸세요. 이 도구는 아무 설정도 바꾸지 않습니다.")
+  if params.get_bool("LongLearnApply"):
+    try:
+      applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
+    except (TypeError, ValueError):
+      applied = {}
+    print(f"\n[적용 중] LONG LEARN 적용 켜짐: GAP {applied.get('gap', '-')} 차간 {fmt(applied.get('t_follow'), ' s')}, "
+          f"정지 거리 {fmt(applied.get('stop_distance'), ' m')} (1분마다 갱신, 하한 1.2 s / 3.5 m)")
+  else:
+    print("\n추천값만 보여 줍니다. 자동 적용은 설정의 LONG LEARN 적용을 켜세요.")
 
 
 if __name__ == "__main__":

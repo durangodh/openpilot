@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import json
+
 import numpy as np
 from common.numpy_fast import clip, interp
 
@@ -128,6 +130,17 @@ class LongitudinalPlanner:
 
     self.mpc.tfollow_gaps = [scaled(f"TFollowGap{i + 1}", default)
                              for i, default in enumerate([110, 120, 140, 160])]
+    # LongLearnApply: the driver's learned gap time / stop distance (autotuned, floors 1.2 s / 3.5 m)
+    if self.params.get_bool("LongLearnApply"):
+      try:
+        learned = json.loads(self.params.get("LongLearnApplied", encoding="utf8") or "{}")
+        gap = int(learned.get("gap", 0))
+        if learned.get("t_follow") is not None and 1 <= gap <= 4:
+          self.mpc.tfollow_gaps[gap - 1] = float(clip(float(learned["t_follow"]), 1.2, 2.5))
+        if learned.get("stop_distance") is not None:
+          self.mpc.stop_distance = float(clip(float(learned["stop_distance"]), 3.5, 10.0))
+      except (TypeError, ValueError, AttributeError):
+        pass
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # 앞차 접근 제동 튜닝 (x100 정수 저장)

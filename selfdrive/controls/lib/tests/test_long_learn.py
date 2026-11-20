@@ -55,3 +55,18 @@ def test_saved_round_trip():
   stop_and_go(ll, 4.0)
   again = LongLearn(json.loads(json.dumps(ll.to_json())))
   assert json.dumps(again.to_json()) == json.dumps(ll.to_json())
+
+
+def test_apply_step_floors_and_slow_decrease():
+  from selfdrive.controls.lib.long_learn import apply_step
+  rec = {"t_follow": 1.0, "stop_distance_m": 2.5, "StopDistance": 250}
+  a = apply_step({}, rec, 3, 1.4, 6.0)
+  assert a == {"gap": 3, "t_follow": 1.38, "stop_distance": 5.8}      # down slowly
+  for _ in range(100):
+    a = apply_step(a, rec, 3, 1.4, 6.0)
+  assert a["t_follow"] == 1.2 and a["stop_distance"] == 3.5          # never under the floors
+  up = apply_step(a, {"t_follow": 1.8, "stop_distance_m": 7.0, "StopDistance": 700}, 3, 1.4, 6.0)
+  assert up["t_follow"] == 1.8 and up["stop_distance"] == 7.0        # longer at once
+  other_gap = apply_step(up, {"t_follow": 1.0}, 2, 1.2, 6.0)
+  assert other_gap["t_follow"] == 1.2 and "stop_distance" not in other_gap
+  assert apply_step({}, {}, 3, 1.4, 6.0) == {"gap": 3}               # not enough records

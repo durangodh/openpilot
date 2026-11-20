@@ -1836,6 +1836,12 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 롱컨·SCC 없이 직접 운전할 때 차간 시간, 앞차 뒤 정지 거리, 정지 감속, 출발 반응, 가속 세기를 기록합니다.\n"
       "설정은 바꾸지 않습니다. 추천값 보기: python selfdrive/debug/long_learn.py",
       "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl("LongLearnApply",
+      "LONG LEARN 적용",
+      "켜짐: 기록이 충분히 쌓이면 내 운전의 차간 시간(현재 GAP)과 앞차 뒤 정지 거리를 롱컨에 적용합니다.\n"
+      "늘어나는 쪽은 바로, 줄어드는 쪽은 1분에 0.02초 / 0.2m씩만. 차간 1.2초, 정지 3.5m 아래로는 내려가지 않습니다.\n"
+      "끄면 설정값으로 바로 돌아갑니다.",
+      "../assets/offroad/icon_road.png", this));
 
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);

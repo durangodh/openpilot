@@ -155,3 +155,31 @@ class LongLearn:
     out["accel_free"] = _median(self.accel_free)
     out["accel_lead"] = _median(self.accel_lead)
     return out
+
+
+# ── Stage 3: apply (LongLearnApply) ──────────────────────────────────────────
+# Only the two settings with a direct meaning are applied, with floors the driver's habit can
+# never go under: a human looking far ahead is safer at a given gap than the radar/camera MPC.
+T_FOLLOW_BOUNDS = (1.2, 2.5)     # s
+STOP_BOUNDS = (3.5, 10.0)        # m
+T_FOLLOW_DOWN = 0.02             # s per step (a minute); longer gaps apply at once
+STOP_DOWN = 0.2                  # m per step; longer distances apply at once
+
+
+def _toward(applied, target, down):
+  return target if target >= applied else max(target, applied - down)
+
+
+def apply_step(applied, rec, gap_now, t_follow_now, stop_now):
+  """applied: the previous LongLearnApplied dict (or {}). Returns the new one.
+  The gap a learned time belongs to is the one in use; a different gap starts from its setting."""
+  out = {"gap": gap_now}
+  t_prev = applied.get("t_follow") if applied.get("gap") == gap_now else None
+  t_prev = t_follow_now if t_prev is None else t_prev
+  if rec.get("t_follow") is not None:
+    out["t_follow"] = round(float(np.clip(_toward(t_prev, rec["t_follow"], T_FOLLOW_DOWN), *T_FOLLOW_BOUNDS)), 3)
+  stop_prev = applied.get("stop_distance", stop_now)
+  if rec.get("stop_distance_m") is not None and rec.get("StopDistance") is not None:
+    out["stop_distance"] = round(float(np.clip(_toward(stop_prev, rec["StopDistance"] / 100.0, STOP_DOWN),
+                                               *STOP_BOUNDS)), 3)
+  return out

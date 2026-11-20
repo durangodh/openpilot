@@ -16,7 +16,7 @@ from cereal import car, log
 from common.params import Params
 from selfdrive.controls.lib import live_tune
 from selfdrive.controls.lib.lateral_autotune import LateralAutoTune
-from selfdrive.controls.lib.long_learn import LongLearn
+from selfdrive.controls.lib.long_learn import LongLearn, apply_step
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LongCtrlState = car.CarControl.Actuators.LongControlState
@@ -47,6 +47,29 @@ def load_long(params):
     return LongLearn()
 
 
+def _int(params, key, default):
+  try:
+    v = int(params.get(key, encoding="utf8") or 0)
+  except (TypeError, ValueError):
+    v = 0
+  return v if v > 0 else default
+
+
+def long_apply(params, learner):
+  """LongLearnApply: move LongLearnApplied (read by the planner) toward the driver's habits."""
+  gap = _int(params, "PrevCruiseGap", 4)
+  gap = gap if 1 <= gap <= 4 else 4
+  stop_now = _int(params, "StopDistance", 600) / 100.0
+  tf_now = _int(params, f"TFollowGap{gap}", [110, 120, 140, 160][gap - 1]) / 100.0
+  ratio = _int(params, "TFollowSpeedRatio", 120) / 100.0
+  try:
+    applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
+  except (TypeError, ValueError):
+    applied = {}
+  new = apply_step(applied, learner.recommend(stop_now, gap, tf_now, ratio), gap, tf_now, stop_now)
+  params.put("LongLearnApplied", json.dumps(new))
+
+
 def main():
   params = Params()
   CP = car.CarParams.from_bytes(params.get("CarParams", block=True))
@@ -58,7 +81,7 @@ def main():
   learner = load_long(params)
   # One process for both learners: each extra carState subscriber takes one of its 15 msgq slots.
   sm = messaging.SubMaster(['controlsState', 'carState', 'lateralPlan', 'radarState'], poll=['controlsState'])
-  lat_on = long_on = False
+  lat_on = long_on = long_apply_on = False
   next_param = next_save = 0.0
   dirty = False
   steer_delay = live_tune.steer_actuator_delay()
@@ -68,9 +91,13 @@ def main():
       # learns while either the factor/friction or the delay auto-tune is on
       lat_on = torque_car and (params.get_bool("LateralAutoTune") or params.get_bool("LateralAutoTuneDelay"))
       long_on = params.get_bool("LongLearn")
+      long_apply_on = params.get_bool("LongLearnApply")
       steer_delay = live_tune.steer_actuator_delay()  # the delay the controller uses now
       next_param = now + 2.0
     if not lat_on and not long_on:
+      if long_apply_on and now >= next_save:   # applying from the records needs no live data
+        next_save = now + SAVE_S
+        long_apply(params, learner)
       time.sleep(2.0)  # off: no 100 Hz work on the EON
       continue
     sm.update()
@@ -96,6 +123,8 @@ def main():
         save(params, tuner)
       if long_on:
         params.put("LongLearnData", json.dumps(learner.to_json(), separators=(",", ":")))
+      if long_apply_on:
+        long_apply(params, learner)
       dirty = False
     elif dirty and tuner.updates == 1:
       save(params, tuner)  # the first learned value is used without waiting a minute

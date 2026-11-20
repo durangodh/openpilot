@@ -159,6 +159,7 @@ def manager_init() -> None:
     ("LateralAutoTuneDelay", "0"),
     ("LateralAutoCenter", "0"),
     ("LongLearn", "0"),
+    ("LongLearnApply", "0"),
     ("LateralTorqueAccelFactor", "2747"),
     ("LateralTorqueFriction", "98"),
     # lateral torque controller restored in c4e491f (values as before 2026-11-09)
