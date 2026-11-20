@@ -85,6 +85,11 @@ public final class HudNaverMusicCheck {
   context.receiver.onReceive(context, update("내부 벅스", -1, SystemClock.now));
   check(HudNaverMusic.nowPlaying().equals("내부 벅스 · 가수"), "Unpublished session is visible");
   check(HudNaverMusic.status().contains("수신 중"), "Show delivery status");
+  Context probeContext = new Context();
+  HudNaverMusic probe = new HudNaverMusic(probeContext);
+  probe.start();
+  probe.stop();
+  check(HudNaverMusic.nowPlaying().equals("내부 벅스 · 가수"), "Closing settings must not clear a running HUD receiver");
   HudMusicService.nowPlaying = "스포티파이";
   HudMusicService.sessionPackage = "com.spotify.music";
   HudMusicService.sessionPlaying = true;
@@ -117,6 +122,8 @@ public final class HudNaverMusicCheck {
   context.receiver.onReceive(context, update("새 곡", 1, SystemClock.now));
   check(HudNaverMusic.nowPlaying().isEmpty(), "Stop clears title");
   check(HudNaverMusic.status().contains("곡 정보 대기"), "Connected without metadata is diagnosed");
+  context.receiver.onReceive(context, update("", 0, SystemClock.now).putExtra("hooks", 0));
+  check(HudNaverMusic.status().contains("수집 오류"), "Hook failure is distinct from missing module connection");
   context.receiver.onReceive(context, update("새 곡", 3, SystemClock.now));
   bridge.stop();
   check(context.receiver == null && HudNaverMusic.nowPlaying().isEmpty(), "Unregister and clear on stop");

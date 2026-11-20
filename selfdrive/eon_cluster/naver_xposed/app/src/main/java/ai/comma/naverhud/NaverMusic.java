@@ -28,18 +28,14 @@ final class NaverMusic {
     private String lastTitle = "";
     private String lastArtist = "";
     private int lastState;
+    private int metadataHooks;
+    private boolean hookFailed;
 
     private NaverMusic(Context context) { this.context = context; }
 
     static synchronized void install(Context context, ClassLoader loader) {
         if (instance != null) return;
         NaverMusic music = new NaverMusic(context);
-        int hooks = music.hook(MediaSession.class);
-        // AndroidX keeps the historical android.support.v4 package for these APIs.
-        Class<?> compat = XposedHelpers.findClassIfExists(
-                "android.support.v4.media.session.MediaSessionCompat", loader);
-        if (compat != null) hooks += music.hook(compat);
-        if (hooks == 0) throw new IllegalStateException("No media metadata hooks");
         IntentFilter filter = new IntentFilter(REQUEST);
         BroadcastReceiver requests = new BroadcastReceiver() {
             @Override public void onReceive(Context ignored, Intent intent) {
@@ -53,7 +49,24 @@ final class NaverMusic {
         }
         instance = music;
         handlerStart(music);
-        NaverHudLog.line("music bridge installed hooks=" + hooks);
+        // Transport remains alive even if either metadata hook cannot be installed.
+        try {
+            music.metadataHooks += music.hook(MediaSession.class);
+        } catch (Throwable error) {
+            music.hookFailed = true;
+            NaverHudLog.line("music framework hook failed: " + error);
+        }
+        try {
+            Class<?> compat = XposedHelpers.findClassIfExists(
+                    "android.support.v4.media.session.MediaSessionCompat", loader);
+            if (compat != null) music.metadataHooks += music.hook(compat);
+        } catch (Throwable error) {
+            music.hookFailed = true;
+            NaverHudLog.line("music compat hook failed: " + error);
+        }
+        music.handler.post(() -> music.publish(true));
+        NaverHudLog.line("music bridge installed hooks=" + music.metadataHooks
+                + " hookFailed=" + music.hookFailed);
     }
 
     private static void handlerStart(NaverMusic music) {
@@ -147,7 +160,8 @@ final class NaverMusic {
         try {
             context.sendBroadcast(new Intent(UPDATE).setPackage(HUD)
                     .putExtra("title", song.title).putExtra("artist", song.artist)
-                    .putExtra("state", song.state).putExtra("sentAt", SystemClock.elapsedRealtime()));
+                    .putExtra("state", song.state).putExtra("sentAt", SystemClock.elapsedRealtime())
+                    .putExtra("hooks", metadataHooks).putExtra("hookFailed", hookFailed));
         } catch (RuntimeException error) {
             NaverHudLog.line("music bridge send failed: " + error.getClass().getSimpleName());
         }

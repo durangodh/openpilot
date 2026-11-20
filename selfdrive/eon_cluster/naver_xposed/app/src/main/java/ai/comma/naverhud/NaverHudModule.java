@@ -47,10 +47,10 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             String mode = verified ? "verified" : "UNVERIFIED (read-only features only)";
                             log("Naver " + info.versionName + " " + mode);
                             NaverHudLog.line("Naver " + info.versionName + " " + mode);
+                            // Keep music transport independent of navigation bridge startup.
+                            int hooks = safeHook("Music", () -> NaverMusic.install(app, target.classLoader));
                             bridge = new NaverBridge(app);
                             bridge.start();
-                            int hooks = 0;
-                            hooks += safeHook("Music", () -> NaverMusic.install(app, target.classLoader));
                             hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));
                             hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));

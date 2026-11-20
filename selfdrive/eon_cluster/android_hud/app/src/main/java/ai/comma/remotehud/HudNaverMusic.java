@@ -13,6 +13,7 @@ final class HudNaverMusic {
     private static final String UPDATE = "ai.comma.remotehud.NAVER_MUSIC";
     private static final String REQUEST = "ai.comma.remotehud.NAVER_MUSIC_REQUEST";
     private static volatile Snapshot latest;
+    private static int activeReceivers;
     private final Context context;
     private boolean registered;
 
@@ -20,11 +21,13 @@ final class HudNaverMusic {
         final String song;
         final int state;
         final long sentAt;
+        final int hooks;
 
-        Snapshot(String song, int state, long sentAt) {
+        Snapshot(String song, int state, long sentAt, int hooks) {
             this.song = song;
             this.state = state;
             this.sentAt = sentAt;
+            this.hooks = hooks;
         }
     }
 
@@ -45,7 +48,7 @@ final class HudNaverMusic {
             // -1 supports embedded players that have not published a playback state yet.
             if (state != 3 && state != -1) title = "";
             String song = title.isEmpty() ? "" : title + (artist.isEmpty() ? "" : " · " + artist);
-            latest = new Snapshot(song, state, sentAt);
+            latest = new Snapshot(song, state, sentAt, intent.getIntExtra("hooks", -1));
         }
     };
 
@@ -58,14 +61,17 @@ final class HudNaverMusic {
             context.registerReceiver(receiver, filter);
         }
         registered = true;
+        activeReceivers++;
         // The player may already be running when the HUD starts/restarts.
         context.sendBroadcast(new Intent(REQUEST).setPackage(NAVER));
     }
 
     void stop() {
-        if (registered) context.unregisterReceiver(receiver);
+        if (!registered) return;
+        context.unregisterReceiver(receiver);
         registered = false;
-        latest = null;
+        activeReceivers--;
+        if (activeReceivers == 0) latest = null;
     }
 
     static String nowPlaying() {
@@ -85,6 +91,7 @@ final class HudNaverMusic {
         if (song == null || SystemClock.elapsedRealtime() - song.sentAt > 35000L) {
             return "네이버 음악: 모듈 연결 대기";
         }
+        if (song.hooks == 0) return "네이버 음악: 모듈 연결됨 · 음악 정보 수집 오류";
         return song.song.isEmpty() ? "네이버 음악: 모듈 연결됨 · 곡 정보 대기"
                 : "네이버 음악: 수신 중 · " + song.song;
     }

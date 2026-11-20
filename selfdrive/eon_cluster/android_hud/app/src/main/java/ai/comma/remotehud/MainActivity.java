@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
     private TextView updateValue;
     private TextView weatherValue;
     private TextView musicValue;
+    private HudNaverMusic musicProbe;
     private File pendingUpdateApk;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -177,12 +178,19 @@ public final class MainActivity extends Activity {
         if (AppPrefs.isAutoStart(this)) {
             startHudService();
         }
+        // Settings can diagnose Naver even with the HUD output service stopped.
+        if (musicProbe == null) {
+            musicProbe = new HudNaverMusic(this);
+            musicProbe.start();
+        }
         handler.post(refreshTask);
     }
 
     @Override
     protected void onPause() {
         handler.removeCallbacks(refreshTask);
+        if (musicProbe != null) musicProbe.stop();
+        musicProbe = null;
         super.onPause();
     }
 
