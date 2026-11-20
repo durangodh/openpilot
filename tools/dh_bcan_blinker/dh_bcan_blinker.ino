@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-20" FW_VARIANT
+#define FW_VERSION "2026-11-20b" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -1091,6 +1091,12 @@ void loop() {
       sendLever(tapBits);
     }
   }
+
+  // endTap() above stamps ownEndMs / lastTapEnd with millis(), later than this loop's `now`:
+  // with the old `now`, "now - ownEndMs" wrapped to ~49 days, so a hold re-tapped right after
+  // every tap (one tap every ~0.2 s, 2026-11-20 /log) and a cancel just after a re-tap was
+  // refused as "nothing" (the hold blinked on until a second press).
+  now = millis();
 
   // Read EON first: a hold re-tap starts in holdTick() and would otherwise keep the board busy
   // loop after loop (2026-11-16 road log: 16 packets, then none for 30 s during a hold).
