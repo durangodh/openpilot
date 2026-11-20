@@ -316,6 +316,9 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LateralTorqueCustom", PERSISTENT},
     {"LateralAutoTune", PERSISTENT},          // autotuned: closed-loop factor / friction tune
     {"LateralAutoTuneValues", PERSISTENT},    // its learned values and status (JSON)
+    {"LateralAutoTuneDelay", PERSISTENT},     // use the measured steer delay (sad) as SteerActuatorDelay
+    {"LateralAutoCenter", PERSISTENT},        // learn PathOffset from the lane lines
+    {"LateralAutoCenterValue", PERSISTENT},   // the learned offset, m
     {"LateralTorqueAccelFactor", PERSISTENT},
     {"LateralTorqueFriction", PERSISTENT},
     {"LateralTorqueKpV", PERSISTENT},          // kp x100

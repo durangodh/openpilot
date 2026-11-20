@@ -11,10 +11,14 @@ latAccelFactor  In steady curves the feedforward (f) alone should hold the car o
                 angle offset cancel.
 friction        At small lateral accelerations stiction shows as lag: the car follows the
                 (delay-compensated) target late. tau = sum(err * rate) / sum(rate^2) with
-                err = desired(t - steerActuatorDelay) - actual(t) is that residual lag in
-                seconds. Late -> more friction, early (overshoot) -> less.
+                err = desired(t - delay) - actual(t), delay being the measured large-signal lag
+                (or SteerActuatorDelay + 0.2 s before one is measured), is the extra lag of small
+                manoeuvres in seconds. Late -> more friction, early (overshoot) -> less.
 steer delay     Lag of actual behind desired lateral acceleration that best correlates in
-                lively driving. Reported only, never applied (SteerActuatorDelay stays manual).
+                lively driving. The controller asks for the plan at SteerActuatorDelay + 0.2 s
+                ahead (drive_helpers), so the matching SteerActuatorDelay is that lag - 0.2 s.
+                Applied only with LateralAutoTuneDelay, after DELAY_MIN_WINDOWS measurements,
+                0.01 s per evaluation, within SAD_BOUNDS.
 
 Every update is small and bounded around the car's own tune, and nothing moves without enough
 clean samples, so a bad drive cannot walk the values away.
@@ -50,12 +54,16 @@ FRICTION_BOUNDS = (0.6, 1.5)  # x the car's tune
 DELAY_WINDOW_S = 10.0
 DELAY_SEARCH = (0.0, 0.8)    # s
 DELAY_MIN_STD = 0.3          # m/s^2 of desired lateral accel in the window
+DELAY_PLAN_LEAD = 0.2        # s the controller adds to SteerActuatorDelay (drive_helpers)
+DELAY_MIN_WINDOWS = 10
+SAD_BOUNDS = (0.05, 0.6)     # s
+SAD_STEP = 0.01              # s per evaluation
 
 HISTORY_S = 1.0
 
 
 class LateralAutoTune:
-  def __init__(self, base_factor, base_friction, factor=None, friction=None):
+  def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None):
     self.base_factor = float(base_factor)
     self.base_friction = float(base_friction)
     self.factor = float(factor) if factor else self.base_factor
@@ -71,6 +79,8 @@ class LateralAutoTune:
     self.delay_desired = deque(maxlen=int(DELAY_WINDOW_S / DT))
     self.delay_actual = deque(maxlen=int(DELAY_WINDOW_S / DT))
     self.delay_estimate = None
+    self.delay_windows = 0
+    self.sad = None if sad is None else float(np.clip(sad, *SAD_BOUNDS))
     self.last_lag = None
     self.t = 0.0
     self.next_eval = EVAL_S
@@ -115,7 +125,8 @@ class LateralAutoTune:
   def _friction_sample(self, desired, actual, steer_delay):
     if abs(desired) > SMALL_ACCEL_MAX:
       return
-    lag = int(round(steer_delay / DT))
+    delay = self.delay_estimate if self.delay_estimate is not None else steer_delay + DELAY_PLAN_LEAD
+    lag = int(round(delay / DT))
     rate_n = int(0.2 / DT)
     if len(self.history) <= max(lag, rate_n):
       return
@@ -180,6 +191,13 @@ class LateralAutoTune:
     delay = self._delay()
     if delay is not None:
       self.delay_estimate = delay if self.delay_estimate is None else 0.8 * self.delay_estimate + 0.2 * delay
+      self.delay_windows += 1
+    if self.delay_estimate is not None and self.delay_windows >= DELAY_MIN_WINDOWS:
+      target = float(np.clip(self.delay_estimate - DELAY_PLAN_LEAD, *SAD_BOUNDS))
+      if self.sad is None:
+        self.sad = target
+      else:
+        self.sad += float(np.clip(target - self.sad, -SAD_STEP, SAD_STEP))
     if changed:
       self.updates += 1
     return changed
@@ -195,5 +213,7 @@ class LateralAutoTune:
       "friction_samples": self.lag_n,
       "last_lag": None if self.last_lag is None else round(self.last_lag, 3),
       "delay": None if self.delay_estimate is None else round(self.delay_estimate, 3),
+      "delay_windows": self.delay_windows,
+      "sad": None if self.sad is None else round(self.sad, 3),
       "updates": self.updates,
     }

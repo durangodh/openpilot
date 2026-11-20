@@ -1937,6 +1937,16 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "커브에서 PID 가 메우는 양과 작은 조향의 지연을 보고 차 기본값의 ±25%(FRICTION -40~+50%) 안에서 30초마다 조금씩 고칩니다.\n"
       "CUSTOM TORQUE CONTROL 이 켜져 있으면 수동값이 우선입니다.",
       "../assets/offroad/icon_openpilot.png", this));
+  list->addItem(new ParamControl("LateralAutoTuneDelay",
+      "AUTO STEER DELAY",
+      "켜짐: 주행 중 측정한 조향 반응 지연을 STEER ACTUATOR DELAY 대신 사용합니다.\n"
+      "측정이 10회 이상 쌓인 뒤부터, 30초마다 0.01초씩만 움직이며 0.05~0.60초 안에서 맞춥니다.",
+      "../assets/offroad/icon_openpilot.png", this));
+  list->addItem(new ParamControl("LateralAutoCenter",
+      "AUTO LANE CENTER",
+      "켜짐: 직선 구간에서 양쪽 차선을 보고 차가 차로 중앙을 달리도록 PATH OFFSET 을 스스로 맞춥니다.\n"
+      "지금 PATH OFFSET 에서 시작해 30초마다 최대 1cm, ±25cm 안에서 움직입니다. 화면 하단 offset 값으로 확인.",
+      "../assets/offroad/icon_openpilot.png", this));
   list->addItem(new ParamControl("LateralTorqueCustom",
       "CUSTOM TORQUE CONTROL",
       "켜짐: 아래 G-MCAN 수동값 적용 / 꺼짐: LiveTorque 자동 학습값 사용.\n"

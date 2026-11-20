@@ -57,7 +57,8 @@ def small_signal(tuner, lag_s, seconds, delay=0.3):
     hist.append(desired)
     n = int(round((delay + lag_s) / DT))
     actual = hist[-1 - n] if len(hist) > n else 0.0
-    tuner.update(True, 25.0, False, False, False, desired, actual, desired / tuner.factor, 0.0, 0.0, 0.0, delay)
+    # SteerActuatorDelay setting = total delay - the controller's 0.2 s plan lead
+    tuner.update(True, 25.0, False, False, False, desired, actual, desired / tuner.factor, 0.0, 0.0, 0.0, delay - 0.2)
     t += DT
 
 
@@ -87,3 +88,36 @@ def test_delay_is_reported():
 def test_restores_saved_values_within_bounds():
   assert LateralAutoTune(2.75, 0.10, 2.6, 0.12).factor == 2.6
   assert LateralAutoTune(2.75, 0.10, 9.0, 9.0).factor == 2.75 * FACTOR_BOUNDS[1]
+
+
+def test_steer_delay_applied_gradually():
+  from selfdrive.controls.lib.lateral_autotune import DELAY_MIN_WINDOWS
+  tuner = LateralAutoTune(2.75, 0.10, sad=0.30)
+  hist = []
+  k = 0
+  while tuner.delay_windows < DELAY_MIN_WINDOWS + 3:
+    desired = 1.0 * math.sin(2 * math.pi * 0.2 * k * DT)
+    hist.append(desired)
+    actual = hist[-46] if len(hist) > 45 else 0.0       # 0.45 s total -> SAD 0.25 s
+    tuner.update(True, 25.0, False, False, False, desired, actual, 0.0, 0.0, 0.0, 0.0, 0.3)
+    k += 1
+  assert 0.25 - 1e-6 <= tuner.sad < 0.30
+  assert tuner.sad >= 0.30 - 0.01 * 4 - 1e-6           # 0.01 s per evaluation
+
+
+def test_lane_auto_center_moves_toward_the_middle():
+  import numpy as np
+  from selfdrive.controls.lib.lane_auto_center import BOUNDS, LaneAutoCenter
+  x = np.linspace(0, 50, 33)
+  c = LaneAutoCenter(0.0)
+  car_right_of_centre = 0.15                           # lane centre 15 cm to the left
+  for _ in range(int(60 * 60 / 0.05)):
+    shift = car_right_of_centre - c.offset             # the offset moves the car left
+    c.update(True, 25.0, 0.0, x, np.full(33, 1.75 + shift), np.full(33, -1.75 + shift), 0.9, 0.9)
+  assert abs(c.offset - 0.15) < 0.02
+  c = LaneAutoCenter(0.0)
+  for _ in range(int(60 * 60 / 0.05)):                 # curves / bad lines: nothing learned
+    c.update(True, 25.0, 0.002, x, np.full(33, 2.0), np.full(33, -1.5), 0.9, 0.9)
+    c.update(True, 25.0, 0.0, x, np.full(33, 2.0), np.full(33, -1.5), 0.3, 0.9)
+  assert c.offset == 0.0
+  assert LaneAutoCenter(1.0).offset == BOUNDS[1]

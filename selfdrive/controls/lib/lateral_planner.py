@@ -10,7 +10,8 @@ from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
 import cereal.messaging as messaging
 from cereal import log
-from common.params import Params
+from common.params import Params, put_nonblocking
+from selfdrive.controls.lib.lane_auto_center import LaneAutoCenter
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 
@@ -38,6 +39,8 @@ class LateralPlanner:
 
     # Apply the aPilot PathOffset once to the final lane/laneless path.
     self.path_offset = DEFAULT_PATH_OFFSET * 0.01
+    self.auto_center_enabled = False
+    self.auto_center = None
 
     self.LP = LanePlanner(wide_camera=wide_camera)
 
@@ -95,6 +98,16 @@ class LateralPlanner:
       except (TypeError, ValueError):
         self.use_lane_line_speed = 0.0
       self.path_offset = self._read_path_offset()
+      # LateralAutoCenter: a learned offset replaces the manual PathOffset (starting from it).
+      self.auto_center_enabled = self.params.get_bool("LateralAutoCenter")
+      if self.auto_center_enabled and self.auto_center is None:
+        try:
+          start = float(self.params.get("LateralAutoCenterValue", encoding="utf8") or self.path_offset)
+        except (TypeError, ValueError):
+          start = self.path_offset
+        self.auto_center = LaneAutoCenter(start)
+      if self.auto_center_enabled:
+        self.path_offset = self.auto_center.offset
       self.steering_rate_cost = self._read_mpc_cost(
         "SteeringRateCost", DEFAULT_STEERING_RATE_COST, 0.0, 2000.0, scale=1.0)
       self.path_cost = self._read_mpc_cost(
@@ -200,6 +213,13 @@ class LateralPlanner:
 
     # aPilot: apply PathOffset after lane/laneless selection, so both modes use
     # exactly the same user calibration.
+    if self.auto_center_enabled and self.auto_center is not None:
+      usable = (sm['carControl'].latActive and not sm['carState'].steeringPressed and
+                self.DH.lane_change_state == LaneChangeState.off)
+      if self.auto_center.update(usable, sm['carState'].vEgo, measured_curvature, self.LP.ll_x,
+                                 self.LP.lll_y, self.LP.rll_y, self.LP.lll_prob, self.LP.rll_prob):
+        self.path_offset = self.auto_center.offset
+        put_nonblocking("LateralAutoCenterValue", f"{self.auto_center.offset:.3f}")
     self.path_xyz[:, 1] += self.path_offset
 
     # Reuse the path-distance vector for both interpolations. The trajectory is

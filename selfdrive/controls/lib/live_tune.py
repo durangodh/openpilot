@@ -3,6 +3,8 @@
 nTune common.json 을 대체한다. Params 파일 읽기는 비싸므로 키별 호출 횟수를
 캐시하고 100Hz 제어 경로에서도 1초에 한 번만 갱신한다.
 """
+import json
+
 from common.params import Params
 
 _REFRESH_CALLS = 100
@@ -24,9 +26,32 @@ def _get(key, default):
   return _cache[key]
 
 
-def steer_actuator_delay():
-  """조향 반응 지연 보상(초)."""
+def manual_steer_actuator_delay():
+  """설정 화면의 조향 반응 지연(초)."""
   return _get("SteerActuatorDelay", 30.0) * 0.01
+
+
+def _auto_sad():
+  """LateralAutoTuneDelay: autotuned 가 측정해 맞춘 지연(초), 없으면 None. 1초에 한 번만 읽는다."""
+  count = _counters.get("_auto_sad", 0)
+  if count % _REFRESH_CALLS == 0 or "_auto_sad" not in _cache:
+    value = None
+    try:
+      if _params.get_bool("LateralAutoTuneDelay"):
+        sad = json.loads(_params.get("LateralAutoTuneValues", encoding="utf8") or "{}").get("sad")
+        if sad is not None and 0.05 <= float(sad) <= 0.6:
+          value = float(sad)
+    except (TypeError, ValueError, AttributeError):
+      value = None
+    _cache["_auto_sad"] = value
+  _counters["_auto_sad"] = count + 1
+  return _cache["_auto_sad"]
+
+
+def steer_actuator_delay():
+  """조향 반응 지연 보상(초). LateralAutoTuneDelay 가 켜져 있고 측정값이 있으면 그 값."""
+  auto = _auto_sad()
+  return manual_steer_actuator_delay() if auto is None else auto
 
 
 def steer_ratio_apply():
