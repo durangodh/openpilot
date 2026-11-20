@@ -80,6 +80,16 @@
                 android:resource="@xml/nav_voice_accessibility" />
         </service>
 
+        <service
+            android:name=".HudMusicService"
+            android:label="EON HUD 음악 정보"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

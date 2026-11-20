@@ -71,6 +71,7 @@ public final class MainActivity extends Activity {
     private TextView moduleValue;
     private TextView updateValue;
     private TextView weatherValue;
+    private TextView musicValue;
     private File pendingUpdateApk;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -415,6 +416,19 @@ public final class MainActivity extends Activity {
 
         root.addView(permissionCard, cardParams());
 
+        LinearLayout musicCard = card();
+        musicCard.addView(text("HUD 음악 정보", 18.0f, Color.WHITE, Typeface.BOLD));
+        musicCard.addView(text(
+                "벅스·스포티파이 앱은 이 폰의 알림 접근에서 'EON HUD 음악 정보'를 허용하세요. 네이버 내부 벅스는 음악 연동이 추가된 Naver HUD 모듈도 설치하고 네이버지도를 완전히 종료 후 다시 실행해야 합니다.",
+                15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL));
+        Button musicAccessButton = button("음악 정보 접근 설정", Color.rgb(40, 92, 132));
+        musicAccessButton.setOnClickListener(v ->
+                startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
+        musicCard.addView(musicAccessButton);
+        musicValue = text(HudNaverMusic.status(), 15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
+        musicCard.addView(musicValue);
+        root.addView(musicCard, cardParams());
+
         LinearLayout updateCard = card();
         updateCard.addView(text("앱 업데이트", 18.0f, Color.WHITE, Typeface.BOLD));
         updateValue = text("현재 버전: " + appVersionName(), 14.0f,
@@ -667,6 +681,7 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
+        if (musicValue != null) musicValue.setText(HudNaverMusic.status());
         if (gpsSourceValue != null) gpsSourceValue.setText(HudService.gpsSourceLabel());
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
         int navApp = AppPrefs.getNavApp(this);
