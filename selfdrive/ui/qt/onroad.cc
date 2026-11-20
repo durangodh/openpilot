@@ -589,6 +589,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotHud(p);
   drawSpeedLimit(p);
   drawCarrotInfo(p);
+  drawLearnStatus(p);
   drawCarrotBottom(p);
 
   if (sm["carControl"].getCarControl().getHudControl().getSoftHold()) {
@@ -843,6 +844,26 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
     carrot_info_last_render = now;
   }
   p.drawImage(QPoint(0, 0), carrot_info_cache);
+}
+
+// 우상단 LT/SR 아래: 실시간 학습값 (조향 오토튠 / 롱컨 LONG LEARN). 켜진 기능이 없으면 비어 있다.
+void NvgWindow::drawLearnStatus(QPainter &p) {
+  if (learn_lines.isEmpty()) return;
+  p.save();
+  configFont(p, "Open Sans", 28, "Regular");
+  int y = 62;
+  for (int i = 0; i < learn_lines.size() && i < 2; i++) {
+    const QString &text = learn_lines[i];
+    // 조향은 하늘색, 롱컨은 연두색
+    QColor color = text.startsWith("LAT") ? QColor(0x9a, 0xd8, 0xff, 220) : QColor(0xb8, 0xf0, 0x9a, 220);
+    QRect box(35, y, width() - 55, 36);
+    p.setPen(QColor(0, 0, 0, 160));
+    p.drawText(box.translated(2, 2), Qt::AlignRight | Qt::AlignVCenter, text);
+    p.setPen(color);
+    p.drawText(box, Qt::AlignRight | Qt::AlignVCenter, text);
+    y += 36;
+  }
+  p.restore();
 }
 
 void NvgWindow::drawCarrotInfoContent(QPainter &p) {
@@ -1237,6 +1258,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
     show_route_map_always = params.getBool("ShowRouteMapAlways");
     s9_show_own_map = params.getBool("EonClusterHudShowOwnMap");
+    learn_lines.clear();
+    for (const QString &l : QString::fromStdString(params.get("LearnStatusText")).split('\n')) {
+      if (!l.trimmed().isEmpty()) learn_lines << l;
+    }
   }
 
   if (!show_carrot_hud) { p.restore(); return; }

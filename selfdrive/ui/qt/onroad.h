@@ -97,6 +97,7 @@ protected:
   // 화면 최상단 좌/우 정보줄 (carrot 의 top_left / top_right 와 동일 위치)
   void drawCarrotInfo(QPainter &p);
   void drawCarrotInfoContent(QPainter &p);
+  void drawLearnStatus(QPainter &p);
   // 화면 우하단 정보줄 (wifi IP)
   void drawCarrotBottom(QPainter &p);
   void drawCarrotBottomContent(QPainter &p);
@@ -121,6 +122,7 @@ protected:
   bool show_map_image = true;
   bool show_route_map_always = false;
   bool s9_show_own_map = false;  // S9 켜져도 이온 자체 지도/ATC 계속 표시
+  QStringList learn_lines;       // autotuned LearnStatusText: 조향 / 롱컨 학습값 (1초마다 읽음)
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;

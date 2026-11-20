@@ -70,6 +70,54 @@ def long_apply(params, learner):
   params.put("LongLearnApplied", json.dumps(new))
 
 
+def status_text(params, tuner, learner):
+  """Two short lines for the EON screen (onroad.cc drawLearnStatus): LAT ... / LONG ..."""
+  lines = []
+  lat_tune = params.get_bool("LateralAutoTune")
+  lat_delay = params.get_bool("LateralAutoTuneDelay")
+  center = params.get_bool("LateralAutoCenter")
+  if tuner is not None and (lat_tune or lat_delay or center):
+    st = tuner.status()
+    parts = ["LAT " + ("auto" if lat_tune else "learn")]
+    if lat_tune or lat_delay:
+      parts.append(f"F {st['factor']:.2f}/{st['base_factor']:.2f}  FR {st['friction']:.3f}")
+      sad = st.get("sad")
+      parts.append(f"SAD {'-' if sad is None else f'{sad:.2f}'}{'*' if lat_delay else ''} ({st['delay_windows']})")
+      parts.append(f"L{st['samples_left']} R{st['samples_right']}")
+    if center:
+      try:
+        offset = float(params.get("LateralAutoCenterValue", encoding="utf8") or "nan")
+        parts.append(f"OFS {offset * 100:+.0f}cm")
+      except (TypeError, ValueError):
+        parts.append("OFS -")
+    lines.append("  ".join(parts))
+  long_on = params.get_bool("LongLearn")
+  long_apply_on = params.get_bool("LongLearnApply")
+  if long_on or long_apply_on:
+    gap = _int(params, "PrevCruiseGap", 4)
+    gap = gap if 1 <= gap <= 4 else 4
+    stop_now = _int(params, "StopDistance", 600) / 100.0
+    tf_now = _int(params, f"TFollowGap{gap}", [110, 120, 140, 160][gap - 1]) / 100.0
+    rec = learner.recommend(stop_now, gap, tf_now, _int(params, "TFollowSpeedRatio", 120) / 100.0)
+    c = rec["counts"]
+    if long_apply_on:
+      try:
+        applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
+      except (TypeError, ValueError):
+        applied = {}
+      tf = applied.get("t_follow", tf_now) if applied.get("gap") == gap else tf_now
+      stop = applied.get("stop_distance", stop_now)
+      head = "LONG apply"
+    else:
+      tf = rec.get("t_follow")
+      stop = rec.get("stop_distance_m")
+      head = "LONG learn"
+    tf_s = "-" if tf is None else f"{tf:.2f}s"
+    stop_s = "-" if stop is None else f"{stop:.1f}m"
+    lines.append(f"{head}  GAP{gap} {tf_s}  STOP {stop_s}  ({min(c['gap'], 999)}s {c['stops']}stop {c['starts']}go)")
+  return "\n".join(lines)
+
+
 def main():
   params = Params()
   CP = car.CarParams.from_bytes(params.get("CarParams", block=True))
@@ -82,6 +130,7 @@ def main():
   # One process for both learners: each extra carState subscriber takes one of its 15 msgq slots.
   sm = messaging.SubMaster(['controlsState', 'carState', 'lateralPlan', 'radarState'], poll=['controlsState'])
   lat_on = long_on = long_apply_on = False
+  next_text = 0.0
   next_param = next_save = 0.0
   dirty = False
   steer_delay = live_tune.steer_actuator_delay()
@@ -94,6 +143,9 @@ def main():
       long_apply_on = params.get_bool("LongLearnApply")
       steer_delay = live_tune.steer_actuator_delay()  # the delay the controller uses now
       next_param = now + 2.0
+    if now >= next_text:
+      next_text = now + 5.0
+      params.put("LearnStatusText", status_text(params, tuner, learner))
     if not lat_on and not long_on:
       if long_apply_on and now >= next_save:   # applying from the records needs no live data
         next_save = now + SAVE_S

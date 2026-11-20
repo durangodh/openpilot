@@ -258,6 +258,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongLearnData", PERSISTENT},              // those records (JSON); selfdrive/debug/long_learn.py
     {"LongLearnApply", PERSISTENT},             // use the learned gap time / stop distance
     {"LongLearnApplied", PERSISTENT},           // the values in use (JSON)
+    {"LearnStatusText", CLEAR_ON_MANAGER_START},  // autotuned: two on-screen lines (LAT / LONG)
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"HumanAcceleration", PERSISTENT},
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
