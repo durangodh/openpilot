@@ -11,7 +11,8 @@ the same phone, including sessions that were not made publicly active. These are
 read-only hooks; they do not start playback, inject buttons, or change navigation.
 An artist, album, or positive duration is required to distinguish music from
 spoken navigation. Stopped, cleared, errored, and released sessions are hidden.
-Paused music remains visible, as with standalone playback.
+Remote HUD hides paused playback too, including paused snapshots from older Naver
+modules. Metadata can remain cached for resume without keeping the HUD badge visible.
 
 Remote HUD requests the current song when its service starts. The module also
 sends a snapshot every 10 seconds so either app can start first. Old snapshots

@@ -78,7 +78,6 @@ public final class HudMusicService extends NotificationListenerService {
     private void updateSong() {
         if (!connected) return;
         MediaController best = null;
-        int bestScore = -1;
         String song = "";
         for (MediaController controller : controllers) {
             PlaybackState state = controller.getPlaybackState();
@@ -89,7 +88,8 @@ public final class HudMusicService extends NotificationListenerService {
                     MediaMetadata.METADATA_KEY_ALBUM_ARTIST, MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
             if (state == null || title.isEmpty()) continue;
             int playback = state.getState();
-            if (playback != PlaybackState.STATE_PLAYING && playback != PlaybackState.STATE_PAUSED) continue;
+            // Paused sessions keep their metadata, but must not keep a HUD title visible.
+            if (playback != PlaybackState.STATE_PLAYING) continue;
             // Navigation apps may also host Bugs playback. Ignore spoken guidance sessions.
             if (controller.getPackageName().equals("com.nhn.android.nmap")
                     && artist.isEmpty()
@@ -97,15 +97,12 @@ public final class HudMusicService extends NotificationListenerService {
                     && metadata.getLong(MediaMetadata.METADATA_KEY_DURATION) <= 0
                     && (state.getActions() & (PlaybackState.ACTION_SKIP_TO_NEXT
                             | PlaybackState.ACTION_SKIP_TO_PREVIOUS)) == 0) continue;
-            int score = playback == PlaybackState.STATE_PLAYING ? 2 : 1;
-            if (score > bestScore) {
-                bestScore = score;
-                best = controller;
-                song = title + (artist.isEmpty() ? "" : " · " + artist);
-            }
+            best = controller;
+            song = title + (artist.isEmpty() ? "" : " · " + artist);
+            break;
         }
         nowPlaying = best == null ? "" : song;
-        sessionPlaying = best != null && bestScore == 2;
+        sessionPlaying = best != null;
         sessionPackage = best == null ? "" : best.getPackageName();
     }
 

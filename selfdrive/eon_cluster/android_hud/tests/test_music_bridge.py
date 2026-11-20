@@ -96,11 +96,24 @@ public final class HudNaverMusicCheck {
   context.receiver.onReceive(context, update("뒤늦게 온 이전 곡", 3, SystemClock.now - 1000));
   check(HudNaverMusic.nowPlaying().equals("내부 벅스 · 가수"), "Ignore out-of-order updates");
   SystemClock.now += 36000;
-  check(HudNaverMusic.nowPlaying().equals("스포티파이"), "Expired module falls back to public source");
+  check(HudNaverMusic.nowPlaying().isEmpty(), "Expired module must not revive paused public metadata");
+  HudMusicService.sessionPlaying = true;
+  check(HudNaverMusic.nowPlaying().equals("스포티파이"), "Expired module falls back to playing public source");
+  HudMusicService.sessionPlaying = false;
   check(HudNaverMusic.status().contains("연결 대기"), "Expired module is diagnosed");
   HudMusicService.nowPlaying = "";
   context.receiver.onReceive(context, update("새 곡", 3, SystemClock.now));
   check(HudNaverMusic.nowPlaying().equals("새 곡 · 가수"), "Heartbeat restores fresh data");
+  // An older Naver module may keep sending a title in PAUSED snapshots.
+  HudMusicService.nowPlaying = "남아 있는 이전 곡";
+  HudMusicService.sessionPackage = "com.nhn.android.nmap";
+  context.receiver.onReceive(context, update("새 곡", 2, SystemClock.now));
+  check(HudNaverMusic.nowPlaying().isEmpty(), "Pause hides both bridge and cached public titles");
+  context.receiver.onReceive(context, update("새 곡", 2, SystemClock.now));
+  check(HudNaverMusic.nowPlaying().isEmpty(), "Paused heartbeat must not restore the title");
+  context.receiver.onReceive(context, update("새 곡", 3, SystemClock.now));
+  check(HudNaverMusic.nowPlaying().equals("새 곡 · 가수"), "Resume restores title");
+  HudMusicService.nowPlaying = "";
   context.receiver.onReceive(context, update("새 곡", 1, SystemClock.now));
   check(HudNaverMusic.nowPlaying().isEmpty(), "Stop clears title");
   check(HudNaverMusic.status().contains("곡 정보 대기"), "Connected without metadata is diagnosed");

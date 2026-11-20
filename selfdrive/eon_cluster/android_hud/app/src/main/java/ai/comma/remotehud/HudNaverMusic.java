@@ -42,7 +42,8 @@ final class HudNaverMusic {
             String title = clean(intent.getStringExtra("title"));
             String artist = clean(intent.getStringExtra("artist"));
             int state = intent.getIntExtra("state", 0);
-            if (state == 0 || state == 1 || state == 7) title = "";
+            // -1 supports embedded players that have not published a playback state yet.
+            if (state != 3 && state != -1) title = "";
             String song = title.isEmpty() ? "" : title + (artist.isEmpty() ? "" : " · " + artist);
             latest = new Snapshot(song, state, sentAt);
         }
@@ -69,14 +70,13 @@ final class HudNaverMusic {
 
     static String nowPlaying() {
         Snapshot song = latest;
-        String publicSong = HudMusicService.nowPlaying;
         boolean publicPlaying = HudMusicService.sessionPlaying;
+        String publicSong = publicPlaying ? HudMusicService.nowPlaying : "";
         String publicPackage = HudMusicService.sessionPackage;
         if (song == null || SystemClock.elapsedRealtime() - song.sentAt > 35000L
                 || song.song.isEmpty()) return publicSong;
         // An actively playing standalone Bugs/Spotify session wins over old Naver metadata.
         if (publicPlaying && !publicSong.isEmpty() && !NAVER.equals(publicPackage)) return publicSong;
-        if (song.state == 2 && !publicSong.isEmpty() && publicPlaying) return publicSong;
         return song.song;
     }
 
