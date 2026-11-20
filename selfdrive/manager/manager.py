@@ -155,6 +155,7 @@ def manager_init() -> None:
     ("LateralAccelCost", "0"),
     ("LateralJerkCost", "5"),
     ("LateralTorqueCustom", "0"),
+    ("LateralAutoTune", "0"),
     ("LateralTorqueAccelFactor", "2747"),
     ("LateralTorqueFriction", "98"),
     # lateral torque controller restored in c4e491f (values as before 2026-11-09)

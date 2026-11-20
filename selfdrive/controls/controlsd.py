@@ -101,7 +101,8 @@ IGNORE_PROCESSES = {"rtshield", "uploader", "deleter", "loggerd", "logmessaged",
                     "statsd", "shutdownd",
                     # EON accessories (remotes, HUD, blinker, web): none of them feeds the
                     # controls, so one crashing must not block engagement (2026-11-19: bt_remote).
-                    "bt_remote", "remote_hud", "bcan_blinker", "eon_web"} | \
+                    "bt_remote", "remote_hud", "bcan_blinker", "eon_web",
+                    "autotuned"} | \
                    {k for k, v in managed_processes.items() if not v.enabled}
 
 ThermalStatus = log.DeviceState.ThermalStatus

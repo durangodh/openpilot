@@ -314,6 +314,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"SteerRatioApply", PERSISTENT},
     {"SteerActuatorDelay", PERSISTENT},
     {"LateralTorqueCustom", PERSISTENT},
+    {"LateralAutoTune", PERSISTENT},          // autotuned: closed-loop factor / friction tune
+    {"LateralAutoTuneValues", PERSISTENT},    // its learned values and status (JSON)
     {"LateralTorqueAccelFactor", PERSISTENT},
     {"LateralTorqueFriction", PERSISTENT},
     {"LateralTorqueKpV", PERSISTENT},          // kp x100

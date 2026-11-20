@@ -1931,6 +1931,12 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("SteerDeltaDown", "STEER DELTA DOWN",
       "aPilot 조향 토크 감소 제한.", "../assets/offroad/icon_openpilot.png", 1, 20, 1, 0, 7, this));
 
+  list->addItem(new ParamControl("LateralAutoTune",
+      "LATERAL AUTO TUNE",
+      "켜짐: 주행하며 FACTOR·FRICTION 을 직접 맞춥니다 (LiveTorque 대신 사용).\n"
+      "커브에서 PID 가 메우는 양과 작은 조향의 지연을 보고 차 기본값의 ±25%(FRICTION -40~+50%) 안에서 30초마다 조금씩 고칩니다.\n"
+      "CUSTOM TORQUE CONTROL 이 켜져 있으면 수동값이 우선입니다.",
+      "../assets/offroad/icon_openpilot.png", this));
   list->addItem(new ParamControl("LateralTorqueCustom",
       "CUSTOM TORQUE CONTROL",
       "켜짐: 아래 G-MCAN 수동값 적용 / 꺼짐: LiveTorque 자동 학습값 사용.\n"

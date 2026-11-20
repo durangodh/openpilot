@@ -1,3 +1,4 @@
+import json
 import math
 
 from cereal import log
@@ -174,7 +175,7 @@ class LatControlTorque(LatControl):
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     # LiveTorque (torqued) learned values, kept from the 2026-11-09 aPilot port
-    if self.lateral_torque_custom > 0:
+    if self.lateral_torque_custom > 0 or self.autotune_active:
       return
     self.torque_params.latAccelFactor = latAccelFactor
     self.torque_params.latAccelOffset = latAccelOffset
@@ -205,6 +206,23 @@ class LatControlTorque(LatControl):
       self.pid._k_i = [[0], [self.ki_default]]
       self.pid.k_f = self.kf_default
     self.lateral_torque_custom = custom
+
+    # LateralAutoTune (autotuned): its learned factor / friction replace the LiveTorque values.
+    prev_autotune = getattr(self, "autotune_active", False)
+    self.autotune_active = False
+    if custom <= 0 and self.params.get_bool("LateralAutoTune"):
+      try:
+        tuned = json.loads(self.params.get("LateralAutoTuneValues", encoding="utf8") or "{}")
+        factor, friction = float(tuned["factor"]), float(tuned["friction"])
+        if 0.5 <= factor <= 5.0 and 0.0 <= friction <= 0.5:
+          self.torque_params.latAccelFactor = factor
+          self.torque_params.friction = friction
+          self.autotune_active = True
+      except (TypeError, ValueError, KeyError):
+        pass
+    if prev_autotune and not self.autotune_active and custom <= 0:
+      self.torque_params.latAccelFactor = self.latAccelFactor_default
+      self.torque_params.friction = self.friction_default
 
     self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
