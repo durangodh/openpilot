@@ -39,11 +39,12 @@ COMMAND_REPEATS = 3
 
 RESULT_TEXT = {"ok": "", "busy": "처리 중", "cooldown": "대기", "lever": "레버 사용 중",
                "lamp": "깜빡이 켜짐", "nobcan": "B-CAN 없음", "abort": "버스 오류", "notx": "송신 불가",
-               "nothing": "끌 깜빡이 없음", "nolamp": "이미 꺼짐", "nohold": "유지 끝남"}
+               "nothing": "끌 깜빡이 없음", "nolamp": "이미 꺼짐", "nohold": "유지 끝남",
+               "switch": "창문 스위치 사용 중", "bad": "잘못된 명령"}
 
 
 def command_packet(seq, side):
-  if side not in ("L", "R", "C", "HL", "HR", "KL", "KR"):
+  if side not in ("L", "R", "C", "HL", "HR", "KL", "KR") and side not in WINDOW_COMMANDS:
     raise ValueError(side)
   return f"{COMMAND_MAGIC} {int(seq) & 0xffff} {side}".encode()
 
@@ -226,6 +227,34 @@ class BlinkRequestSource:
     if not (self.started <= ts <= now and now - ts <= BLINK_REQUEST_MAX_AGE_S):
       return None
     return {-1: "L", 1: "R"}.get(direction)
+
+
+WINDOW_FILE = "/dev/shm/dh_window_cmd.json"
+WINDOW_COMMANDS = {f"W{w}{d}" for w in "1234A" for d in "DUS"}
+
+
+class WindowRequestSource:
+  """Window commands for the ESP32 (selfdrive/debug/dh_window.py, remote, voice): each id once,
+  only fresh ones. 'W' + window (1 driver front, 2 passenger front, 3 rear left, 4 rear right,
+  A all) + 'D' down / 'U' up a little / 'S' stop."""
+
+  def __init__(self, path=WINDOW_FILE, clock=time.time):
+    self.path, self.clock = path, clock
+    self.last_id = None
+
+  def poll(self):
+    try:
+      with open(self.path) as f:
+        payload = json.load(f)
+    except (OSError, ValueError):
+      return None
+    if not isinstance(payload, dict) or payload.get("id") == self.last_id:
+      return None
+    self.last_id = payload.get("id")
+    ts, cmd = payload.get("ts"), payload.get("cmd")
+    if not isinstance(ts, (int, float)) or not 0 <= self.clock() - ts <= 2.0:
+      return None
+    return cmd if cmd in WINDOW_COMMANDS else None
 
 
 def stopped_blink_action(request, own_tap_time, now, lane_change_active=False):

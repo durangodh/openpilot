@@ -17,7 +17,7 @@ from cereal import log
 from common.params import Params
 from selfdrive.eon_cluster.bcan_blinker_core import (COMMAND_PORT, COMMAND_REPEATS, LINK_NONE, LINK_OK, RESULT_TEXT, NooHoldPlanner,
                                                      STATUS_FILE, STATUS_PORT, BlinkCancelPlanner, BlinkRequestSource, LaneCrossDetector, hold_press_action, stopped_blink_action, HOLD_KEEPALIVE_S, HOLD_MAX_S, LaneTapPlanner, command_packet, lane_direction,
-                                                     link_state, parse_status, write_status)
+                                                     link_state, parse_status, write_status, WindowRequestSource)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 CHANGING = (LaneChangeState.preLaneChange, LaneChangeState.laneChangeStarting)
@@ -65,6 +65,8 @@ def main():
   cancel_enabled = False
   cancel_seq = None
   blink_requests = BlinkRequestSource()
+  window_requests = WindowRequestSource()
+  window_seq = None
   own_tap_time = None   # monotonic time of our last tap (a cancel clears it)
   hold_enabled = False
   hold_side = None      # 'L' / 'R' while the ESP32 holds the blinker for us
@@ -121,6 +123,9 @@ def main():
           dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
           hold_side = None
         hold_seq = None
+      if window_seq is not None and parsed["seq"] == window_seq and parsed["res"]:
+        dlog.write(f"ESP32 answer window seq {window_seq}: {parsed['res']}")
+        window_seq = None
       if cancel_seq is not None and parsed["seq"] == cancel_seq and parsed["res"]:
         dlog.write(f"ESP32 answer cancel seq {cancel_seq}: {parsed['res']} (lamp {parsed['lamp']})")
         cancel_seq = None
@@ -300,6 +305,23 @@ def main():
         dlog.write(f"cancel seq {seq} sent to {esp_ip} (lane change finishing)")
       else:
         dlog.write(f"cancel NOT sent: link {link}")
+
+    # Power windows (selfdrive/debug/dh_window.py, remote, voice) go to the same ESP32.
+    window_cmd = window_requests.poll()
+    if window_cmd is not None:
+      if link == LINK_OK and esp_ip:
+        seq = (seq % 30000) + 1
+        packet = command_packet(seq, window_cmd)
+        for _ in range(COMMAND_REPEATS):
+          try:
+            tx.sendto(packet, (esp_ip, COMMAND_PORT))
+          except OSError:
+            pass
+          time.sleep(0.02)
+        window_seq = seq
+        dlog.write(f"window {window_cmd} seq {seq} sent to {esp_ip}")
+      else:
+        dlog.write(f"window {window_cmd} NOT sent: link {link}")
 
     if now >= next_status_write:
       next_status_write = now + STATUS_WRITE_S

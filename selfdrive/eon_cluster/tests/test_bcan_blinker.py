@@ -210,3 +210,23 @@ def test_hold_mode_press_actions():
   assert hold_press_action("R", None, lit=None) == "HR"
   assert command_packet(3, "HR") == b"DHBL1 3 HR"
   assert command_packet(4, "KL") == b"DHBL1 4 KL"
+
+
+def test_window_requests(tmp_path):
+  import json
+  from selfdrive.eon_cluster.bcan_blinker_core import WindowRequestSource, command_packet
+  t = [100.0]
+  path = str(tmp_path / "win.json")
+  src = WindowRequestSource(path, clock=lambda: t[0])
+  assert src.poll() is None
+  with open(path, "w") as f:
+    json.dump({"cmd": "W2D", "ts": 99.5, "id": "a"}, f)
+  assert src.poll() == "W2D"
+  assert src.poll() is None                         # each id once
+  with open(path, "w") as f:
+    json.dump({"cmd": "W9X", "ts": 100.0, "id": "b"}, f)
+  assert src.poll() is None                         # unknown command
+  with open(path, "w") as f:
+    json.dump({"cmd": "WAS", "ts": 90.0, "id": "c"}, f)
+  assert src.poll() is None                         # stale
+  assert command_packet(5, "W1U") == b"DHBL1 5 W1U"

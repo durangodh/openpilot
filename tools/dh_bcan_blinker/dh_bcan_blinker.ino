@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-20b" FW_VARIANT
+#define FW_VERSION "2026-11-21" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -144,6 +144,40 @@ static bool stockValid = false;
 static uint32_t stockMs = 0;
 
 enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
+
+// ---------- power windows (W<n><D|U|S>, n 1-4 or A for all) ----------
+// The driver door's switch panel reports the window switches on B-CAN (2026-11-21 scans):
+//   0x122 byte1: driver front   down 0x40 up 0x20 auto 0x80
+//   0x120 byte0: passenger front down 0x20 up 0x10 auto 0x40
+//   0x120 byte4: rear left       down 0x40 up 0x20 auto 0x80 (0x10 / 0x08: status, kept)
+//   0x120 byte4: rear right      down 0x02 up 0x01 auto 0x04
+// Like the lever tap, a copy of the panel's own frame is sent right behind it with the switch
+// bits set. Down presses auto (the window goes all the way, no pinch risk); up only the manual
+// stage for WIN_UP_MS per command, so a closing window never runs on by itself; S taps the
+// manual opposite stage, which stops an auto run. Any switch the occupants press wins at once.
+#define WIN_ID_FRONT 0x122
+#define WIN_ID_PANEL 0x120
+#define WIN_DOWN_MS 300
+#define WIN_UP_MS 1500
+#define WIN_STOP_MS 200
+#define WIN_WAIT_MS 600
+struct WinDef { uint16_t id; uint8_t byte, mask, down, up, autoBit; };
+static const WinDef WINS[4] = {
+  {WIN_ID_FRONT, 1, 0xE0, 0x40, 0x20, 0x80},
+  {WIN_ID_PANEL, 0, 0x70, 0x20, 0x10, 0x40},
+  {WIN_ID_PANEL, 4, 0xE0, 0x40, 0x20, 0x80},
+  {WIN_ID_PANEL, 4, 0x07, 0x02, 0x01, 0x04},
+};
+enum WinState { WIN_IDLE, WIN_WAIT, WIN_SENDING };
+static WinState win = WIN_IDLE;
+static uint8_t winSet[2][8];      // [0] 0x120, [1] 0x122: bits we press
+static uint8_t winMask[2][8];     // switch bits of the windows we drive
+static bool winUse[2];
+static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
+static uint8_t winStock[2][8];
+static bool winStockValid[2] = {false, false};
+static uint32_t winStockMs[2] = {0, 0};
+static bool winAbortReq = false;
 static TapState tap = TAP_IDLE;
 static uint8_t tapBits = 0;
 static uint32_t cmdMs = 0, tapStart = 0, lastSend = 0, lastTapEnd = 0;
@@ -320,7 +354,7 @@ const char *startTap(char side, uint32_t now) {
 }
 
 const char *requestTap(char side, uint32_t now) {
-  if (tap != TAP_IDLE) return "busy";
+  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
@@ -362,7 +396,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
 
 // Called from loop() while idle: tap our side again to keep the blinker going.
 void holdTick(uint32_t now) {
-  if (!holdSide || tap != TAP_IDLE) return;
+  if (!holdSide || tap != TAP_IDLE || win != WIN_IDLE) return;
   if (driverLeverMs && driverLeverMs > holdStartMs) return stopHold("driver lever", now);
   if (errSeen && errMs > holdStartMs && errMs != holdErrMs) {  // one bad tap is not the end
     holdErrMs = errMs;
@@ -431,7 +465,7 @@ bool ownSideLit(uint32_t now, uint32_t since) {
 
 // Called from loop() while idle: run a waiting cancel, and flick again if our side keeps flashing.
 void cancelTick(uint32_t now) {
-  if (tap != TAP_IDLE) return;
+  if (tap != TAP_IDLE || win != WIN_IDLE) return;
   if (cancelPending) {
     const char *why = cancelFlick(now);
     if (!*why) {
@@ -451,6 +485,124 @@ void cancelTick(uint32_t now) {
            (unsigned)cancelTries + 1);
       cancelPending = true;
       cancelSince = now;
+    }
+  }
+}
+
+int winSlot(uint16_t id) { return id == WIN_ID_FRONT ? 1 : 0; }
+
+void sendWin(int slot, bool pressed) {
+  gTx = twai_message_t{};
+  gTx.identifier = slot ? WIN_ID_FRONT : WIN_ID_PANEL;
+  gTx.extd = 0;
+  gTx.data_length_code = 8;
+  for (int i = 0; i < 8; i++) {
+    uint8_t keep = winStock[slot][i] & ~winMask[slot][i];
+    gTx.data[i] = keep | (pressed ? winSet[slot][i] : 0);
+  }
+  if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
+  tapFrames++;
+}
+
+void endWin(const char *res) {
+  bool done = !strcmp(res, "ok");
+  if (win == WIN_SENDING && done) {
+    for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, false);  // release, like the switch
+  }
+  delay(5);
+  startCan(false);
+  win = WIN_IDLE;
+  uint32_t now = millis();
+  lastTapEnd = now;
+  if (!done && strcmp(res, "switch") && strcmp(res, "nobcan")) {
+    errSeen = true;
+    errMs = now;
+  }
+  outf("=== window end (%s): %lu frames, tx fail %lu ===\n", res, (unsigned long)tapFrames, (unsigned long)txFail);
+  finish(res, now);
+}
+
+// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up, manual WIN_UP_MS) / 'S' (stop)
+const char *requestWin(const char *cmd, uint32_t now) {
+  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
+  char which = cmd[1], dir = cmd[2];
+  if (dir != 'D' && dir != 'U' && dir != 'S') return "bad";
+  memset(winSet, 0, sizeof(winSet));
+  memset(winMask, 0, sizeof(winMask));
+  winUse[0] = winUse[1] = false;
+  for (int n = 0; n < 4; n++) {
+    if (which != 'A' && which != '1' + n) continue;
+    const WinDef &w = WINS[n];
+    int slot = winSlot(w.id);
+    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? w.up : 0;
+    if (dir == 'S') bits = w.up;   // a short manual press stops an auto run either way (see below)
+    winSet[slot][w.byte] |= bits;
+    winMask[slot][w.byte] |= w.mask;
+    winUse[slot] = true;
+  }
+  if (!winUse[0] && !winUse[1]) return "bad";
+  for (int k = 0; k < 2; k++) {
+    if (winUse[k] && !(winStockValid[k] && now - winStockMs[k] <= STOCK_FRESH_MS)) return "nobcan";
+    for (int i = 0; k < 2 && winUse[k] && i < 8; i++) {
+      if (winStock[k][i] & winMask[k][i]) return "switch";   // someone is pressing a window switch
+    }
+  }
+  winDurMs = dir == 'D' ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
+  tapFrames = 0;
+  txFail = 0;
+  if (!startCan(true)) {
+    startCan(false);
+    return "notx";
+  }
+  win = WIN_WAIT;
+  winCmdMs = now;
+  outf("\n=== WINDOW %s: waiting for the panel frame ===\n", cmd);
+  return "";
+}
+
+// A panel frame arrived (slot 0: 0x120, 1: 0x122): keep it, notice occupants, answer it.
+void winFrame(int slot, const twai_message_t &m, uint32_t now) {
+  memcpy(winStock[slot], m.data, 8);
+  winStockValid[slot] = true;
+  winStockMs[slot] = now;
+  if (win == WIN_IDLE || !winUse[slot]) return;
+  bool ours = true, other = false;
+  for (int i = 0; i < 8; i++) {
+    uint8_t sw = m.data[i] & winMask[slot][i];
+    if (sw && sw != winSet[slot][i]) other = true;
+    if (sw != winSet[slot][i]) ours = false;
+  }
+  if (other) {
+    winAbortReq = true;    // the occupants' switch wins
+    return;
+  }
+  if (win == WIN_WAIT) {
+    win = WIN_SENDING;
+    winStartMs = winLastSend = now;
+    for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
+  } else if (win == WIN_SENDING && !ours) {
+    sendWin(slot, true);   // the panel just sent released switches: answer at once
+  }
+}
+
+void winTick(uint32_t now) {
+  if (win == WIN_IDLE) return;
+  if (winAbortReq) {
+    winAbortReq = false;
+    out("! window switch pressed during our press: stop\n");
+    endWin("switch");
+    return;
+  }
+  if (win == WIN_WAIT && now - winCmdMs > WIN_WAIT_MS) {
+    endWin("nobcan");
+    return;
+  }
+  if (win == WIN_SENDING) {
+    if (now - winStartMs >= winDurMs) {
+      endWin("ok");
+    } else if (now - winLastSend >= RESEND_MS) {
+      winLastSend = now;
+      for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
     }
   }
 }
@@ -605,6 +757,10 @@ void onFrame(uint32_t now) {  // frame in gRx
   if (m.extd || m.rtr) return;
   scanFrame(m, now);
   if (m.data_length_code < 8) return;
+  if (m.identifier == WIN_ID_PANEL || m.identifier == WIN_ID_FRONT) {
+    winFrame(winSlot(m.identifier), m, now);
+    return;
+  }
   if (m.identifier == LEVER_ID) {
     memcpy(stock, m.data, 8);
     stockValid = true;
@@ -669,6 +825,19 @@ void pollUdp(uint32_t now) {
   int seq = -1;
   char cmd[4] = {0};
   if (sscanf(buf, "DHBL1 %d %3s", &seq, cmd) != 2 || seq < 0) return;
+  if (cmd[0] == 'W') {
+    if (seq == lastSeq) return;
+    lastSeq = seq;
+    outf("%9lu  EON window %s seq %d\n", (unsigned long)now, cmd, seq);
+    const char *why = requestWin(cmd, now);
+    if (*why) {
+      outf("%9lu  window refused: %s\n", (unsigned long)now, why);
+      finish(why, now);
+    } else {
+      lastRes[0] = 0;
+    }
+    return;
+  }
   bool hold = cmd[0] == 'H' && (cmd[1] == 'L' || cmd[1] == 'R') && !cmd[2];
   bool keep = cmd[0] == 'K' && (cmd[1] == 'L' || cmd[1] == 'R') && !cmd[2];
   char side = (hold || keep) ? cmd[1] : cmd[0];
@@ -901,7 +1070,7 @@ void webUpdateUpload() {
   if (u.status == UPLOAD_FILE_START) {
     otaAuthed = gWeb.authenticate(OTA_USER, SETUP_AP_PASS);
     otaStarted = false;
-    if (!otaAuthed || tap != TAP_IDLE) return;
+    if (!otaAuthed || tap != TAP_IDLE || win != WIN_IDLE) return;
     outf("firmware update: %s\n", u.filename.c_str());
     otaStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
   } else if (u.status == UPLOAD_FILE_WRITE) {
@@ -979,6 +1148,11 @@ void wifiTick(uint32_t now) {
 void serialLine(char *line, uint32_t now) {
   while (*line == ' ') line++;
   if (!*line) return;
+  if (line[0] == 'W') {   // window test: W1D / W2U / WAS ...
+    const char *why = requestWin(line, now);
+    outf("window %s: %s\n", line, *why ? why : "started");
+    return;
+  }
   if (line[0] == 'w') {
     if (line[1] == ' ') {
       char *sep = strchr(line + 2, '|');
@@ -1072,8 +1246,10 @@ void loop() {
   if (installed && twai_read_alerts(&alerts, 0) == ESP_OK && txMode &&
       (alerts & (TWAI_ALERT_BUS_ERROR | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_OFF | TWAI_ALERT_TX_FAILED))) {
     out("! bus problem while transmitting: abort\n");
-    endTap("abort");
+    if (win != WIN_IDLE) endWin("abort");
+    else endTap("abort");
   }
+  winTick(millis());
 
   if (driverAbort) {
     driverAbort = false;
@@ -1100,8 +1276,8 @@ void loop() {
 
   // Read EON first: a hold re-tap starts in holdTick() and would otherwise keep the board busy
   // loop after loop (2026-11-16 road log: 16 packets, then none for 30 s during a hold).
-  if (tap == TAP_IDLE) wifiTick(now);  // nothing slow during the 0.16 s tap
-  if (wifiUp && tap == TAP_IDLE) pollUdp(now);
+  if (tap == TAP_IDLE && win == WIN_IDLE) wifiTick(now);  // nothing slow while we transmit
+  if (wifiUp && tap == TAP_IDLE && win == WIN_IDLE) pollUdp(now);
   holdTick(now);
   cancelTick(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);
