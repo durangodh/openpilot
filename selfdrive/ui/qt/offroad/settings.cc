@@ -899,6 +899,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {"Cruise", new CruisePanel(this)},
     {"롱컨", new LongitudinalPanel(this)},
     {"네비MAP", new CommunityPanel(this)},
+    {"NOO", new NooPanel(this)},
   };
 
 #ifdef ENABLE_MAPS
@@ -908,6 +909,9 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
 #endif
 
   const int padding = panels.size() > 7 ? 10 : (panels.size() > 3 ? 25 : 35);
+  // 10 tabs (NOO added 2026-11-21) do not fit the 1080 px sidebar at 60 px: use 52 px and 8 px.
+  const int nav_font = panels.size() > 9 ? 52 : 60;
+  const int nav_padding = panels.size() > 9 ? 8 : padding;
 
   nav_btns = new QButtonGroup(this);
   for (auto &[name, panel] : panels) {
@@ -919,7 +923,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
         color: grey;
         border: none;
         background: none;
-        font-size: 60px;
+        font-size: %2px;
         font-weight: 500;
         padding-top: %1px;
         padding-bottom: %1px;
@@ -930,7 +934,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
       QPushButton:pressed {
         color: #ADADAD;
       }
-    )").arg(padding));
+    )").arg(nav_padding).arg(nav_font));
 
     nav_btns->addButton(btn);
     sidebar_layout->addWidget(btn, 0, Qt::AlignRight);
@@ -1145,47 +1149,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(horizontal_line());
 
-  // ── NOO ─────────────────────────────────────────────────
-  toggleLayout->addWidget(new ParamControl(
-      "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
-      "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
-      "차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
-      "../assets/offroad/icon_road.png", this));
-
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooMode", "NOO MODE",
-      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooTurnSpeed", "NOO TURN SPEED",
-      "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 30, this));
-
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooTurnEndTime", "NOO DECEL TIMING",
-      "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
-      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooLaneChangeSpeed", "NOO LANE CHANGE MIN SPEED",
-      "일반 NOO 차선준비의 최저속도(km/h)입니다. 회전차로 저속 대기가 켜져 있으면 현재 좌·우회전의 차로 준비는 예외로 10km/h 이상에서 실제 옆 차로·도로경계·BSD를 확인하고 시작합니다. 분기·다음 회전·리모컨·레버에는 예외가 적용되지 않습니다. 기본값: 30.",
-      "../assets/offroad/icon_road.png", 10, 60, 10, 0, 30, this));
-  toggleLayout->addWidget(new ParamControl(
-      "NooTurnPocket", "NOO 회전차로 저속 대기",
-      "현재 좌·우회전의 차로 준비를 정차 중에도 대기합니다. 설정 최저속도 미만에서는 10km/h 이상·실제 옆 차로·도로경계·BSD 조건을 모두 확인해야 진입합니다. 왼쪽은 설정과 관계없이 같은 방향 핸들 토크 확인이 필요합니다. 브레이크·반대 조향·경로 이탈·위치 오류 시 진입하지 않습니다. 기본값: 켜짐.",
-      "../assets/offroad/icon_road.png", this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "LaneChangeNeedTorque", "NOO·리모컨 차선변경 시작 방식 (캐럿)",
-      "NOO(내비 연동)와 리모컨의 가상 깜빡이 차선변경 시작 조건입니다. -1: NOO·리모컨 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
-      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
-      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "RemoteLaneChangeDelay", "REMOTE LANE CHANGE DELAY",
-      "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 리모컨 차선변경의 최저속도는 NOO 값이 아니라 조향 탭의 AUTO LANE CHANGE MIN SPEED(기본 50km/h)를 따릅니다. 기본값: 10.",
-      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooLaneChangeDelay", "NOO LANE CHANGE DELAY",
-      "NOO(내비 연동) 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시(예전 동작). NOO 차선변경 시작 방식이 1(토크 필요)이면 이 값 대신 핸들 토크로 시작합니다. 기본값: 10.",
-      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
+  toggleLayout->addWidget(new LabelControl("NOO·리모컨·깜빡이",
+      "", "NOO, 블루투스 리모컨, DH 깜빡이 설정은 왼쪽 NOO 탭으로 옮겼습니다."));
 
   toggleLayout->addWidget(horizontal_line());
 
@@ -1247,6 +1212,56 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+// NOO 탭: 내비 연동(NOO) 회전·차선변경, 블루투스 리모컨, DH B-CAN 깜빡이 (2026-11-21, 네비MAP 에서 분리).
+NooPanel::NooPanel(QWidget* parent) : QWidget(parent) {
+  QVBoxLayout *toggleLayout = new QVBoxLayout(this);
+  toggleLayout->setContentsMargins(0, 20, 0, 20);
+
+  // ── NOO ─────────────────────────────────────────────────
+  toggleLayout->addWidget(new ParamControl(
+      "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
+      "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
+      "차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
+      "../assets/offroad/icon_road.png", this));
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooMode", "NOO MODE",
+      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooTurnSpeed", "NOO TURN SPEED",
+      "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
+      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 30, this));
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooTurnEndTime", "NOO DECEL TIMING",
+      "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
+      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooLaneChangeSpeed", "NOO LANE CHANGE MIN SPEED",
+      "일반 NOO 차선준비의 최저속도(km/h)입니다. 회전차로 저속 대기가 켜져 있으면 현재 좌·우회전의 차로 준비는 예외로 10km/h 이상에서 실제 옆 차로·도로경계·BSD를 확인하고 시작합니다. 분기·다음 회전·리모컨·레버에는 예외가 적용되지 않습니다. 기본값: 30.",
+      "../assets/offroad/icon_road.png", 10, 60, 10, 0, 30, this));
+  toggleLayout->addWidget(new ParamControl(
+      "NooTurnPocket", "NOO 회전차로 저속 대기",
+      "현재 좌·우회전의 차로 준비를 정차 중에도 대기합니다. 설정 최저속도 미만에서는 10km/h 이상·실제 옆 차로·도로경계·BSD 조건을 모두 확인해야 진입합니다. 왼쪽은 설정과 관계없이 같은 방향 핸들 토크 확인이 필요합니다. 브레이크·반대 조향·경로 이탈·위치 오류 시 진입하지 않습니다. 기본값: 켜짐.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "LaneChangeNeedTorque", "NOO·리모컨 차선변경 시작 방식 (캐럿)",
+      "NOO(내비 연동)와 리모컨의 가상 깜빡이 차선변경 시작 조건입니다. -1: NOO·리모컨 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
+      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
+      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "RemoteLaneChangeDelay", "REMOTE LANE CHANGE DELAY",
+      "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 리모컨 차선변경의 최저속도는 NOO 값이 아니라 조향 탭의 AUTO LANE CHANGE MIN SPEED(기본 50km/h)를 따릅니다. 기본값: 10.",
+      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooLaneChangeDelay", "NOO LANE CHANGE DELAY",
+      "NOO(내비 연동) 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시(예전 동작). NOO 차선변경 시작 방식이 1(토크 필요)이면 이 값 대신 핸들 토크로 시작합니다. 기본값: 10.",
+      "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
 
   toggleLayout->addWidget(horizontal_line());
 
