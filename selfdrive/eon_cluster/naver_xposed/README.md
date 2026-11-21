@@ -78,7 +78,8 @@ every name this module uses was checked against it. Nothing was run on a phone y
   shape. A 2x2 px, nearly transparent View with id `btn_speech_recognition` and
   description `클로바 음성인식` is added to the window's top corner for nMirror's
   accessibility service; a click runs that onClick only while the Clova screen is
-  added and resumed. Untested in the car.
+  added and resumed; the screen is the one owning that onClick (route guidance and
+  안심주행 each have their own controller). Untested in the car.
 - Added: `lane_ahead` from `RouteInfo.getLanes()` (every lane point of the route:
   location, units left to right, `getRecommend`). Points on the route ahead of the
   car (within 30 m of it, 30-2500 m along it) with at least one recommended lane are

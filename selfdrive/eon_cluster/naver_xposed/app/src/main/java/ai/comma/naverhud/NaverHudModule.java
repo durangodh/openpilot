@@ -281,6 +281,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
             "com.naver.map.feature.navigation.renewal.clova.compose.ClovaButtonKt";
     // 마지막으로 만들어진 ClovaButtonController 의 화면(Fragment). 누름은 이 화면이 열려 있을 때만.
     private static volatile java.lang.ref.WeakReference<Object> clovaFragment;
+    private static volatile java.lang.reflect.Field clovaFragmentField;
     private static volatile View composeVoiceHost;
 
     /**
@@ -321,6 +322,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
         if (button == null) throw new IllegalStateException("clova button composable");
 
         final java.lang.reflect.Field fragmentOf = fragmentField;
+        clovaFragmentField = fragmentField;
         XposedBridge.hookAllConstructors(controller, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 try {
@@ -347,8 +349,21 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
     }
 
     private static void bindComposeVoice(Object callback, int speechId) {
+        // 길안내·안심주행 화면이 각자 ClovaButtonController 를 갖는다. 누를 화면은 이 onClick 의
+        // 주인(함수 참조의 receiver = 그 컨트롤러)의 화면으로 정한다. 못 찾으면 마지막 컨트롤러 화면.
         java.lang.ref.WeakReference<Object> ref = clovaFragment;
-        Object fragment = ref == null ? null : ref.get();
+        Object fragment = null;
+        try {
+            Object owner = XposedHelpers.getObjectField(callback, "receiver");
+            java.lang.reflect.Field of = clovaFragmentField;
+            if (owner != null && of != null && of.getDeclaringClass().isInstance(owner)) {
+                fragment = of.get(owner);
+                ref = new java.lang.ref.WeakReference<>(fragment);
+            }
+        } catch (Throwable ignored) {
+            // receiver 이름이 다르면 마지막 컨트롤러 화면을 쓴다.
+        }
+        if (fragment == null) fragment = ref == null ? null : ref.get();
         if (fragment == null) return;
         Object activity = XposedHelpers.callMethod(fragment, "getActivity");
         if (!(activity instanceof Activity)) return;
