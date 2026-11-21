@@ -164,7 +164,7 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
 
   assert '("EonClusterHudViewPitch", "0")' in manager
   assert '{"EonClusterHudViewPitch", PERSISTENT}' in params
-  assert '"EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)"' in settings
+  assert '"EonClusterHudViewPitch", "S20 HUD VIEW PITCH (X0.1°)"' in settings
   assert 'math.radians(view_pitch * 0.1)' in remote
 
   # OSM/건물 렌더가 빠지면서 사장된 파라미터는 어느 층에도 남아 있으면 안 된다.

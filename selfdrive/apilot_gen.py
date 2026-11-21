@@ -40,7 +40,7 @@ GROUPS = OrderedDict([
     ("VIPPanel",          "횡방향"),
     ("CommunityPanel",    "커브내비"),
     ("NooPanel",          "NOO"),
-    ("__S9__",            "S9HUD"),
+    ("__S9__",            "S20HUD"),
     ("UISettingsPanel",   "화면"),
 ])
 
