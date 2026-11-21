@@ -28,8 +28,9 @@ final class NaverLaneStrip extends View {
     private static final int TEXT_GAP = 14;
     static final int MAX_LANES = 8;
     private static final int GREEN = Color.rgb(52, 209, 110);
-    // Arrows other than the ones to take: solid white like Naver's own box (2026-11-22; was gray).
-    private static final int GRAY = Color.rgb(255, 255, 255);
+    // Arrows other than the ones to take stay gray: white made every lane look like the one to
+    // take (2026-11-22, back from solid white).
+    private static final int GRAY = Color.rgb(150, 150, 150);
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
