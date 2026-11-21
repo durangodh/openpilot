@@ -402,6 +402,12 @@ class DesireHelper:
         noo_lc_speed_kph = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH
       lo, hi = NOO_LANE_CHANGE_SPEED_RANGE_KPH
       self.noo_lane_change_speed_min = max(lo, min(hi, noo_lc_speed_kph)) * CV.KPH_TO_MS
+      # NooHighwayPrepare: how far ahead (m) a highway exit may start its lane preparation; 0 = off.
+      try:
+        highway_m = int(self.params.get('NooHighwayPrepare', encoding='utf8') or '1000')
+      except (TypeError, ValueError):
+        highway_m = 1000
+      self.noo_controller.highway_prepare_m = float(max(0, min(2000, highway_m)))
       try:
         self.auto_lane_change_timer_setting = int(
           self.params.get("AutoLaneChangeTimer", encoding="utf8") or "0")
@@ -422,8 +428,10 @@ class DesireHelper:
     # side-geometry work in DesireHelper when it cannot affect lateral control.
     noo_available = self.noo_enabled and lateral_active and self.noo_mode != 3
     # NooMode keeps lateral and longitudinal ATC selectable independently.
+    # 0: turn steering + lane changes + turn decel, 1: turn steering + lane changes (no decel),
+    # 2: lane changes only, 3: turn decel only.
     noo_lane_change_available = (noo_available and self.lane_change_enabled
-                                 and self.noo_mode in (0, 2)
+                                 and self.noo_mode in (0, 1, 2)
                                  and self.lane_change_need_torque >= 0)
     noo_steering = (noo_available and not carstate.brakePressed
                     and self.noo_mode in (0, 1))

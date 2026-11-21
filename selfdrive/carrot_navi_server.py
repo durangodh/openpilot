@@ -253,8 +253,8 @@ class NaviState(object):
     # 축약본: route 에서 polyline 만 뺀다. 나머지는 같은 객체를 그대로 참조하므로
     # 추가 비용은 dump 한 번뿐이고, 그 dump 는 폴리라인이 없어 매우 싸다.
     route = output.get("route")
-    if isinstance(route, dict) and "polyline" in route:
-      lite_route = {k: v for k, v in route.items() if k != "polyline"}
+    if isinstance(route, dict) and ("polyline" in route or "polyline_near" in route):
+      lite_route = {k: v for k, v in route.items() if k not in ("polyline", "polyline_near")}
       lite = dict(output)
       lite["route"] = lite_route
     else:

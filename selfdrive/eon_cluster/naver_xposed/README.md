@@ -51,6 +51,56 @@ updated in place with the original package.
   off Play Store auto-update for Naver Map is still recommended so a new
   version can be checked before driving.
 
+## Naver Map 6.12.2.4 check (2026-11-21, static analysis)
+
+The NAVER-signed 6.12.2.4 bundle (version code 61202003, certificate SHA-256
+`0b8b8523…b227bb`, bundle SHA-256 `4805ae91…dc83`) was decompiled with jadx and
+every name this module uses was checked against it. Nothing was run on a phone yet.
+
+- Unchanged and working by name: `NaviStore` (getters still found by return type:
+  `TbtData` G0, `GuidanceRemaining` u0, `GuidePoint` P, `AddressAndRoadNameData` C,
+  `NaviLaneItem` T, `TrafficSignalInfo` I0, `GuidanceTrafficStatus` J0,
+  `CurrentRoute` K, `MatchedLinkInfo` U, `NaviState` d0, safety x0/y0/z0),
+  `TbtData.e/f`, `TbtItem.h/i`, `TbtDataItem.s/v/n`, `AddressAndRoadNameData.f/a`,
+  `MatchedLinkInfo.h`, `CurrentRoute.e().j().getPathPoints()`, `NaviLaneItem.g/k`,
+  `SignalInfo.g/j/i`, `TrafficSignalInfo.h/k`, the junction path through
+  `NaverNaviUI`/`GuidanceControl`, `MapProvider.i`, `MapView.a0.f`, `MapSurface`
+  lifecycle (h/f/n/l/r/q/s/k/o/i), `Overlay.o`, `CameraUpdate.x/q`,
+  `NaverMap.Y0/C1/p2/m0`, `NaviCarvatarIconManager.b`, `NaverMapWrapper.b0/c0`
+  (icon setter `A`, found by shape), `OverlayImage.i/j`, zoom methods
+  (`NaverMap.M/C1`, `NativeMapView.h0/p`, found by shape).
+- Removed in 6.12 (the screens moved to Compose): `NaviLaneControlView`,
+  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The signal image is the
+  module's own drawing (`NaverSignal`, unchanged). The lane strip's old fallback also
+  needed `NaviLaneControlView`, so on 6.12 `NaverLaneStrip` draws it from the lane data
+  like the phone's lane box (dark box, dashed separators, gray arrows, the direction to
+  take in green from each `NaviLaneUnit`'s `marking`/`direction`/`recommended`, distance
+  to the right) and sends it through the same `lane_bottom` path, so the HUD position and size
+  are unchanged.
+- Lane data on 6.12: `NaviLaneItem.k()` (`NaviLaneUnit`) has no recommended flag and
+  there is no `g()` distance. The module now reads the raw `j()` (`RouteLaneUnit`, with
+  `getRecommend`/`getGuideSet`) when it has the flag, and the distance from the item's
+  text (`distance=`). Before this, `lane_current` on 6.12 would have had no
+  recommended lanes.
+- Clova voice button on 6.12.2.4 (Compose): `ClovaButtonController` (its screen is
+  remembered from the constructor) and the `ClovaButtonKt` composable whose 4th
+  argument is the `onClick` (`ClovaButtonController.onClick` = `l()`) are found by
+  shape. A 2x2 px, nearly transparent View with id `btn_speech_recognition` and
+  description `클로바 음성인식` is added to the window's top corner for nMirror's
+  accessibility service; a click runs that onClick only while the Clova screen is
+  added and resumed; the screen is the one owning that onClick (route guidance and
+  안심주행 each have their own controller). Untested in the car.
+- Added: `lane_ahead` from `RouteInfo.getLanes()` (every lane point of the route:
+  location, units left to right, `getRecommend`). Points on the route ahead of the
+  car (within 30 m of it, 30-2500 m along it) with at least one recommended lane are
+  sent with their along-route distance, up to 4, like TMAP's `lane_ahead`; EON picks
+  the one at the next maneuver. Untested on a phone.
+- Fixed: `TrafficSignalInfo.j()` is the junction id (`mid`), not a distance, so
+  `traffic_signal.distance_m` carried an id. The distance now comes from the
+  `GuidanceTrafficSignal` passed to NaviStore's signal builder (found by shape,
+  6.12 name `z`); when it is missing the module sends -1 and EON's signal assist
+  stays off.
+
 ## Map source: phone map snapshots
 
 The HUD map is a snapshot of the phone map (guidance map, else the visible

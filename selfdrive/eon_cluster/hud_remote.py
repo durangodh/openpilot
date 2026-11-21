@@ -31,7 +31,8 @@ BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
 # 핸들 버튼을 길게 누른 것과 같은 동작(carrot-wip accelCruiseLong 등, 2026-10-18).
 # RES/SET 길게 = 크루즈 속도 10단위. 티맵↔네이버는 nav_toggle 이 직접 바꾼다.
 LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise"}
-PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box", "voice")
+# noo_toggle: NavigationOnOpenpilot 켜기/끄기(2026-11-21). 시동·기어와 상관없이 받는다(설정과 같다).
+PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box", "voice", "noo_toggle")
 LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
@@ -44,7 +45,8 @@ EVENT_SHOW_S = 1.5
 COMMAND_LABELS = {"res": "RES", "set": "SET", "gap": "GAP", "cancel": "취소",
                   "res_long": "RES 길게", "set_long": "SET 길게",
                   "nav_toggle": "맵 전환", "nav_tmap": "티맵", "nav_naver": "네이버",
-                  "hud_box": "정보 박스", "voice": "음성", "lane_left": "차선 좌", "lane_right": "차선 우"}
+                  "hud_box": "정보 박스", "voice": "음성", "lane_left": "차선 좌", "lane_right": "차선 우",
+                  "noo_toggle": "NOO 전환"}
 
 
 def atomic_json(path, payload):
@@ -80,6 +82,8 @@ class RemoteCommandSync:
     self.vehicle = (False, False, False, False, False, False)
     self.seq = 0
     self.last_event = None
+    # 명령 결과에 따라 HUD 에 보일 이름(noo_toggle: "NOO 켬" / "NOO 끔"). 없으면 COMMAND_LABELS.
+    self.last_label = None
 
   def apply(self, command, allowed):
     """Apply one command if the car allows it; returns 'accepted', 'blocked' or 'error'."""
@@ -87,6 +91,7 @@ class RemoteCommandSync:
       return "blocked"
     now = self.clock()
     result = "blocked"
+    self.last_label = None
     if command in allowed:
       result = "accepted" if self._apply(command, uuid.uuid4().hex, now) else "error"
     self.seq += 1
@@ -101,7 +106,8 @@ class RemoteCommandSync:
     if event is None or not 0.0 <= now - event[4] <= EVENT_SHOW_S:
       return {}
     seq, command, result, why, ts = event
-    return {"seq": seq, "cmd": COMMAND_LABELS.get(command, command),
+    label = self.last_label or COMMAND_LABELS.get(command, command)
+    return {"seq": seq, "cmd": label,
             "ok": result == "accepted", "why": why, "age": int((now - ts) * 1000)}
 
   def _apply(self, command, request, now):
@@ -116,6 +122,10 @@ class RemoteCommandSync:
         atomic_json(self.blink_file, payload)
         if lane_change_possible(*self.vehicle):
           atomic_json(self.lane_file, payload)
+      elif command == "noo_toggle":
+        enabled = (self.params.get("NavigationOnOpenpilot") or b"0") in (b"1", "1")
+        self.params.put("NavigationOnOpenpilot", "0" if enabled else "1")
+        self.last_label = "NOO 끔" if enabled else "NOO 켬"
       elif command == "hud_box":
         # HUD info box: 1 = HUD info, 2 = trip summary, 3 = auto-tune learning; the button cycles.
         try:

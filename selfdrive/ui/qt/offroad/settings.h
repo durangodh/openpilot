@@ -133,6 +133,12 @@ public:
   explicit CommunityPanel(QWidget *parent = nullptr);
 };
 
+class NooPanel : public QWidget {
+  Q_OBJECT
+public:
+  explicit NooPanel(QWidget *parent = nullptr);
+};
+
 class VIPPanel : public QWidget {
   Q_OBJECT
 public:

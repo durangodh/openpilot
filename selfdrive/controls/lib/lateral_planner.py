@@ -12,6 +12,7 @@ import cereal.messaging as messaging
 from cereal import log
 from common.params import Params, put_nonblocking
 from selfdrive.controls.lib.lane_auto_center import LaneAutoCenter
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 
@@ -30,6 +31,20 @@ DEFAULT_PATH_OFFSET = 0
 
 
 LANE_MODE_BLEND_TIME = 1.5  # s, lane-line <-> laneless path blend
+
+# NOO route steering (NooRouteSteer: 0 off, 1 display only, 2 steer). Restored 2026-11-21 from the
+# pre-aPilot planner (removed in the 11-09 port): close to a NOO turn at low speed, the route shape
+# (TMAP polyline, Naver polyline_near) is blended into the model path. Position stays anchored to the
+# model; only the shape is used. Curvature, lateral acceleration and the blend itself are bounded,
+# and the driver's opposite torque/blinker/brake (noo_driver_cancel) or a wheel touch drops it at once.
+NOO_MAP_BLEND_MAX = 0.60
+NOO_MAP_BLEND_FULL_SPEED_KPH = 20.0
+NOO_MAP_BLEND_ZERO_SPEED_KPH = 50.0
+NOO_MAP_BLEND_IN_TIME = 0.5
+NOO_MAP_BLEND_OUT_TIME = 0.25
+NOO_MAP_MAX_LAT_ACCEL = 2.0
+NOO_MAP_MAX_CURVATURE = 0.06
+NOO_MAP_TURN_WINDOW_M = (3.0, 60.0)
 
 
 class LateralPlanner:
@@ -72,6 +87,13 @@ class LateralPlanner:
     self.lane_lines_active = False
     self.lane_lines_active_buffer = False
     self.lane_line_blend = 0.0
+
+    self.noo_route_steer = 0
+    # Full route reader (the guide file has no polyline); read only inside the turn window.
+    self.noo_map_navigation_route = NavigationRouteData()
+    self.noo_map_blend = 0.0
+    self.noo_map_profile_cache = None
+    self.noo_map_path_cache = None
 
     self.param_read_counter = 0
     self.path_cost = DEFAULT_PATH_COST
@@ -118,6 +140,12 @@ class LateralPlanner:
         "LateralAccelCost", DEFAULT_LATERAL_ACCEL_COST, 0.0, 3.0, scale=100.0)
       self.lateral_jerk_cost = self._read_mpc_cost(
         "LateralJerkCost", DEFAULT_LATERAL_JERK_COST, 0.0, 0.5, scale=100.0)
+      try:
+        self.noo_route_steer = int(self.params.get("NooRouteSteer", encoding="utf8") or "0")
+      except (TypeError, ValueError):
+        self.noo_route_steer = 0
+      if self.noo_route_steer not in (0, 1, 2):
+        self.noo_route_steer = 0
     self.param_read_counter += 1
 
   def _read_path_offset(self):
@@ -232,6 +260,9 @@ class LateralPlanner:
                             path_distance, self.plan_yaw)
     yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N + 1]
 
+    y_pts, heading_pts, yaw_rate_pts = self.noo_route_steering(
+      sm, sample_distances, y_pts, heading_pts, yaw_rate_pts)
+
     self.y_pts = y_pts
 
     self.lat_mpc.set_weights(self.path_cost, heading_cost,
@@ -263,6 +294,88 @@ class LateralPlanner:
       self.solution_invalid_cnt += 1
     else:
       self.solution_invalid_cnt = 0
+
+  def noo_route_steering(self, sm, sample_distances, y_pts, heading_pts, yaw_rate_pts):
+    """Blend the NOO route shape into the MPC reference close to a low-speed turn."""
+    if self.noo_route_steer == 0:
+      self.noo_map_blend = 0.0
+      self.noo_map_profile_cache = None
+      self.noo_map_path_cache = None
+      return y_pts, heading_pts, yaw_rate_pts
+
+    map_profile = None
+    map_path = None
+    navigation_state = self.DH.navigation_state
+    steering_pressed = sm['carState'].steeringPressed
+    try:
+      distance = float(navigation_state.get('distance', -1.0))
+    except (TypeError, ValueError):
+      distance = -1.0
+    noo_map_candidate = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
+                         not steering_pressed and sm['carControl'].latActive and
+                         getattr(self.DH, 'noo_pose_trusted', False) and
+                         navigation_state.get('fresh', False) and
+                         navigation_state.get('route_fresh', False) and
+                         navigation_state.get('kind') in ('turn', 'uturn') and
+                         NOO_MAP_TURN_WINDOW_M[0] <= distance <= NOO_MAP_TURN_WINDOW_M[1] and
+                         self.v_ego <= NOO_MAP_BLEND_ZERO_SPEED_KPH * CV.KPH_TO_MS)
+    # The guide file gates the maneuver; the full route file (with the polyline) is read only in
+    # this window, and a state/guide skew while the server replaces the two files is rejected.
+    map_navigation_state = self.noo_map_navigation_route.update() if noo_map_candidate else None
+    noo_map_requested = (noo_map_candidate and isinstance(map_navigation_state, dict) and
+                         map_navigation_state.get('fresh', False) and
+                         map_navigation_state.get('route_fresh', False) and
+                         map_navigation_state.get('kind') in ('turn', 'uturn') and
+                         int(map_navigation_state.get('direction', 0)) == self.DH.noo_turn_direction and
+                         int(map_navigation_state.get('turn_type', -1)) ==
+                         int(navigation_state.get('turn_type', -1)))
+    if noo_map_requested:
+      speed_sq = max(self.v_ego * self.v_ego, 1.0)
+      max_curvature = min(NOO_MAP_MAX_CURVATURE, NOO_MAP_MAX_LAT_ACCEL / speed_sq)
+      map_profile = self.noo_map_navigation_route.cached_route_curvature_profile(
+        map_navigation_state, sample_distances, max_curvature=max_curvature)
+      if map_profile is not None:
+        map_path = NavigationRouteData.integrate_curvature_profile(map_profile, sample_distances)
+
+    fresh_map_path = map_path is not None
+    if fresh_map_path:
+      self.noo_map_profile_cache = map_profile
+      self.noo_map_path_cache = map_path
+    elif not noo_map_requested and not self.DH.noo_driver_cancel and not steering_pressed and \
+         self.noo_map_blend > 0.0:
+      # Keep the last vehicle-relative shape only for the short normal exit fade.
+      # Invalid/stale data, a wheel touch and driver cancellation never use the cache.
+      map_profile = self.noo_map_profile_cache
+      map_path = self.noo_map_path_cache
+
+    map_invalid = noo_map_requested and map_path is None
+    if self.DH.noo_driver_cancel or steering_pressed or map_invalid:
+      self.noo_map_blend = 0.0
+      self.noo_map_profile_cache = None
+      self.noo_map_path_cache = None
+    else:
+      blend_target = NavigationRouteData.map_steering_blend(
+        self.v_ego * CV.MS_TO_KPH, NOO_MAP_BLEND_MAX,
+        NOO_MAP_BLEND_FULL_SPEED_KPH, NOO_MAP_BLEND_ZERO_SPEED_KPH,
+      ) if fresh_map_path else 0.0
+      blend_time = NOO_MAP_BLEND_IN_TIME if blend_target > self.noo_map_blend else NOO_MAP_BLEND_OUT_TIME
+      blend_step = NOO_MAP_BLEND_MAX * DT_MDL / blend_time
+      self.noo_map_blend += float(np.clip(blend_target - self.noo_map_blend, -blend_step, blend_step))
+      if self.noo_map_blend <= 0.0:
+        self.noo_map_blend = 0.0
+        self.noo_map_profile_cache = None
+        self.noo_map_path_cache = None
+
+    # 1 = display only: the blend is computed and shown, the MPC reference is untouched.
+    if self.noo_route_steer == 2 and map_path is not None and self.noo_map_blend > 0.0:
+      blend = self.noo_map_blend
+      map_y = np.asarray(map_path[0]) + y_pts[0]
+      map_heading = np.asarray(map_path[1]) + heading_pts[0]
+      y_pts = (1.0 - blend) * y_pts + blend * map_y
+      heading_pts = (1.0 - blend) * heading_pts + blend * map_heading
+      map_yaw_rate = np.asarray(map_profile) * self.v_plan[:LAT_MPC_N + 1]
+      yaw_rate_pts = (1.0 - blend) * yaw_rate_pts + blend * map_yaw_rate
+    return y_pts, heading_pts, yaw_rate_pts
 
   def publish(self, sm, pm):
     plan_solution_valid = self.solution_invalid_cnt < 2
@@ -331,6 +444,9 @@ class LateralPlanner:
     noo_text = ''
     if self.DH.noo_turn_state:
       noo_text += f'nooturn={self.DH.noo_turn_state} '
+    if self.noo_route_steer and self.noo_map_blend > 0.0:
+      # Route steering: blend share in %, "(표시)" while it only shows (NooRouteSteer 1).
+      noo_text += f'map={self.noo_map_blend * 100:.0f}%' + ('(표시) ' if self.noo_route_steer == 1 else ' ')
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
       noo_text += f'noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     elif self.DH.noo_camera_lane_count or self.DH.noo_route_lane_count:

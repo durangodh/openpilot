@@ -36,6 +36,17 @@ final class NaverBridge {
     private volatile boolean started;
     private long lastPolylineAt;
     private String polyline = "[]";
+    // EON NOO 회전 보조용: 차 위치부터 앞 NEAR_AHEAD_M 까지 원본 해상도 경로점(1초마다).
+    // 전체 경로(polyline)는 최대 500점으로 솎아 내서, 긴 경로에서는 교차로 모서리가 사라진다.
+    private long lastNearAt;
+    private String polylineNear = "[]";
+    private static final double NEAR_AHEAD_M = 800.0;
+    // 다음 교차로 차로(lane_ahead, 2026-11-21): 6.12 의 경로 데이터(RouteInfo.getLanes)에는 경로 위
+    // 모든 차로 안내 지점의 차로(왼쪽→오른쪽, 권장 여부)가 있다. 차 앞 LANE_AHEAD_M 안의 지점을
+    // 경로를 따라 잰 거리와 함께 최대 4곳 보낸다(티맵 lane_ahead 와 같은 모양).
+    private String laneAhead = "[]";
+    private static final double LANE_AHEAD_M = 2500.0;
+    private static final double LANE_ON_ROUTE_M = 30.0;
     private String congestion = "\"\"";
 
     // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
@@ -150,6 +161,10 @@ final class NaverBridge {
 
     private void drawLaneOffscreen(Object item) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
+        if (ownLaneStrip || !laneViewClassExists(item)) {
+            drawOwnLaneStrip(item);
+            return;
+        }
         try {
             if (item == null) {
                 if (offscreenLane != null) laneImage.onUpdate(offscreenLane, false);
@@ -187,6 +202,153 @@ final class NaverBridge {
             offscreenLaneFailed = true;
             NaverHudLog.ex("lane view off screen", error);
         }
+    }
+
+    // 6.12+: 네이버 차로 View 가 없어 차로 띠를 직접 그린다(NaverLaneStrip, 같은 lane_bottom 칸).
+    private boolean ownLaneStrip;
+    private NaverLaneStrip laneStrip;
+
+    private boolean laneViewClassExists(Object item) {
+        if (item == null) return offscreenLane != null;
+        try {
+            item.getClass().getClassLoader().loadClass(NaverViewImage.LANE_VIEW_611);
+            return true;
+        } catch (Throwable missing) {
+            ownLaneStrip = true;
+            NaverHudLog.line("lane view: Naver lane view class missing, drawing the lane strip from data");
+            return false;
+        }
+    }
+
+    private void drawOwnLaneStrip(Object item) {
+        try {
+            if (laneStrip == null) {
+                android.content.Context ctx = map.latestActivity();
+                if (ctx == null) {
+                    lastLaneItem = null;   // 다음 변화 때 다시
+                    return;
+                }
+                laneStrip = new NaverLaneStrip(ctx);
+            }
+            List<?> lanes = item == null ? Collections.emptyList() : laneUnits(item);
+            int n = Math.min(NaverLaneStrip.MAX_LANES, lanes.size());
+            int[] dirs = new int[n];
+            int[] active = new int[n];
+            for (int i = 0; i < n; i++) {
+                Object entry = lanes.get(i);
+                dirs[i] = laneDirsOf(entry);
+                active[i] = laneActive(entry, dirs[i]);
+            }
+            laneStrip.set(n, dirs, active, item == null ? -1 : laneDistance(item));
+            if (n == 0) {
+                laneImage.onUpdate(laneStrip, false);
+                return;
+            }
+            int w = laneStrip.widthPx(), h = laneStrip.heightPx();
+            laneStrip.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            laneStrip.layout(0, 0, w, h);
+            laneImage.padLeft = 0;
+            laneImage.padTop = 0;
+            laneImage.onUpdate(laneStrip, true);
+        } catch (Throwable error) {
+            offscreenLaneFailed = true;
+            NaverHudLog.ex("own lane strip", error);
+        }
+    }
+
+    /**
+     * 차로 목록(왼쪽 → 오른쪽). 6.12 의 k()(NaviLaneUnit)는 폰이 그리는 그대로의 차로다:
+     * guide=Road(marking=LeftStraight, direction=LeftStraightToStraight, recommended=true, …).
+     * 글자에 recommended= 가 있으면 그것을 쓰고, 없으면 getRecommend 가 있는 원본 j()(RouteLaneUnit),
+     * 그것도 아니면 예전처럼 k() → i() → j().
+     */
+    private static List<?> laneUnits(Object item) {
+        List<?> units = asList(call(item, "k"));
+        if (!units.isEmpty() && String.valueOf(units.get(0)).contains("recommended=")) return units;
+        List<?> raw = asList(call(item, "j"));
+        if (!raw.isEmpty() && call(raw.get(0), "getRecommend") != null) return raw;
+        List<?> lanes = units;
+        if (lanes.isEmpty()) lanes = asList(call(item, "i"));
+        if (lanes.isEmpty()) lanes = raw;
+        return lanes;
+    }
+
+    private static final java.util.regex.Pattern LANE_MARKING =
+            java.util.regex.Pattern.compile("marking=([A-Za-z]+)");
+    private static final java.util.regex.Pattern LANE_ACTIVE =
+            java.util.regex.Pattern.compile("direction=([A-Za-z]+)");
+    private static final java.util.regex.Pattern LANE_RECOMMENDED =
+            java.util.regex.Pattern.compile("recommended=(true|false)");
+
+    /** 네이버 차로 모양 이름(LeftStraight, UturnLeft …) → 비트: 1 직진, 2 좌, 4 우, 8 유턴. */
+    static int markingBits(String name) {
+        if (name == null) return 0;
+        int bits = 0;
+        if (name.contains("Uturn")) bits |= 8;
+        if (name.contains("Left")) bits |= 2;
+        if (name.contains("Straight")) bits |= 1;
+        if (name.contains("Right")) bits |= 4;
+        return bits;
+    }
+
+    /** 권장 차로인지. NaviLaneUnit 은 글자의 recommended=, 원본 RouteLaneUnit 은 getRecommend. */
+    private static boolean laneRecommended(Object entry) {
+        java.util.regex.Matcher m = LANE_RECOMMENDED.matcher(String.valueOf(entry));
+        if (m.find()) return "true".equals(m.group(1));
+        return Boolean.TRUE.equals(call(entry, "getRecommend"));
+    }
+
+    /** 차로 화살표 모양 비트. NaviLaneUnit 은 marking=, 그 밖에는 안내 방향 집합(getGuideSet). */
+    private static int laneDirsOf(Object entry) {
+        java.util.regex.Matcher m = LANE_MARKING.matcher(String.valueOf(entry));
+        if (m.find()) return markingBits(m.group(1));
+        return NaverCodes.laneDirs(String.valueOf(laneGuide(entry)));
+    }
+
+    /**
+     * 초록으로 칠할 방향 비트. 권장 차로가 아니면 0. direction=LeftStraightToStraight 처럼
+     * "To" 뒤가 가야 할 방향이고, 방향이 없으면(null) 그 차로의 모든 화살표.
+     */
+    private static int laneActive(Object entry, int dirs) {
+        if (!laneRecommended(entry)) return 0;
+        java.util.regex.Matcher m = LANE_ACTIVE.matcher(String.valueOf(entry));
+        if (m.find()) {
+            String d = m.group(1);
+            int to = d.lastIndexOf("To");
+            int bits = markingBits(to >= 0 ? d.substring(to + 2) : d);
+            if (bits != 0) return bits & (dirs == 0 ? bits : dirs);
+        }
+        return dirs;
+    }
+
+    /** 비트 → laneTurn/laneDirs 가 읽는 방향 글자. */
+    private static String bitsText(int bits) {
+        StringBuilder b = new StringBuilder("[");
+        if ((bits & 1) != 0) b.append("Forward,");
+        if ((bits & 2) != 0) b.append("Left,");
+        if ((bits & 4) != 0) b.append("Right,");
+        if ((bits & 8) != 0) b.append("Backward,");
+        return b.append(']').toString();
+    }
+
+    private static Object laneGuide(Object entry) {
+        Object guide = call(entry, "getGuideSet");
+        if (guide == null) guide = call(entry, "g");
+        // Unknown getter on this version: the lane's own text holds its arrow enum names.
+        if (guide == null || NaverCodes.laneDirs(String.valueOf(guide)) == 0) guide = entry;
+        return guide;
+    }
+
+    /** 차로 안내 지점까지 거리(m). 6.12 에는 g() 가 없어 글자(NaviLaneItem(distance=…))에서 먼저 읽는다. */
+    private static double laneDistance(Object item) {
+        java.util.regex.Matcher m = DISTANCE_TEXT.matcher(String.valueOf(item));
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) { }
+        }
+        return NaverCodes.number(call(item, "g"));
     }
 
     /** 메인 스레드: 폰 신호등 표시(NaviTrafficSignalView)가 갱신됐다. */
@@ -255,21 +417,28 @@ final class NaverBridge {
 
         Object route = value(NaverStore.get(s, "GuidanceRemaining"));
         Object goal = call(route, "getGoal");
+        Object position = value(NaverStore.get(s, "GuidePoint"));
+        Object location = call(position, "getLocation");
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastPolylineAt >= 5000) {
             polyline = routePolyline(s);
             congestion = congestion(value(NaverStore.get(s, "GuidanceTrafficStatus")));
             lastPolylineAt = now;
         }
+        if (now - lastNearAt >= 1000) {
+            polylineNear = guiding ? nearPolyline(s, location) : "[]";
+            laneAhead = guiding ? laneAhead(s, location) : "[]";
+            lastNearAt = now;
+        }
+        send("lane_ahead", laneAhead);
         send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
                 + NaverCodes.round(NaverCodes.number(call(goal, "distance")))
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
-                + ",\"polyline\":" + polyline + ",\"congestion\":" + congestion
+                + ",\"polyline\":" + polyline + ",\"polyline_near\":" + polylineNear
+                + ",\"congestion\":" + congestion
                 + ",\"congestion_progress\":" + decimal(congestionProgress(
                         value(NaverStore.get(s, "GuidanceTrafficStatus")), route)) + "}");
 
-        Object position = value(NaverStore.get(s, "GuidePoint"));
-        Object location = call(position, "getLocation");
         Object road = value(NaverStore.get(s, "AddressAndRoadNameData"));
         send("vehicle", "{\"source\":\"NAVER\",\"lat\":" + decimal(fieldNumber(location, "latitude"))
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
@@ -545,9 +714,7 @@ final class NaverBridge {
         // The lane list is k() (NaverViewImage.hasItems, the verified 6.11 lane view gate);
         // i()/j() are kept for older versions. Reading i()/j() alone gave no lanes on 6.11, so
         // every junction went out as a crossroads.
-        List<?> lanes = asList(call(item, "k"));
-        if (lanes.isEmpty()) lanes = asList(call(item, "i"));
-        if (lanes.isEmpty()) lanes = asList(call(item, "j"));
+        List<?> lanes = laneUnits(item);
         if (!laneFieldsLogged && !lanes.isEmpty()) {
             laneFieldsLogged = true;
             NaverHudLog.line("lane-fields item=" + item + " | lane0=" + lanes.get(0));
@@ -559,12 +726,9 @@ final class NaverBridge {
         int current = 1;
         for (int i = 0; i < lanes.size() && i < 8; i++) {
             Object entry = lanes.get(i);
-            boolean recommended = Boolean.TRUE.equals(call(entry, "getRecommend"));
-            Object guide = call(entry, "getGuideSet");
-            if (guide == null) guide = call(entry, "g");
-            // Unknown getter on this version: the lane's own text holds its arrow enum names
-            // (Naver enums print as "Left#1"), which laneDirs/laneTurn read the same way.
-            if (guide == null || NaverCodes.laneDirs(String.valueOf(guide)) == 0) guide = entry;
+            boolean recommended = laneRecommended(entry);
+            // 6.12 NaviLaneUnit: marking= 으로, 그 밖에는 안내 방향 집합으로 화살표를 읽는다.
+            Object guide = bitsText(laneDirsOf(entry));
             int turn = NaverCodes.laneTurn(String.valueOf(guide));
             if (recommended) current = i + 1;
             if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
@@ -574,7 +738,7 @@ final class NaverBridge {
             available.append(recommended ? 1 : 0);
         }
         return "{\"source\":\"NAVER\",\"count\":" + Math.min(8, lanes.size())
-                + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(item, "g")))
+                + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(laneDistance(item))
                 + ",\"lanes\":" + details.append(']') + ",\"turn_info\":" + turns.append(']')
                 + ",\"available\":" + available.append(']') + ",\"dirs\":" + dirs.append(']') + "}";
     }
@@ -677,6 +841,56 @@ final class NaverBridge {
         return 0;
     }
 
+    // 신호등 거리: NaverHudModule.hookSignalDistance 가 채운다(GuidanceTrafficSignal 의 거리, m).
+    private static volatile double signalDistanceM = -1;
+    private static volatile int signalMid = Integer.MIN_VALUE;
+    private static volatile long signalDistanceAt;
+    private static final long SIGNAL_DISTANCE_FRESH_MS = 2000;
+    private static final java.util.regex.Pattern DISTANCE_TEXT =
+            java.util.regex.Pattern.compile("distance=([0-9]+(?:\\.[0-9]+)?)");
+
+    static void onSignalDistance(Object guidanceSignal) {
+        if (guidanceSignal == null) {
+            signalDistanceM = -1;
+            return;
+        }
+        double distance = -1;
+        for (Method m : guidanceSignal.getClass().getMethods()) {
+            // getDistance-Y4BO_gI (값 클래스라 이름이 꾸며진다). 인자 없는 double 만.
+            if (m.getName().startsWith("getDistance") && m.getParameterTypes().length == 0
+                    && m.getReturnType() == double.class) {
+                try {
+                    m.setAccessible(true);
+                    distance = (Double) m.invoke(guidanceSignal);
+                } catch (Throwable ignored) { }
+                break;
+            }
+        }
+        signalMid = (int) NaverCodes.number(call(call(guidanceSignal, "getInfo"), "getMid"));
+        signalDistanceM = Double.isFinite(distance) && distance >= 0 ? distance : -1;
+        signalDistanceAt = android.os.SystemClock.elapsedRealtime();
+    }
+
+    /**
+     * 신호등까지 거리(m), 모르면 -1. EON 은 -1 이면 신호 보조를 쓰지 않는다.
+     * 1) hookSignalDistance 가 같은 교차로(mid)로 2초 안에 받은 거리
+     * 2) 예전 버전처럼 객체 글자에 distance= 가 있으면 그 값
+     */
+    private static double signalDistance(Object item) {
+        long age = android.os.SystemClock.elapsedRealtime() - signalDistanceAt;
+        if (signalDistanceAt > 0 && age >= 0 && age <= SIGNAL_DISTANCE_FRESH_MS && signalDistanceM >= 0
+                && (int) NaverCodes.number(call(item, "j")) == signalMid) {
+            return signalDistanceM;
+        }
+        java.util.regex.Matcher m = DISTANCE_TEXT.matcher(String.valueOf(item));
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) { }
+        }
+        return -1;
+    }
+
     private static String signal(Object item) {
         if (item == null) return "null";
         List<?> signals = asList(call(item, "k"));
@@ -688,7 +902,7 @@ final class NaverBridge {
                     .append(",\"state\":").append(quote(String.valueOf(call(e, "j"))))
                     .append(",\"remaining_sec\":").append((int) NaverCodes.number(call(e, "i"))).append('}');
         }
-        return "{\"source\":\"NAVER\",\"distance_m\":" + (int) NaverCodes.number(call(item, "j"))
+        return "{\"source\":\"NAVER\",\"distance_m\":" + (int) Math.round(signalDistance(item))
                 + ",\"blink\":" + Boolean.TRUE.equals(call(item, "h")) + ",\"signals\":" + entries.append(']') + "}";
     }
 
@@ -704,6 +918,150 @@ final class NaverBridge {
                     .append(",\"lon\":").append(decimal(fieldNumber(p, "longitude"))).append('}');
         }
         return out.append(']').toString();
+    }
+
+    /**
+     * 차 위치에서 가장 가까운 경로점부터 앞 NEAR_AHEAD_M 까지를 솎지 않고 보낸다(뒤로 5점 포함).
+     * 경로점이 수천 개여도 반사 호출이 많지 않게, 먼저 최대 300점을 건너뛰며 찾고 그 주변만 정밀하게 찾는다.
+     * 차가 경로에서 150 m 넘게 떨어져 있으면 비운다(EON 은 그때 회전 보조를 쓰지 않는다).
+     */
+    private static String nearPolyline(Object store, Object location) {
+        double lat = fieldNumber(location, "latitude");
+        double lon = fieldNumber(location, "longitude");
+        if (!(Math.abs(lat) > 0.1 && Math.abs(lon) > 0.1)) return "[]";
+        List<?> points = asList(call(call(call(value(NaverStore.get(store, "CurrentRoute")), "e"), "j"), "getPathPoints"));
+        int n = points.size();
+        if (n < 2) return "[]";
+        double cosLat = Math.max(0.1, Math.cos(Math.toRadians(lat)));
+        int stride = Math.max(1, n / 300);
+        int best = -1;
+        double bestD = Double.MAX_VALUE;
+        for (int i = 0; i < n; i += stride) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) return "[]";
+        int from = Math.max(0, best - stride), to = Math.min(n - 1, best + stride);
+        for (int i = from; i <= to; i++) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (bestD > 150.0 * 150.0) return "[]";
+        StringBuilder out = new StringBuilder("[");
+        double along = 0, prevLat = 0, prevLon = 0;
+        for (int i = Math.max(0, best - 5); i < n && i < best + 2000; i++) {
+            Object p = points.get(i);
+            double pLat = fieldNumber(p, "latitude"), pLon = fieldNumber(p, "longitude");
+            if (i > best) {
+                double dy = (pLat - prevLat) * 111320.0, dx = (pLon - prevLon) * 111320.0 * cosLat;
+                along += Math.sqrt(dx * dx + dy * dy);
+            }
+            prevLat = pLat;
+            prevLon = pLon;
+            if (out.length() > 1) out.append(',');
+            out.append("{\"lat\":").append(decimal(pLat)).append(",\"lon\":").append(decimal(pLon)).append('}');
+            if (along > NEAR_AHEAD_M) break;
+        }
+        return out.append(']').toString();
+    }
+
+    /**
+     * 차 앞 경로 위의 차로 안내 지점(RouteInfo.getLanes, 6.12.2.4 확인)을 lane_ahead 로 만든다.
+     * 지점 위치를 차 앞 경로(원본 좌표)에 맞춰 경로를 따라 잰 거리를 붙인다. 경로에서
+     * LANE_ON_ROUTE_M 넘게 떨어진 지점(반대 방향·다른 도로)과 차 뒤·바로 앞 30 m 안은 뺀다.
+     * 차로 순서는 네이버 화면과 같은 목록 순서(왼쪽→오른쪽), available 은 getRecommend.
+     */
+    private static String laneAhead(Object store, Object location) {
+        double lat = fieldNumber(location, "latitude");
+        double lon = fieldNumber(location, "longitude");
+        if (!(Math.abs(lat) > 0.1 && Math.abs(lon) > 0.1)) return "[]";
+        Object routeInfo = call(call(value(NaverStore.get(store, "CurrentRoute")), "e"), "j");
+        List<?> path = asList(call(routeInfo, "getPathPoints"));
+        List<?> lanes = asList(call(routeInfo, "getLanes"));
+        int n = path.size();
+        if (n < 2 || lanes.isEmpty()) return "[]";
+        double cosLat = Math.max(0.1, Math.cos(Math.toRadians(lat)));
+        int best = nearestIndex(path, lat, lon, cosLat);
+        if (best < 0) return "[]";
+        // 차 앞 경로 창: 좌표와 경로를 따라 잰 거리.
+        int cap = Math.min(n - best, 3000);
+        double[] wx = new double[cap], wy = new double[cap], along = new double[cap];
+        int count = 0;
+        double sum = 0;
+        for (int i = best; i < n && count < cap; i++) {
+            Object p = path.get(i);
+            double x = (fieldNumber(p, "longitude") - lon) * 111320.0 * cosLat;
+            double y = (fieldNumber(p, "latitude") - lat) * 111320.0;
+            if (count > 0) sum += Math.hypot(x - wx[count - 1], y - wy[count - 1]);
+            wx[count] = x;
+            wy[count] = y;
+            along[count] = sum;
+            count++;
+            if (sum > LANE_AHEAD_M) break;
+        }
+        if (count < 2) return "[]";
+        java.util.TreeMap<Double, String> found = new java.util.TreeMap<>();
+        for (Object lane : lanes) {
+            Object loc = call(lane, "getLocation");
+            double x = (fieldNumber(loc, "longitude") - lon) * 111320.0 * cosLat;
+            double y = (fieldNumber(loc, "latitude") - lat) * 111320.0;
+            if (x * x + y * y > (LANE_AHEAD_M + 100.0) * (LANE_AHEAD_M + 100.0)) continue;
+            int j = -1;
+            double bestD = LANE_ON_ROUTE_M * LANE_ON_ROUTE_M;
+            for (int k = 0; k < count; k++) {
+                double dx = wx[k] - x, dy = wy[k] - y, d = dx * dx + dy * dy;
+                if (d <= bestD) { bestD = d; j = k; }
+            }
+            if (j < 0 || along[j] < 30.0) continue;
+            List<?> units = asList(call(lane, "getUnits"));
+            int lanesCount = Math.min(8, units.size());
+            if (lanesCount < 1) continue;
+            StringBuilder available = new StringBuilder("[");
+            boolean any = false;
+            for (int u = 0; u < lanesCount; u++) {
+                boolean rec = Boolean.TRUE.equals(call(units.get(u), "getRecommend"));
+                any |= rec;
+                if (u > 0) available.append(',');
+                available.append(rec ? 1 : 0);
+            }
+            if (!any) continue;   // 권장 차로가 없는 지점은 차로 준비에 쓸 수 없다
+            found.put(along[j], "{\"source\":\"NAVER_ROUTE\",\"count\":" + lanesCount
+                    + ",\"available\":" + available.append(']')
+                    + ",\"distance_m\":" + NaverCodes.round(along[j]) + "}");
+        }
+        StringBuilder out = new StringBuilder("[");
+        int added = 0;
+        for (String entry : found.values()) {
+            if (added == 4) break;
+            if (added++ > 0) out.append(',');
+            out.append(entry);
+        }
+        return out.append(']').toString();
+    }
+
+    /** 차 위치에서 가장 가까운 경로점 번호, 150 m 넘게 떨어져 있으면 -1. */
+    private static int nearestIndex(List<?> points, double lat, double lon, double cosLat) {
+        int n = points.size();
+        int stride = Math.max(1, n / 300);
+        int best = -1;
+        double bestD = Double.MAX_VALUE;
+        for (int i = 0; i < n; i += stride) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) return -1;
+        int from = Math.max(0, best - stride), to = Math.min(n - 1, best + stride);
+        for (int i = from; i <= to; i++) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return bestD > 150.0 * 150.0 ? -1 : best;
+    }
+
+    private static double distSq(Object point, double lat, double lon, double cosLat) {
+        double dy = (fieldNumber(point, "latitude") - lat) * 111320.0;
+        double dx = (fieldNumber(point, "longitude") - lon) * 111320.0 * cosLat;
+        return dx * dx + dy * dy;
     }
 
     /**

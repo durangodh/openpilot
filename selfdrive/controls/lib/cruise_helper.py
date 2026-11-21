@@ -1138,7 +1138,8 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
-    if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
+    # NooMode 1 steers and changes lanes without the turn decel (2026-11-21).
+    if self.noo_enabled and self.noo_mode in (0, 3) and not CS.out.brakePressed:
       limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
                                                        self.noo_turn_end_time, NOO_TURN_DECEL)
       limits = [value for value in limits if value is not None]

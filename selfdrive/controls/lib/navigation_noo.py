@@ -17,12 +17,19 @@ class NavigationLaneChangeController:
   CARROT_PREPARE_MIN_DISTANCE = 45.0
   CARROT_PREPARE_SPEED_BP = (30.0, 50.0, 100.0)
   CARROT_PREPARE_DISTANCE_BP = (160.0, 200.0, 350.0)
+  # Highway exits (2026-11-21): a fork on a road of HIGHWAY_SPEED_KPH or more starts preparing
+  # earlier, HIGHWAY_LANE_M per lane still to move plus HIGHWAY_BASE_M, never beyond
+  # highway_prepare_m (NooHighwayPrepare, metres, 0 = off) and never closer than the normal window.
+  HIGHWAY_SPEED_KPH = 80.0
+  HIGHWAY_LANE_M = 300.0
+  HIGHWAY_BASE_M = 200.0
   CONFIRM_FRAMES = 6        # 0.3 s at model rate
   # 자차 차선 확률 하한. camera_lane_position 과 같은 값을 쓴다.
   LANE_CONF_MIN = lane_count.LANE_PROB_MIN
   LANE_UPDATE_FRAMES = 40   # fail closed after 2 s without camera confirmation
 
   def __init__(self):
+    self.highway_prepare_m = 0.0
     self.reset()
 
   def reset(self):
@@ -84,6 +91,27 @@ class NavigationLaneChangeController:
                        cls.CARROT_PREPARE_DISTANCE_BP)
 
   @classmethod
+  def highway_prepare_distance(cls, state, v_ego, lanes_to_move, limit_m):
+    """Earlier preparation window for a highway exit (fork), or 0 when it does not apply."""
+    try:
+      limit_m = float(limit_m)
+      lanes_to_move = int(lanes_to_move)
+    except (TypeError, ValueError):
+      return 0.0
+    if not isinstance(state, dict) or state.get("kind") != "fork" or \
+       not math.isfinite(limit_m) or limit_m <= 0.0 or lanes_to_move <= 0:
+      return 0.0
+    try:
+      road_kph = float(state.get("road_limit_kph", 0.0))
+    except (TypeError, ValueError):
+      road_kph = 0.0
+    if not math.isfinite(road_kph) or road_kph <= 0.0:
+      road_kph = float(v_ego) * 3.6 if math.isfinite(v_ego) else 0.0
+    if road_kph < cls.HIGHWAY_SPEED_KPH:
+      return 0.0
+    return min(limit_m, cls.HIGHWAY_BASE_M + cls.HIGHWAY_LANE_M * lanes_to_move)
+
+  @classmethod
   def turn_pocket_direction(cls, state, v_ego):
     """carrot-rust's `atc left/right` phase, never a fork or next turn.
 
@@ -103,7 +131,7 @@ class NavigationLaneChangeController:
     return direction if start < distance <= cls.carrot_prepare_distance(state, v_ego) else 0
 
   @classmethod
-  def _carrot_direction_plan(cls, state, ego_lane, v_ego):
+  def _carrot_direction_plan(cls, state, ego_lane, v_ego, highway_m=0.0):
     """Fallback lane preparation using carrot's maneuver direction (turn, U-turn, fork).
 
     This is intentionally available only when TMAP supplied no lane guidance.
@@ -125,7 +153,9 @@ class NavigationLaneChangeController:
     if direction not in (-1, 1) or not math.isfinite(distance) or \
        confidence < cls.LANE_CONF_MIN or not 2 <= count <= 8 or not 1 <= current <= count:
       return None
-    prepare_distance = cls.carrot_prepare_distance(state, v_ego)
+    lanes_to_edge = count - current if direction > 0 else current - 1
+    prepare_distance = max(cls.carrot_prepare_distance(state, v_ego),
+                           cls.highway_prepare_distance(state, v_ego, lanes_to_edge, highway_m))
     if distance < cls.CARROT_PREPARE_MIN_DISTANCE or distance > prepare_distance:
       return None
     target = current + direction
@@ -136,7 +166,8 @@ class NavigationLaneChangeController:
             "direction": direction, "distance": distance,
             "recommended": [target], "source": "carrot_prepare",
             "maneuver_direction": int(state.get("direction", 0)),
-            "turn_type": int(state.get("turn_type", -1))}
+            "turn_type": int(state.get("turn_type", -1)),
+            "prepare_distance": prepare_distance}
 
   @staticmethod
   def _next_vehicle_distance(state, following):
@@ -188,7 +219,7 @@ class NavigationLaneChangeController:
             "turn_type": int(following.get("turn_type", -1))}
 
   @classmethod
-  def lane_plan(cls, state, ego_lane, v_ego=0.0, proactive=True):
+  def lane_plan(cls, state, ego_lane, v_ego=0.0, proactive=True, highway_m=0.0):
     # 차선계획은 경로 폴리라인(route/vehicle 스트림)을 쓰지 않는다. route_fresh 를
     # 필수로 걸면 티맵이 차로안내(lane_current)를 보내는데도 통째로 막혔다.
     if not isinstance(state, dict) or state.get("off_route", False):
@@ -264,15 +295,16 @@ class NavigationLaneChangeController:
         return plan
       if source == "current":
         current_plan = plan
-    # Naver/Kakao send no lane guidance for the next maneuver (TMAP's can also
-    # be missing). Prepare for it within the current maneuver's own lanes.
+    # Kakao sends no lane guidance for the next maneuver; TMAP's and Naver's (module
+    # 2026-11-21, from the route's lane points) can be missing too. Prepare for it within
+    # the current maneuver's own lanes.
     if current_plan is not None and proactive and not ahead_lane_present:
       next_plan = cls._next_prepare_plan(state, following, current_plan, next_distance, v_ego)
       if next_plan is not None:
         return next_plan
     if current_plan is not None or lane_guidance_present or not proactive:
       return current_plan
-    return cls._carrot_direction_plan(state, ego_lane, v_ego)
+    return cls._carrot_direction_plan(state, ego_lane, v_ego, highway_m)
 
   @staticmethod
   def _event_key(state, plan):
@@ -296,7 +328,7 @@ class NavigationLaneChangeController:
       self.reason = "changing"
       return self.requested_direction
 
-    plan = self.lane_plan(state, ego_lane, v_ego, proactive=True)
+    plan = self.lane_plan(state, ego_lane, v_ego, proactive=True, highway_m=self.highway_prepare_m)
     if plan is None:
       data = state if isinstance(state, dict) else {}
       self.reason = ("canceled" if self.canceled or driver_cancel else
@@ -390,11 +422,14 @@ class NavigationLaneChangeController:
     lane_delta = abs(self.target_lane - self.current_lane)
     if plan.get("source") in ("carrot_prepare", "next_prepare"):
       minimum_distance = self.CARROT_PREPARE_MIN_DISTANCE
-      action_distance = self.carrot_prepare_distance(state, v_ego)
+      action_distance = plan.get("prepare_distance", self.carrot_prepare_distance(state, v_ego))
     else:
       minimum_distance = self.MIN_DISTANCE
       action_distance = min(self.MAX_DISTANCE, max(300.0, float(v_ego) * 20.0,
                                                    200.0 * lane_delta))
+      # Map lane guidance for a highway exit: the same earlier window as above.
+      action_distance = max(action_distance, self.highway_prepare_distance(
+        state, v_ego, lane_delta, self.highway_prepare_m))
     if not math.isfinite(distance) or distance < minimum_distance or distance > action_distance:
       self.open_count[-1] = 0
       self.open_count[1] = 0
