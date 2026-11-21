@@ -23,7 +23,8 @@ import java.util.Locale;
  */
 final class NaverLaneStrip extends View {
     private static final int CELL_W = 66;
-    private static final int CELL_H = 84;
+    // Square cells like Naver's own lane box (2026-11-22: tall cells made the arrows look long).
+    private static final int CELL_H = 64;
     private static final int TEXT_GAP = 14;
     static final int MAX_LANES = 8;
     private static final int GREEN = Color.rgb(52, 209, 110);
@@ -46,16 +47,16 @@ final class NaverLaneStrip extends View {
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setStrokeWidth(6f);
+        stroke.setStrokeWidth(7f);
         dash.setStyle(Paint.Style.STROKE);
         dash.setStrokeWidth(2f);
         dash.setColor(Color.argb(150, 255, 255, 255));
         dash.setPathEffect(new DashPathEffect(new float[]{6f, 6f}, 0f));
         text.setColor(Color.WHITE);
-        text.setTextSize(38f);
+        text.setTextSize(34f);
         text.setFakeBoldText(true);
         textEdge.setColor(Color.argb(230, 0, 0, 0));
-        textEdge.setTextSize(38f);
+        textEdge.setTextSize(34f);
         textEdge.setFakeBoldText(true);
         textEdge.setStyle(Paint.Style.STROKE);
         textEdge.setStrokeWidth(6f);
@@ -114,9 +115,10 @@ final class NaverLaneStrip extends View {
             c.drawLine(cx - 8f, CELL_H / 2f, cx + 8f, CELL_H / 2f, stroke);
             return;
         }
-        float bottom = CELL_H - 10f;
+        // Short, compact arrows like the phone's: stem from 80 % to 50 % of the cell, heads near 20 %.
+        float bottom = CELL_H * 0.82f;
         float mid = CELL_H * 0.52f;
-        float head = 12f;
+        float head = CELL_H * 0.16f;
         // 줄기: 가야 할 갈래가 하나라도 있으면 초록
         stroke.setColor(on != 0 ? GREEN : GRAY);
         c.drawLine(cx, bottom, cx, mid, stroke);
@@ -132,20 +134,20 @@ final class NaverLaneStrip extends View {
                     c.drawLine(cx, mid, cx, head + 10f, stroke);
                     arrowHead(c, cx, head, 0f, -1f);
                 } else if (bit == 2) {
-                    curve(c, cx, mid, cx - 18f, mid - 16f);
-                    arrowHead(c, cx - 24f, mid - 16f, -1f, 0f);
+                    curve(c, cx, mid, cx - 14f, mid - 12f);
+                    arrowHead(c, cx - 22f, mid - 12f, -1f, 0f);
                 } else if (bit == 4) {
-                    curve(c, cx, mid, cx + 18f, mid - 16f);
-                    arrowHead(c, cx + 24f, mid - 16f, 1f, 0f);
+                    curve(c, cx, mid, cx + 14f, mid - 12f);
+                    arrowHead(c, cx + 22f, mid - 12f, 1f, 0f);
                 } else {
                     path.reset();
                     path.moveTo(cx, mid);
                     path.lineTo(cx, head + 10f);
                     path.quadTo(cx, head - 2f, cx - 11f, head - 2f);
                     path.quadTo(cx - 22f, head - 2f, cx - 22f, head + 10f);
-                    path.lineTo(cx - 22f, mid - 12f);
+                    path.lineTo(cx - 22f, mid - 8f);
                     c.drawPath(path, stroke);
-                    arrowHead(c, cx - 22f, mid - 6f, 0f, 1f);
+                    arrowHead(c, cx - 22f, mid - 2f, 0f, 1f);
                 }
             }
         }
