@@ -5428,16 +5428,19 @@ public final class HudService extends Service {
         if (key.equals("F")) return "FACTOR";
         if (key.equals("FR")) return "FRICTION";
         if (key.equals("SAD")) return lang("조향 지연", "STEER DELAY");
-        if (key.equals("CURVE")) return lang("커브 좌/우 기록 (필요)", "CURVES L/R (NEED)");
+        if (key.equals("CURVE")) return lang("커브 좌/우", "CURVES L/R");
         if (key.equals("OFS")) return lang("중앙 보정", "CENTER");
         if (key.startsWith("GAP")) return lang("차간 ", "GAP ") + key.substring(3);
         if (key.equals("STOP")) return lang("정지 거리", "STOP DIST");
-        if (key.equals("REC")) return lang("기록 차간/정지 (필요)", "REC GAP/STOP (NEED)");
-        if (key.equals("LAG")) return lang("작은 조향 늦음(+)/빠름(-)", "SMALL STEER LAG");
+        if (key.equals("REC")) return lang("기록 차간/정지", "REC GAP/STOP");
+        if (key.equals("LAG")) return lang("작은조향 지연", "SMALL LAG");
         if (key.equals("UPD")) return lang("조정 횟수", "ADJUSTMENTS");
-        if (key.equals("TARGET")) return lang("내 운전 차간/정지", "MY GAP/STOP");
+        if (key.equals("TARGET")) return lang("내 차간/정지", "MY GAP/STOP");
         if (key.equals("BRAKE")) return lang("내 정지 감속", "MY STOP DECEL");
         if (key.equals("GO")) return lang("내 출발 반응", "MY START DELAY");
+        if (key.equals("BEND")) return lang("커브 횡가속", "CURVE LAT");
+        if (key.equals("APPR")) return lang("접근 감속", "APPROACH BRK");
+        if (key.equals("LDLY")) return lang("롱컨 지연", "LONG DELAY");
         return key;
     }
 
@@ -5457,7 +5460,8 @@ public final class HudService extends Service {
                 : lang("학습만", "LEARNING");
         text(c, p, title, 18f, top + 30f, 26f, color, Paint.Align.LEFT);
         text(c, p, modeText, w - 18f, top + 30f, 22f, color, Paint.Align.RIGHT);
-        float cw = (w - 36f) / 2f;
+        // three columns: up to 6 steering and 9 long values fit the 496 box
+        float cw = (w - 36f) / 3f;
         int n = 0;
         for (int i = 1; i < tokens.length; i++) {
             String token = tokens[i].trim();
@@ -5465,13 +5469,13 @@ public final class HudService extends Service {
             int space = token.indexOf(' ');
             String key = space > 0 ? token.substring(0, space) : token;
             String value = space > 0 ? token.substring(space + 1) : "";
-            float x = 18f + (n % 2) * cw;
-            float y = top + 40f + (n / 2) * 54f;   // 3 rows per learner fit the 496 box
-            text(c, p, learnLabel(key), x, y + 19f, 19f, muted, Paint.Align.LEFT);
-            text(c, p, value, x, y + 47f, 27f, white, Paint.Align.LEFT);
+            float x = 18f + (n % 3) * cw;
+            float y = top + 40f + (n / 3) * 50f;
+            text(c, p, learnLabel(key), x, y + 18f, 17f, muted, Paint.Align.LEFT);
+            text(c, p, value, x, y + 44f, 23f, white, Paint.Align.LEFT);
             n++;
         }
-        return top + 40f + ((n + 1) / 2) * 54f;
+        return top + 40f + ((n + 2) / 3) * 50f;
     }
 
     private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {

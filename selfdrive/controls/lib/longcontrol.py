@@ -1,3 +1,5 @@
+import json
+
 from cereal import car
 from common.numpy_fast import clip, interp
 from common.params import Params
@@ -275,6 +277,14 @@ class LongControl:
       delay = 0.0
     if delay <= 0.0:
       delay = self.CP.longitudinalActuatorDelayLowerBound if self.CP.longitudinalActuatorDelayLowerBound > 0.0 else 0.5
+    # LongAutoDelay: the response delay autotuned measured (0.2-0.8 s, 0.02 s per 30 s)
+    if self.params.get_bool("LongAutoDelay"):
+      try:
+        learned = json.loads(self.params.get("LongLearnApplied", encoding="utf8") or "{}").get("long_delay")
+        if learned is not None and 0.2 <= float(learned) <= 0.8:
+          delay = float(learned)
+      except (TypeError, ValueError, AttributeError):
+        pass
     self.actuator_delay = float(clip(delay, 0.1, 1.0))
     upper = self.CP.longitudinalActuatorDelayUpperBound
     self.actuator_delay_upper = float(clip(upper if upper > 0.0 else 0.5, 0.1, 1.0))

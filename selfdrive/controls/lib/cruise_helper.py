@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 
 from cereal import car
@@ -201,6 +203,14 @@ class CruiseHelper:
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
     self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 120, 50, 300) * 0.01
+    # LongLearnApply: the driver's own cornering speed (autotuned, 0.9-2.0, slower side at once)
+    if self.params.get_bool("LongLearnApply"):
+      try:
+        learned = json.loads(self.params.get("LongLearnApplied", encoding="utf8") or "{}").get("curve_factor")
+        if learned is not None:
+          self.auto_curve_speed_factor = float(clip(float(learned), min(0.9, self.auto_curve_speed_factor), 2.0))
+      except (TypeError, ValueError, AttributeError):
+        pass
     self.auto_curve_speed_lower_limit = self._param_or_default("AutoCurveSpeedLowerLimit", 30, 5, 80)
     self.map_turn_speed_factor = self._param_or_default("MapTurnSpeedFactor", 90, 50, 150) * 0.01
     self.auto_navi_speed_decel_rate = self._param_or_default("AutoNaviSpeedDecelRate", 80, 10, 300) * 0.01

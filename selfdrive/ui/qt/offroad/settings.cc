@@ -1838,9 +1838,14 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl("LongLearnApply",
       "LONG LEARN 적용",
-      "켜짐: 기록이 충분히 쌓이면 내 운전의 차간 시간(현재 GAP)과 앞차 뒤 정지 거리를 롱컨에 적용합니다.\n"
-      "늘어나는 쪽은 바로, 줄어드는 쪽은 1분에 0.02초 / 0.2m씩만. 차간 1.2초, 정지 3.5m 아래로는 내려가지 않습니다.\n"
-      "끄면 설정값으로 바로 돌아갑니다.",
+      "켜짐: 기록이 충분히 쌓이면 내 운전의 차간 시간(현재 GAP), 앞차 뒤 정지 거리, 커브 속도, 앞차 접근 감속을 롱컨에 적용합니다.\n"
+      "늘어나는(여유 있는) 쪽은 바로, 줄어드는 쪽은 1분에 0.02초 / 0.2m씩만. 차간 1.2초, 정지 3.5m 아래로는 내려가지 않습니다.\n"
+      "커브는 2.1m/s² 보다 빠르게 돌지 않고, 접근 감속은 설정값보다 세지지 않습니다(더 일찍·부드럽게만). 끄면 설정값으로 바로 돌아갑니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl("LongAutoDelay",
+      "AUTO LONG DELAY",
+      "켜짐: 롱컨 주행 중 가감속 명령 대비 실제 반응 지연을 재서 LONG ACTUATOR DELAY 대신 사용합니다.\n"
+      "측정 10회 이후부터, 30초마다 0.02초씩, 0.2~0.8초 안에서 맞춥니다.",
       "../assets/offroad/icon_road.png", this));
 
   ScrollView *scroller = new ScrollView(list, this);

@@ -146,6 +146,14 @@ class LongitudinalPlanner:
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
     self.mpc.comfort_brake = scaled("ComfortBrake", 250, 1.5, 4.0)
+    # LongLearnApply: approach braking from the driver's habit, never firmer than the setting
+    if self.params.get_bool("LongLearnApply"):
+      try:
+        learned = json.loads(self.params.get("LongLearnApplied", encoding="utf8") or "{}").get("comfort_brake")
+        if learned is not None:
+          self.mpc.comfort_brake = float(clip(float(learned), 1.5, self.mpc.comfort_brake))
+      except (TypeError, ValueError, AttributeError):
+        pass
     self.mpc.x_ego_obstacle_cost = scaled("XEgoObstacleCost", 600, 1.0, 12.0)
     # ───────────────────
 

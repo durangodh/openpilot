@@ -76,3 +76,45 @@ def test_apply_keeps_a_shorter_own_setting():
   from selfdrive.controls.lib.long_learn import apply_step
   a = apply_step({}, {"t_follow": 1.0}, 2, 1.1, 6.0)
   assert a["t_follow"] == 1.1                                         # not raised to 1.2, not lowered
+
+
+def test_bends_and_approaches():
+  ll = LongLearn()
+  for _ in range(12):                                 # a 4 s curve peaking at 2.0 m/s^2
+    for k in range(400):
+      ll.update(True, 20.0, 0.0, False, False, 0, 0, 2.0 * min(1.0, k / 100))
+    for _ in range(200):
+      ll.update(True, 20.0, 0.0, False, False, 0, 0, 0.0)
+  for _ in range(10):                                 # braking at 2.2 m/s^2 for a slower lead
+    for _ in range(200):
+      ll.update(True, 20.0, -2.2, False, True, 50.0, 12.0)
+    for _ in range(150):
+      ll.update(True, 15.0, 0.0, False, True, 40.0, 15.0)
+  r = ll.recommend(6.0, 3, 1.4)
+  assert r["bend_lat_accel"] == 2.0 and r["AutoCurveSpeedFactor"] == 95
+  assert r["approach_decel"] == 2.2 and r["ComfortBrake"] == 220
+
+
+def test_apply_curve_and_comfort_brake_safe_side():
+  from selfdrive.controls.lib.long_learn import apply_step
+  fast = {"AutoCurveSpeedFactor": 90, "ComfortBrake": 300}
+  a = apply_step({}, fast, 3, 1.4, 6.0, 1.2, 2.5)
+  assert a["curve_factor"] == 1.18 and a["comfort_brake"] == 2.5   # faster slowly; never firmer
+  slow = {"AutoCurveSpeedFactor": 150, "ComfortBrake": 200}
+  a = apply_step(a, slow, 3, 1.4, 6.0, 1.2, 2.5)
+  assert a["curve_factor"] == 1.5 and a["comfort_brake"] == 2.0    # slower / gentler at once
+
+
+def test_long_delay():
+  import math
+  from selfdrive.controls.lib.long_learn import LONG_DELAY_MIN_WINDOWS, LongDelay
+  d = LongDelay()
+  hist = []
+  k = 0
+  while d.windows < LONG_DELAY_MIN_WINDOWS + 2:
+    cmd = 0.8 * math.sin(2 * math.pi * 0.15 * k * DT)
+    hist.append(cmd)
+    d.update(True, cmd, hist[-41] if len(hist) > 40 else 0.0, 0.5)   # 0.40 s
+    k += 1
+  assert abs(d.estimate - 0.40) < 0.03
+  assert 0.4 <= d.applied <= 0.5                                       # 0.02 s steps from 0.5

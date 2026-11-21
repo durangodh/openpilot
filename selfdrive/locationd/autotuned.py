@@ -16,7 +16,8 @@ from cereal import car, log
 from common.params import Params
 from selfdrive.controls.lib import live_tune
 from selfdrive.controls.lib.lateral_autotune import DELAY_MIN_WINDOWS, SIDE_MIN, LateralAutoTune
-from selfdrive.controls.lib.long_learn import MIN_GAP_SAMPLES, MIN_STOPS, LongLearn, apply_step
+from selfdrive.controls.lib.long_learn import (LONG_DELAY_MIN_WINDOWS, MIN_APPROACHES, MIN_BENDS, MIN_GAP_SAMPLES,
+                                               MIN_STOPS, LongDelay, LongLearn, apply_step)
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LongCtrlState = car.CarControl.Actuators.LongControlState
@@ -40,6 +41,17 @@ def save(params, tuner):
   params.put("LateralAutoTuneValues", json.dumps(dict(tuner.status(), wall=int(time.time()))))
 
 
+def load_delay(params):
+  try:
+    applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
+  except (TypeError, ValueError):
+    applied = {}
+  delay = LongDelay(applied.get("long_delay"))
+  delay.estimate = applied.get("long_delay_est")
+  delay.windows = int(applied.get("long_delay_windows") or 0)
+  return delay
+
+
 def load_long(params):
   try:
     return LongLearn(json.loads(params.get("LongLearnData", encoding="utf8") or "{}"))
@@ -55,8 +67,14 @@ def _int(params, key, default):
   return v if v > 0 else default
 
 
-def long_apply(params, learner):
-  """LongLearnApply: move LongLearnApplied (read by the planner) toward the driver's habits."""
+def long_delay_now(params):
+  """The long actuator delay longcontrol uses without LongAutoDelay (setting, 0 = car 0.5 s)."""
+  return _int(params, "LongitudinalActuatorDelayLowerBound", 50) / 100.0
+
+
+def long_apply(params, learner, delay):
+  """LongLearnApply / LongAutoDelay: LongLearnApplied (read by planner, cruise helper and
+  longcontrol) moves toward the driver's habits, and carries the measured long delay."""
   gap = _int(params, "PrevCruiseGap", 4)
   gap = gap if 1 <= gap <= 4 else 4
   stop_now = _int(params, "StopDistance", 600) / 100.0
@@ -66,7 +84,15 @@ def long_apply(params, learner):
     applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
   except (TypeError, ValueError):
     applied = {}
-  new = apply_step(applied, learner.recommend(stop_now, gap, tf_now, ratio), gap, tf_now, stop_now)
+  if params.get_bool("LongLearnApply"):
+    new = apply_step(applied, learner.recommend(stop_now, gap, tf_now, ratio), gap, tf_now, stop_now,
+                     _int(params, "AutoCurveSpeedFactor", 120) / 100.0, _int(params, "ComfortBrake", 250) / 100.0)
+  else:
+    new = {"gap": gap}
+  new["long_delay_est"] = None if delay.estimate is None else round(delay.estimate, 3)
+  new["long_delay_windows"] = delay.windows
+  if delay.applied is not None:
+    new["long_delay"] = delay.applied
   params.put("LongLearnApplied", json.dumps(new))
 
 
@@ -105,7 +131,12 @@ def status_text(params, tuner, learner):
     lines.append("  ".join(parts))
   long_on = params.get_bool("LongLearn")
   long_apply_on = params.get_bool("LongLearnApply")
-  if long_on or long_apply_on:
+  delay_on = params.get_bool("LongAutoDelay")
+  try:
+    applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
+  except (TypeError, ValueError):
+    applied = {}
+  if long_on or long_apply_on or delay_on:
     gap = _int(params, "PrevCruiseGap", 4)
     gap = gap if 1 <= gap <= 4 else 4
     stop_now = _int(params, "StopDistance", 600) / 100.0
@@ -113,10 +144,6 @@ def status_text(params, tuner, learner):
     rec = learner.recommend(stop_now, gap, tf_now, _int(params, "TFollowSpeedRatio", 120) / 100.0)
     c = rec["counts"]
     if long_apply_on:
-      try:
-        applied = json.loads(params.get("LongLearnApplied", encoding="utf8") or "{}")
-      except (TypeError, ValueError):
-        applied = {}
       tf = applied.get("t_follow") if applied.get("gap") == gap else None
       stop = applied.get("stop_distance")
       head = "LONG apply"
@@ -140,6 +167,26 @@ def status_text(params, tuner, learner):
         line += f"  BRAKE {rec['stop_decel_last_1s']:.1f}m/s2"
       if rec.get("start_delay_s") is not None:
         line += f"  GO {rec['start_delay_s']:.1f}s"
+    # curve speed: lateral accel the vision cap corners at (applied) or the driver's (learning)
+    if rec.get("bend_lat_accel") is None:
+      line += f"  BEND {c['bends']}/{MIN_BENDS}"
+    elif long_apply_on and applied.get("curve_factor"):
+      line += f"  BEND {1.9 / applied['curve_factor']:.1f}m/s2"
+    else:
+      line += f"  BEND {rec['bend_lat_accel']:.1f}m/s2"
+    # approach braking: the planner's comfort brake (applied) or the driver's peak (learning)
+    if rec.get("approach_decel") is None:
+      line += f"  APPR {c['approaches']}/{MIN_APPROACHES}"
+    elif long_apply_on and applied.get("comfort_brake"):
+      line += f"  APPR {applied['comfort_brake']:.1f}m/s2"
+    else:
+      line += f"  APPR {rec['approach_decel']:.1f}m/s2"
+    if delay_on:
+      windows = int(applied.get("long_delay_windows") or 0)
+      if applied.get("long_delay") is not None:
+        line += f"  LDLY {applied['long_delay']:.2f}s*"
+      else:
+        line += f"  LDLY {windows}/{LONG_DELAY_MIN_WINDOWS}"
     lines.append(line)
   return "\n".join(lines)
 
@@ -153,9 +200,12 @@ def main():
     torque = CP.lateralTuning.torque
     tuner = load(params, torque.latAccelFactor, torque.friction, live_tune.manual_steer_actuator_delay())
   learner = load_long(params)
+  delay = load_delay(params)
   # One process for both learners: each extra carState subscriber takes one of its 15 msgq slots.
-  sm = messaging.SubMaster(['controlsState', 'carState', 'lateralPlan', 'radarState'], poll=['controlsState'])
-  lat_on = long_on = long_apply_on = False
+  sm = messaging.SubMaster(['controlsState', 'carState', 'lateralPlan', 'radarState', 'carControl'],
+                           poll=['controlsState'])
+  lat_on = long_on = long_apply_on = delay_on = False
+  long_delay = 0.5
   next_text = 0.0
   next_param = next_save = 0.0
   dirty = False
@@ -167,15 +217,17 @@ def main():
       lat_on = torque_car and (params.get_bool("LateralAutoTune") or params.get_bool("LateralAutoTuneDelay"))
       long_on = params.get_bool("LongLearn")
       long_apply_on = params.get_bool("LongLearnApply")
+      delay_on = params.get_bool("LongAutoDelay")
+      long_delay = long_delay_now(params)
       steer_delay = live_tune.steer_actuator_delay()  # the delay the controller uses now
       next_param = now + 2.0
     if now >= next_text:
       next_text = now + 5.0
       params.put("LearnStatusText", status_text(params, tuner, learner))
-    if not lat_on and not long_on:
+    if not lat_on and not long_on and not delay_on:
       if long_apply_on and now >= next_save:   # applying from the records needs no live data
         next_save = now + SAVE_S
-        long_apply(params, learner)
+        long_apply(params, learner, delay)
       time.sleep(2.0)  # off: no 100 Hz work on the EON
       continue
     sm.update()
@@ -187,7 +239,13 @@ def main():
       human = (not car_state.cruiseState.enabled and cs.longControlState == LongCtrlState.off and
                car_state.gearShifter == GearShifter.drive)
       learner.update(human, car_state.vEgo, car_state.aEgo, car_state.gasPressed,
-                     bool(lead.status and lead.radar), lead.dRel, lead.vLead)
+                     bool(lead.status and lead.radar), lead.dRel, lead.vLead,
+                     cs.curvature * car_state.vEgo ** 2)
+    if delay_on:
+      # openpilot drives speed (PID, not stopping / starting) and the driver keeps off the pedals
+      op_long = (cs.longControlState == LongCtrlState.pid and car_state.vEgo > 3.0 and
+                 not car_state.gasPressed and not car_state.brakePressed)
+      delay.update(op_long, sm['carControl'].actuators.accel, car_state.aEgo, long_delay)
     if lat_on and cs.lateralControlState.which() == 'torqueState':
       ts = cs.lateralControlState.torqueState
       lane_change = sm['lateralPlan'].laneChangeState != LaneChangeState.off
@@ -201,8 +259,8 @@ def main():
         save(params, tuner)
       if long_on:
         params.put("LongLearnData", json.dumps(learner.to_json(), separators=(",", ":")))
-      if long_apply_on:
-        long_apply(params, learner)
+      if long_apply_on or delay_on:
+        long_apply(params, learner, delay)
       dirty = False
     elif dirty and tuner.updates == 1:
       save(params, tuner)  # the first learned value is used without waiting a minute

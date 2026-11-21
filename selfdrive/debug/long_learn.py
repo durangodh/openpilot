@@ -70,6 +70,20 @@ def main():
   else:
     print("  → 기록이 더 필요합니다")
 
+  print("\n[커브] (커브마다 최대 횡가속)")
+  if "AutoCurveSpeedFactor" in r:
+    print(f"  내 커브 {r['bend_lat_accel']:.2f} m/s² ⇒ 추천 AutoCurveSpeedFactor = {r['AutoCurveSpeedFactor']} "
+          f"(지금 {get_int(params, 'AutoCurveSpeedFactor', 120)})")
+  else:
+    print(f"  → 커브 {c['bends']}/10 개 기록, 더 필요합니다")
+
+  print("\n[앞차 접근 감속] (느린 앞차에 다가가며 최대 감속)")
+  if "ComfortBrake" in r:
+    print(f"  내 접근 감속 {r['approach_decel']:.2f} m/s² ⇒ 추천 ComfortBrake = {r['ComfortBrake']} "
+          f"(지금 {get_int(params, 'ComfortBrake', 250)}, 적용은 지금 값보다 부드러운 쪽만)")
+  else:
+    print(f"  → 접근 {c['approaches']}/8 회 기록, 더 필요합니다")
+
   print("\n[가속] (가속 페달, 1초 평균)")
   print(f"  앞차 없음 {fmt(r['accel_free'], ' m/s²')}, 앞차 가까이 {fmt(r['accel_lead'], ' m/s²')}")
   if params.get_bool("LongLearnApply"):

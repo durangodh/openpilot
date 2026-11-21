@@ -13,6 +13,12 @@ start       Behind a stopped lead: time from the lead moving off to the car movi
             acceleration over the first 2 s.
 accel       1 s mean acceleration while the driver presses the gas and speeds up, with and
             without a close lead.
+bend        Peak lateral acceleration (v^2 * curvature) of each curve the driver takes above
+            8 m/s, held over 1.0 m/s^2 for at least 2 s: how fast they like to corner.
+approach    Peak deceleration of each braking approach to a slower radar lead (closing faster
+            than 2 m/s, braking harder than 0.5 m/s^2), i.e. how hard they brake for traffic.
+long delay  Not a habit: while openpilot drives speed, the lag of aEgo behind the commanded
+            accel that best correlates (LongDelay), like the steering delay.
 """
 from collections import deque
 
@@ -28,6 +34,10 @@ ACCEL_MAX = 600
 MIN_GAP_SAMPLES = 300
 MIN_STOPS = 5
 MIN_STARTS = 5
+BEND_MAX = 200
+MIN_BENDS = 10
+APPROACH_MAX = 200
+MIN_APPROACHES = 8
 
 
 def _median(values):
@@ -44,6 +54,13 @@ class LongLearn:
     self.starts = deque((tuple(x) for x in saved.get("starts", [])), maxlen=START_MAX)
     self.accel_free = deque(saved.get("accel_free", []), maxlen=ACCEL_MAX)
     self.accel_lead = deque(saved.get("accel_lead", []), maxlen=ACCEL_MAX)
+    self.bends = deque(saved.get("bends", []), maxlen=BEND_MAX)
+    self.approaches = deque(saved.get("approaches", []), maxlen=APPROACH_MAX)
+    self.bend_peak = 0.0
+    self.bend_time = 0.0
+    self.bend_quiet = 0.0
+    self.approach_peak = 0.0
+    self.approach_quiet = 0.0
     self.steady = 0.0
     self.next_gap = 0.0
     self.t = 0.0
@@ -58,10 +75,12 @@ class LongLearn:
   def to_json(self):
     return {"gap": [[list(s) for s in band] for band in self.gap], "stops": list(self.stops),
             "starts": list(self.starts), "accel_free": list(self.accel_free),
-            "accel_lead": list(self.accel_lead)}
+            "accel_lead": list(self.accel_lead), "bends": list(self.bends),
+            "approaches": list(self.approaches)}
 
-  def update(self, human, v, a, gas, lead, d_rel, v_lead):
-    """human: the driver controls speed (no openpilot / SCC). lead: a radar lead is present."""
+  def update(self, human, v, a, gas, lead, d_rel, v_lead, lat_accel=0.0):
+    """human: the driver controls speed (no openpilot / SCC). lead: a radar lead is present.
+    lat_accel: v^2 * curvature of the car's path (curves are taken by the driver's speed)."""
     self.t += DT
     if not human:
       self._reset_events()
@@ -70,6 +89,33 @@ class LongLearn:
     self._gap(v, a, lead, d_rel, v_lead)
     self._stop_and_start(v, a, lead, d_rel, v_lead)
     self._accel(v, a, gas, lead and d_rel < 60.0)
+    self._bend(v, lat_accel)
+    self._approach(v, a, lead, d_rel, v_lead)
+
+  def _bend(self, v, lat_accel):
+    lat = abs(lat_accel)
+    if v > 8.0 and 1.0 <= lat < 5.0:
+      self.bend_peak = max(self.bend_peak, lat)
+      self.bend_time += DT
+      self.bend_quiet = 0.0
+    elif self.bend_peak > 0.0:
+      self.bend_quiet += DT
+      if self.bend_quiet >= 1.0 or v <= 8.0:
+        if self.bend_time >= 2.0:
+          self.bends.append(round(self.bend_peak, 2))
+        self.bend_peak = self.bend_time = self.bend_quiet = 0.0
+
+  def _approach(self, v, a, lead, d_rel, v_lead):
+    closing = lead and v > 5.0 and v_lead < v - 2.0 and d_rel < 120.0
+    if closing and a < -0.5:
+      self.approach_peak = max(self.approach_peak, -a)
+      self.approach_quiet = 0.0
+    elif self.approach_peak > 0.0:
+      self.approach_quiet += DT
+      if self.approach_quiet >= 1.0:
+        if self.approach_peak < 6.0:   # not an emergency stop
+          self.approaches.append(round(self.approach_peak, 2))
+        self.approach_peak = self.approach_quiet = 0.0
 
   def _reset_events(self):
     self.steady = 0.0
@@ -78,6 +124,8 @@ class LongLearn:
     self.stop_logged = False
     self.waiting_lead = self.start_t = None
     self.accel_window = []
+    self.bend_peak = self.bend_time = self.bend_quiet = 0.0
+    self.approach_peak = self.approach_quiet = 0.0
 
   def _gap(self, v, a, lead, d_rel, v_lead):
     band = next((i for i, (lo, hi) in enumerate(GAP_BANDS) if lo <= v < hi), None)
@@ -154,6 +202,18 @@ class LongLearn:
       out["start_accel"] = _median([s[1] for s in self.starts])
     out["accel_free"] = _median(self.accel_free)
     out["accel_lead"] = _median(self.accel_lead)
+    out["counts"]["bends"] = len(self.bends)
+    out["counts"]["approaches"] = len(self.approaches)
+    if len(self.bends) >= MIN_BENDS:
+      # The vision cap drives curves at TARGET_LAT_ACCEL / AutoCurveSpeedFactor (1.9 / 1.2 = 1.58);
+      # the driver's typical peak gives the factor that corners like them.
+      bend = float(np.median(self.bends))
+      out["bend_lat_accel"] = round(bend, 2)
+      out["AutoCurveSpeedFactor"] = int(round(float(np.clip(1.9 / bend, CURVE_FACTOR_BOUNDS[0], CURVE_FACTOR_BOUNDS[1])) * 100))
+    if len(self.approaches) >= MIN_APPROACHES:
+      approach = float(np.median(self.approaches))
+      out["approach_decel"] = round(approach, 2)
+      out["ComfortBrake"] = int(round(float(np.clip(approach, COMFORT_BRAKE_BOUNDS[0], COMFORT_BRAKE_BOUNDS[1])) * 100))
     return out
 
 
@@ -161,6 +221,9 @@ class LongLearn:
 # Only the two settings with a direct meaning are applied, with floors the driver's habit can
 # never go under: a human looking far ahead is safer at a given gap than the radar/camera MPC.
 T_FOLLOW_BOUNDS = (1.2, 2.5)     # s
+CURVE_FACTOR_BOUNDS = (0.9, 2.0)  # AutoCurveSpeedFactor x0.01: 0.9 -> at most 2.1 m/s^2 in curves
+CURVE_FACTOR_DOWN = 0.02          # per step: faster curves only slowly; slower at once
+COMFORT_BRAKE_BOUNDS = (1.5, 4.0)  # m/s^2 (the planner's own range)
 STOP_BOUNDS = (3.5, 10.0)        # m
 T_FOLLOW_DOWN = 0.02             # s per step (a minute); longer gaps apply at once
 STOP_DOWN = 0.2                  # m per step; longer distances apply at once
@@ -170,7 +233,7 @@ def _toward(applied, target, down):
   return target if target >= applied else max(target, applied - down)
 
 
-def apply_step(applied, rec, gap_now, t_follow_now, stop_now):
+def apply_step(applied, rec, gap_now, t_follow_now, stop_now, curve_now=None, comfort_now=None):
   """applied: the previous LongLearnApplied dict (or {}). Returns the new one.
   The gap a learned time belongs to is the one in use; a different gap starts from its setting."""
   out = {"gap": gap_now}
@@ -186,4 +249,81 @@ def apply_step(applied, rec, gap_now, t_follow_now, stop_now):
   if rec.get("stop_distance_m") is not None and rec.get("StopDistance") is not None:
     out["stop_distance"] = round(float(np.clip(_toward(stop_prev, rec["StopDistance"] / 100.0, STOP_DOWN),
                                                *STOP_BOUNDS)), 3)
+  if curve_now is not None and rec.get("AutoCurveSpeedFactor") is not None:
+    # a larger factor corners slower: that side applies at once, a faster one 0.02 per step,
+    # and never faster than 2.1 m/s^2 (or the driver's own setting if already faster)
+    prev = applied.get("curve_factor", curve_now)
+    target = rec["AutoCurveSpeedFactor"] / 100.0
+    new = target if target >= prev else max(target, prev - CURVE_FACTOR_DOWN)
+    out["curve_factor"] = round(float(np.clip(new, min(CURVE_FACTOR_BOUNDS[0], curve_now), CURVE_FACTOR_BOUNDS[1])), 3)
+  if comfort_now is not None and rec.get("ComfortBrake") is not None:
+    # only ever gentler / earlier than the setting: a driver who brakes late is not copied
+    out["comfort_brake"] = round(float(np.clip(min(comfort_now, rec["ComfortBrake"] / 100.0),
+                                               *COMFORT_BRAKE_BOUNDS)), 3)
   return out
+
+
+# ── openpilot long response delay (LongAutoDelay) ────────────────────────────
+LONG_DELAY_WINDOW_S = 10.0
+LONG_DELAY_SEARCH = (0.0, 1.0)
+LONG_DELAY_MIN_STD = 0.15       # m/s^2 of commanded accel in the window
+LONG_DELAY_MIN_WINDOWS = 10
+LONG_DELAY_BOUNDS = (0.2, 0.8)  # s (longcontrol accepts 0.1-1.0)
+LONG_DELAY_STEP = 0.02          # s per evaluation
+LONG_DELAY_EVAL_S = 30.0
+
+
+class LongDelay:
+  """Lag of aEgo behind the commanded accel while openpilot drives speed."""
+
+  def __init__(self, applied=None):
+    n = int(LONG_DELAY_WINDOW_S / DT)
+    self.cmd = deque(maxlen=n)
+    self.act = deque(maxlen=n)
+    self.estimate = None
+    self.windows = 0
+    self.applied = None if applied is None else float(np.clip(applied, *LONG_DELAY_BOUNDS))
+    self.t = 0.0
+    self.next_eval = LONG_DELAY_EVAL_S
+
+  def update(self, active, cmd, a_ego, delay_now):
+    self.t += DT
+    if active:
+      self.cmd.append(cmd)
+      self.act.append(a_ego)
+    else:
+      self.cmd.clear()
+      self.act.clear()
+    if self.t < self.next_eval:
+      return
+    self.next_eval = self.t + LONG_DELAY_EVAL_S
+    lag = self._measure()
+    if lag is not None:
+      self.estimate = lag if self.estimate is None else 0.8 * self.estimate + 0.2 * lag
+      self.windows += 1
+    if self.estimate is not None and self.windows >= LONG_DELAY_MIN_WINDOWS:
+      target = float(np.clip(self.estimate, *LONG_DELAY_BOUNDS))
+      prev = delay_now if self.applied is None else self.applied
+      self.applied = round(prev + float(np.clip(target - prev, -LONG_DELAY_STEP, LONG_DELAY_STEP)), 3)
+
+  def _measure(self):
+    if len(self.cmd) < self.cmd.maxlen:
+      return None
+    cmd = np.array(self.cmd)[::2]       # 50 Hz is plenty for a 0.02 s step search
+    act = np.array(self.act)[::2]
+    if np.std(cmd) < LONG_DELAY_MIN_STD:
+      return None
+    cmd = cmd - cmd.mean()
+    act = act - act.mean()
+    best, best_lag = -1.0, None
+    step = 2 * DT
+    for k in range(int(LONG_DELAY_SEARCH[0] / step), int(LONG_DELAY_SEARCH[1] / step) + 1):
+      a = cmd[:len(cmd) - k] if k else cmd
+      b = act[k:]
+      denom = np.linalg.norm(a) * np.linalg.norm(b)
+      if denom <= 0:
+        continue
+      c = float(np.dot(a, b) / denom)
+      if c > best:
+        best, best_lag = c, k * step
+    return best_lag if best > 0.6 else None
