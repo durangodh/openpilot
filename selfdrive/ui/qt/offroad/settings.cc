@@ -1230,7 +1230,7 @@ NooPanel::NooPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(new ParamValueControlF(
       "NooMode", "NOO MODE",
-      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
+      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 회전감속 / 1: 회전조향 + 조기 차로준비 (회전감속 없음) / 2: 조기 차로준비만 / 3: 회전감속만",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "NooTurnSpeed", "NOO TURN SPEED",
@@ -1252,7 +1252,7 @@ NooPanel::NooPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamValueControlF(
       "LaneChangeNeedTorque", "NOO·리모컨 차선변경 시작 방식 (캐럿)",
       "NOO(내비 연동)와 리모컨의 가상 깜빡이 차선변경 시작 조건입니다. -1: NOO·리모컨 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
-      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
+      "※ NOO MODE 가 3(회전감속만)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
       "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "RemoteLaneChangeDelay", "REMOTE LANE CHANGE DELAY",

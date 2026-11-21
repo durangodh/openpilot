@@ -422,8 +422,10 @@ class DesireHelper:
     # side-geometry work in DesireHelper when it cannot affect lateral control.
     noo_available = self.noo_enabled and lateral_active and self.noo_mode != 3
     # NooMode keeps lateral and longitudinal ATC selectable independently.
+    # 0: turn steering + lane changes + turn decel, 1: turn steering + lane changes (no decel),
+    # 2: lane changes only, 3: turn decel only.
     noo_lane_change_available = (noo_available and self.lane_change_enabled
-                                 and self.noo_mode in (0, 2)
+                                 and self.noo_mode in (0, 1, 2)
                                  and self.lane_change_need_torque >= 0)
     noo_steering = (noo_available and not carstate.brakePressed
                     and self.noo_mode in (0, 1))
