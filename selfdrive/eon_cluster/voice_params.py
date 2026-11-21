@@ -14,6 +14,7 @@ Reply   : HUDPRM1R {"id": "...", "ok": true|false, ...}
 import json
 import os
 import re
+import time
 import unicodedata
 
 PREFIX = b"HUDPRM1 "
@@ -71,6 +72,29 @@ def _int(raw, default):
     return int(float(str(raw).strip()))
   except (TypeError, ValueError):
     return default
+
+
+WINDOW_IDS = {"driver": "1", "passenger": "2", "rear_left": "3", "rear_right": "4", "all": "A"}
+WINDOW_ACTIONS = {"down": "D", "up": "U", "stop": "S"}
+
+
+def window_request(window, action, path=None, clock=time.time):
+  """AI car_window -> the ESP32 window command file read by bcan_blinker (bcan_blinker_core)."""
+  if window not in WINDOW_IDS or action not in WINDOW_ACTIONS:
+    return {"ok": False, "error": "창문(driver/passenger/rear_left/rear_right/all)과 동작(down/up/stop)을 확인하세요."}
+  from selfdrive.eon_cluster.bcan_blinker_core import WINDOW_FILE
+  path = path or WINDOW_FILE
+  cmd = "W" + WINDOW_IDS[window] + WINDOW_ACTIONS[action]
+  now = clock()
+  try:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+      json.dump({"cmd": cmd, "ts": now, "id": f"voice-{now:.3f}"}, f)
+    os.replace(tmp, path)
+  except OSError as e:
+    return {"ok": False, "error": "창문 명령 전달 실패: %s" % e}
+  note = {"down": "끝까지 내려가는 중", "up": "1.5초 올림(더 올리려면 다시)", "stop": "멈춤"}[action]
+  return {"ok": True, "cmd": cmd, "note": note}
 
 
 class VoiceParams:
@@ -224,6 +248,8 @@ class VoiceParams:
       out = self.set(req.get("name"), req.get("value"), moving)
     elif op == "press":
       out = self.press(req.get("cmd"), press)
+    elif op == "window":
+      out = window_request(req.get("window"), req.get("action"))
     elif op in ("system_check", "system", "system_status"):
       if system is None or system_state is None:
         out = {"ok": False, "error": "시스템 작업 경로 없음"}

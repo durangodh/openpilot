@@ -230,3 +230,15 @@ def test_window_requests(tmp_path):
     json.dump({"cmd": "WAS", "ts": 90.0, "id": "c"}, f)
   assert src.poll() is None                         # stale
   assert command_packet(5, "W1U") == b"DHBL1 5 W1U"
+
+
+def test_voice_window_request(tmp_path):
+  import json
+  from selfdrive.eon_cluster.bcan_blinker_core import WindowRequestSource
+  from selfdrive.eon_cluster.voice_params import window_request
+  path = str(tmp_path / "win.json")
+  assert window_request("passenger", "down", path, clock=lambda: 50.0)["cmd"] == "W2D"
+  assert WindowRequestSource(path, clock=lambda: 50.5).poll() == "W2D"
+  assert window_request("all", "stop", path)["ok"]
+  assert not window_request("roof", "down", path)["ok"]
+  assert json.load(open(path))["cmd"] == "WAS"
