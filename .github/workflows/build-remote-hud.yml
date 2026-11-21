@@ -119,9 +119,11 @@ jobs:
           REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
           # The in-app updater only offers a higher versionCode. A fixed 191 made every new build
           # look "already latest" (2026-11-22); count up with the workflow run instead.
-          REMOTE_HUD_VERSION_CODE: ${{ 1000 + github.run_number }}
-          REMOTE_HUD_VERSION_NAME: 1.80-r${{ github.run_number }}
-        run: gradle :app:assembleDebug --stacktrace
+        run: |
+          # (expressions cannot add numbers, so the shell does it)
+          export REMOTE_HUD_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          export REMOTE_HUD_VERSION_NAME="1.80-r${GITHUB_RUN_NUMBER}"
+          gradle :app:assembleDebug --stacktrace
       - name: Verify existing HUD signing certificate
         run: |
           python3 - <<'PY'
