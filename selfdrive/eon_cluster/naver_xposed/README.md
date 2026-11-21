@@ -51,6 +51,34 @@ updated in place with the original package.
   off Play Store auto-update for Naver Map is still recommended so a new
   version can be checked before driving.
 
+## Naver Map 6.12.2.4 check (2026-11-21, static analysis)
+
+The NAVER-signed 6.12.2.4 bundle (version code 61202003, certificate SHA-256
+`0b8b8523…b227bb`, bundle SHA-256 `4805ae91…dc83`) was decompiled with jadx and
+every name this module uses was checked against it. Nothing was run on a phone yet.
+
+- Unchanged and working by name: `NaviStore` (getters still found by return type:
+  `TbtData` G0, `GuidanceRemaining` u0, `GuidePoint` P, `AddressAndRoadNameData` C,
+  `NaviLaneItem` T, `TrafficSignalInfo` I0, `GuidanceTrafficStatus` J0,
+  `CurrentRoute` K, `MatchedLinkInfo` U, `NaviState` d0, safety x0/y0/z0),
+  `TbtData.e/f`, `TbtItem.h/i`, `TbtDataItem.s/v/n`, `AddressAndRoadNameData.f/a`,
+  `MatchedLinkInfo.h`, `CurrentRoute.e().j().getPathPoints()`, `NaviLaneItem.g/k`,
+  `SignalInfo.g/j/i`, `TrafficSignalInfo.h/k`, the junction path through
+  `NaverNaviUI`/`GuidanceControl`, `MapProvider.i`, `MapView.a0.f`, `MapSurface`
+  lifecycle (h/f/n/l/r/q/s/k/o/i), `Overlay.o`, `CameraUpdate.x/q`,
+  `NaverMap.Y0/C1/p2/m0`, `NaviCarvatarIconManager.b`, `NaverMapWrapper.b0/c0`
+  (icon setter `A`, found by shape), `OverlayImage.i/j`, zoom methods
+  (`NaverMap.M/C1`, `NativeMapView.h0/p`, found by shape).
+- Removed in 6.12 (the screens moved to Compose): `NaviLaneControlView`,
+  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The lane-strip and
+  signal-view captures fall back to the module's own drawing from data; the
+  Clova voice-button hook stays off (only on 6.10.0.16).
+- Fixed: `TrafficSignalInfo.j()` is the junction id (`mid`), not a distance, so
+  `traffic_signal.distance_m` carried an id. The distance now comes from the
+  `GuidanceTrafficSignal` passed to NaviStore's signal builder (found by shape,
+  6.12 name `z`); when it is missing the module sends -1 and EON's signal assist
+  stays off.
+
 ## Map source: phone map snapshots
 
 The HUD map is a snapshot of the phone map (guidance map, else the visible

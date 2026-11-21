@@ -687,6 +687,56 @@ final class NaverBridge {
         return 0;
     }
 
+    // 신호등 거리: NaverHudModule.hookSignalDistance 가 채운다(GuidanceTrafficSignal 의 거리, m).
+    private static volatile double signalDistanceM = -1;
+    private static volatile int signalMid = Integer.MIN_VALUE;
+    private static volatile long signalDistanceAt;
+    private static final long SIGNAL_DISTANCE_FRESH_MS = 2000;
+    private static final java.util.regex.Pattern DISTANCE_TEXT =
+            java.util.regex.Pattern.compile("distance=([0-9]+(?:\\.[0-9]+)?)");
+
+    static void onSignalDistance(Object guidanceSignal) {
+        if (guidanceSignal == null) {
+            signalDistanceM = -1;
+            return;
+        }
+        double distance = -1;
+        for (Method m : guidanceSignal.getClass().getMethods()) {
+            // getDistance-Y4BO_gI (값 클래스라 이름이 꾸며진다). 인자 없는 double 만.
+            if (m.getName().startsWith("getDistance") && m.getParameterTypes().length == 0
+                    && m.getReturnType() == double.class) {
+                try {
+                    m.setAccessible(true);
+                    distance = (Double) m.invoke(guidanceSignal);
+                } catch (Throwable ignored) { }
+                break;
+            }
+        }
+        signalMid = (int) NaverCodes.number(call(call(guidanceSignal, "getInfo"), "getMid"));
+        signalDistanceM = Double.isFinite(distance) && distance >= 0 ? distance : -1;
+        signalDistanceAt = android.os.SystemClock.elapsedRealtime();
+    }
+
+    /**
+     * 신호등까지 거리(m), 모르면 -1. EON 은 -1 이면 신호 보조를 쓰지 않는다.
+     * 1) hookSignalDistance 가 같은 교차로(mid)로 2초 안에 받은 거리
+     * 2) 예전 버전처럼 객체 글자에 distance= 가 있으면 그 값
+     */
+    private static double signalDistance(Object item) {
+        long age = android.os.SystemClock.elapsedRealtime() - signalDistanceAt;
+        if (signalDistanceAt > 0 && age >= 0 && age <= SIGNAL_DISTANCE_FRESH_MS && signalDistanceM >= 0
+                && (int) NaverCodes.number(call(item, "j")) == signalMid) {
+            return signalDistanceM;
+        }
+        java.util.regex.Matcher m = DISTANCE_TEXT.matcher(String.valueOf(item));
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) { }
+        }
+        return -1;
+    }
+
     private static String signal(Object item) {
         if (item == null) return "null";
         List<?> signals = asList(call(item, "k"));
@@ -698,7 +748,7 @@ final class NaverBridge {
                     .append(",\"state\":").append(quote(String.valueOf(call(e, "j"))))
                     .append(",\"remaining_sec\":").append((int) NaverCodes.number(call(e, "i"))).append('}');
         }
-        return "{\"source\":\"NAVER\",\"distance_m\":" + (int) NaverCodes.number(call(item, "j"))
+        return "{\"source\":\"NAVER\",\"distance_m\":" + (int) Math.round(signalDistance(item))
                 + ",\"blink\":" + Boolean.TRUE.equals(call(item, "h")) + ",\"signals\":" + entries.append(']') + "}";
     }
 

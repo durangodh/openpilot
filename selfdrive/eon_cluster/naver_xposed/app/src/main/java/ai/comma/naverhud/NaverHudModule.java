@@ -52,6 +52,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             bridge = new NaverBridge(app);
                             bridge.start();
                             hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));
+                            hooks += safeHook("SignalDistance", () -> hookSignalDistance(target.classLoader));
                             hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));
                             hooks += safeHook("LaneView", () -> hookLaneView(target.classLoader));
@@ -119,6 +120,39 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                 }
             }
         });
+    }
+
+    /**
+     * 신호등까지 거리(읽기 전용). 6.12.2.4 의 TrafficSignalInfo 에는 거리가 없다(mid=교차로 번호,
+     * 신호 목록, 점멸, 디버그 문자열). 예전처럼 j() 를 거리로 보내면 교차로 번호가 거리로 갔다.
+     * 거리는 NaviStore 가 TrafficSignalInfo 를 만들 때 넘겨받는 GuidanceTrafficSignal 에 있다.
+     * 그 메서드(6.12.2.4 이름 z)를 이름 대신 모양 (GuidanceTrafficSignal, TrafficSignalInfo) ->
+     * TrafficSignalInfo 로 찾아, 들어온 거리와 교차로 번호를 기억한다(하나일 때만).
+     */
+    private static void hookSignalDistance(ClassLoader appLoader) {
+        Class<?> store = XposedHelpers.findClass("com.naver.map.core.navigation.NaviStore", appLoader);
+        Class<?> guidance = XposedHelpers.findClass(
+                "com.naver.maps.navi.v2.api.guidance.model.GuidanceTrafficSignal", appLoader);
+        Class<?> info = XposedHelpers.findClass("com.naver.map.core.navigation.model.TrafficSignalInfo", appLoader);
+        java.lang.reflect.Method target = null;
+        for (java.lang.reflect.Method m : store.getDeclaredMethods()) {
+            Class<?>[] p = m.getParameterTypes();
+            if (m.getReturnType() == info && p.length == 2 && p[0] == guidance && p[1] == info) {
+                if (target != null) throw new IllegalStateException("several signal builders");
+                target = m;
+            }
+        }
+        if (target == null) throw new NoSuchMethodException("signal builder");
+        XposedBridge.hookMethod(target, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    NaverBridge.onSignalDistance(param.args[0]);
+                } catch (Throwable error) {
+                    log("signal distance failed: " + error);
+                }
+            }
+        });
+        NaverHudLog.line("signal distance hook: NaviStore." + target.getName());
     }
 
     /** 폰 차로 표시가 바뀔 때마다 HUD 차로 띠 그림을 다시 뜬다(읽기 전용). */
