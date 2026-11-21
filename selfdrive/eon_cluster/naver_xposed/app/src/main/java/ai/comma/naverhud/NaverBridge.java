@@ -41,6 +41,12 @@ final class NaverBridge {
     private long lastNearAt;
     private String polylineNear = "[]";
     private static final double NEAR_AHEAD_M = 800.0;
+    // 다음 교차로 차로(lane_ahead, 2026-11-21): 6.12 의 경로 데이터(RouteInfo.getLanes)에는 경로 위
+    // 모든 차로 안내 지점의 차로(왼쪽→오른쪽, 권장 여부)가 있다. 차 앞 LANE_AHEAD_M 안의 지점을
+    // 경로를 따라 잰 거리와 함께 최대 4곳 보낸다(티맵 lane_ahead 와 같은 모양).
+    private String laneAhead = "[]";
+    private static final double LANE_AHEAD_M = 2500.0;
+    private static final double LANE_ON_ROUTE_M = 30.0;
     private String congestion = "\"\"";
 
     // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
@@ -270,8 +276,10 @@ final class NaverBridge {
         }
         if (now - lastNearAt >= 1000) {
             polylineNear = guiding ? nearPolyline(s, location) : "[]";
+            laneAhead = guiding ? laneAhead(s, location) : "[]";
             lastNearAt = now;
         }
+        send("lane_ahead", laneAhead);
         send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
                 + NaverCodes.round(NaverCodes.number(call(goal, "distance")))
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
@@ -809,6 +817,99 @@ final class NaverBridge {
             if (along > NEAR_AHEAD_M) break;
         }
         return out.append(']').toString();
+    }
+
+    /**
+     * 차 앞 경로 위의 차로 안내 지점(RouteInfo.getLanes, 6.12.2.4 확인)을 lane_ahead 로 만든다.
+     * 지점 위치를 차 앞 경로(원본 좌표)에 맞춰 경로를 따라 잰 거리를 붙인다. 경로에서
+     * LANE_ON_ROUTE_M 넘게 떨어진 지점(반대 방향·다른 도로)과 차 뒤·바로 앞 30 m 안은 뺀다.
+     * 차로 순서는 네이버 화면과 같은 목록 순서(왼쪽→오른쪽), available 은 getRecommend.
+     */
+    private static String laneAhead(Object store, Object location) {
+        double lat = fieldNumber(location, "latitude");
+        double lon = fieldNumber(location, "longitude");
+        if (!(Math.abs(lat) > 0.1 && Math.abs(lon) > 0.1)) return "[]";
+        Object routeInfo = call(call(value(NaverStore.get(store, "CurrentRoute")), "e"), "j");
+        List<?> path = asList(call(routeInfo, "getPathPoints"));
+        List<?> lanes = asList(call(routeInfo, "getLanes"));
+        int n = path.size();
+        if (n < 2 || lanes.isEmpty()) return "[]";
+        double cosLat = Math.max(0.1, Math.cos(Math.toRadians(lat)));
+        int best = nearestIndex(path, lat, lon, cosLat);
+        if (best < 0) return "[]";
+        // 차 앞 경로 창: 좌표와 경로를 따라 잰 거리.
+        int cap = Math.min(n - best, 3000);
+        double[] wx = new double[cap], wy = new double[cap], along = new double[cap];
+        int count = 0;
+        double sum = 0;
+        for (int i = best; i < n && count < cap; i++) {
+            Object p = path.get(i);
+            double x = (fieldNumber(p, "longitude") - lon) * 111320.0 * cosLat;
+            double y = (fieldNumber(p, "latitude") - lat) * 111320.0;
+            if (count > 0) sum += Math.hypot(x - wx[count - 1], y - wy[count - 1]);
+            wx[count] = x;
+            wy[count] = y;
+            along[count] = sum;
+            count++;
+            if (sum > LANE_AHEAD_M) break;
+        }
+        if (count < 2) return "[]";
+        java.util.TreeMap<Double, String> found = new java.util.TreeMap<>();
+        for (Object lane : lanes) {
+            Object loc = call(lane, "getLocation");
+            double x = (fieldNumber(loc, "longitude") - lon) * 111320.0 * cosLat;
+            double y = (fieldNumber(loc, "latitude") - lat) * 111320.0;
+            if (x * x + y * y > (LANE_AHEAD_M + 100.0) * (LANE_AHEAD_M + 100.0)) continue;
+            int j = -1;
+            double bestD = LANE_ON_ROUTE_M * LANE_ON_ROUTE_M;
+            for (int k = 0; k < count; k++) {
+                double dx = wx[k] - x, dy = wy[k] - y, d = dx * dx + dy * dy;
+                if (d <= bestD) { bestD = d; j = k; }
+            }
+            if (j < 0 || along[j] < 30.0) continue;
+            List<?> units = asList(call(lane, "getUnits"));
+            int lanesCount = Math.min(8, units.size());
+            if (lanesCount < 1) continue;
+            StringBuilder available = new StringBuilder("[");
+            boolean any = false;
+            for (int u = 0; u < lanesCount; u++) {
+                boolean rec = Boolean.TRUE.equals(call(units.get(u), "getRecommend"));
+                any |= rec;
+                if (u > 0) available.append(',');
+                available.append(rec ? 1 : 0);
+            }
+            if (!any) continue;   // 권장 차로가 없는 지점은 차로 준비에 쓸 수 없다
+            found.put(along[j], "{\"source\":\"NAVER_ROUTE\",\"count\":" + lanesCount
+                    + ",\"available\":" + available.append(']')
+                    + ",\"distance_m\":" + NaverCodes.round(along[j]) + "}");
+        }
+        StringBuilder out = new StringBuilder("[");
+        int added = 0;
+        for (String entry : found.values()) {
+            if (added == 4) break;
+            if (added++ > 0) out.append(',');
+            out.append(entry);
+        }
+        return out.append(']').toString();
+    }
+
+    /** 차 위치에서 가장 가까운 경로점 번호, 150 m 넘게 떨어져 있으면 -1. */
+    private static int nearestIndex(List<?> points, double lat, double lon, double cosLat) {
+        int n = points.size();
+        int stride = Math.max(1, n / 300);
+        int best = -1;
+        double bestD = Double.MAX_VALUE;
+        for (int i = 0; i < n; i += stride) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) return -1;
+        int from = Math.max(0, best - stride), to = Math.min(n - 1, best + stride);
+        for (int i = from; i <= to; i++) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return bestD > 150.0 * 150.0 ? -1 : best;
     }
 
     private static double distSq(Object point, double lat, double lon, double cosLat) {

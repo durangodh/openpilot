@@ -233,3 +233,31 @@ def test_outside_the_turn_window_nothing_is_added():
   for distance in (1.0, 80.0):
     lp = planner(2, state=turn_state(near=left_turn_points(), distance=distance))
     assert not run(lp)[0].any()
+
+
+# ── Naver next-junction lanes (lane_ahead from the route's lane points) ─────
+
+def test_naver_route_lane_points_select_the_next_maneuver():
+  # Module output: every lane point ahead, distance along the route from the car.
+  lane_ahead = [
+    {"source": "NAVER_ROUTE", "count": 3, "available": [0, 1, 0], "distance_m": 180.0},   # current junction
+    {"source": "NAVER_ROUTE", "count": 3, "available": [1, 0, 0], "distance_m": 420.0},   # next turn (left)
+    {"source": "NAVER_ROUTE", "count": 4, "available": [0, 0, 0, 1], "distance_m": 1300.0},
+  ]
+  following = {"fresh": True, "direction": -1, "turn_type": 12, "segment": 240.0}  # 180 + 240 = 420 m
+  chosen = NavigationRouteData.select_lane_ahead(lane_ahead, 180.0, following)
+  assert chosen is lane_ahead[1]
+  # Nothing near the next maneuver: no lanes are borrowed from another junction.
+  far = {"fresh": True, "direction": -1, "turn_type": 12, "segment": 2000.0}
+  assert NavigationRouteData.select_lane_ahead(lane_ahead, 180.0, far) is None
+
+
+def test_naver_next_junction_lanes_prepare_the_next_turn():
+  state = noo_state([1, 1, 0], distance=180.0, direction=-1)   # current: lanes 1-2 allowed
+  state["kind"] = "turn"
+  state["next"] = {"fresh": True, "direction": -1, "turn_type": 12, "segment": 240.0}
+  state["lane_ahead_fresh"] = True
+  state["lane_ahead"] = {"source": "NAVER_ROUTE", "count": 3, "available": [1, 0, 0], "distance_m": 420.0}
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  plan = NavigationLaneChangeController.lane_plan(state, ego, 15.0)
+  assert plan["source"] == "ahead" and plan["target"] == 1 and plan["direction"] == -1

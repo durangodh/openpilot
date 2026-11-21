@@ -73,6 +73,11 @@ every name this module uses was checked against it. Nothing was run on a phone y
   `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The lane-strip and
   signal-view captures fall back to the module's own drawing from data; the
   Clova voice-button hook stays off (only on 6.10.0.16).
+- Added: `lane_ahead` from `RouteInfo.getLanes()` (every lane point of the route:
+  location, units left to right, `getRecommend`). Points on the route ahead of the
+  car (within 30 m of it, 30-2500 m along it) with at least one recommended lane are
+  sent with their along-route distance, up to 4, like TMAP's `lane_ahead`; EON picks
+  the one at the next maneuver. Untested on a phone.
 - Fixed: `TrafficSignalInfo.j()` is the junction id (`mid`), not a distance, so
   `traffic_signal.distance_m` carried an id. The distance now comes from the
   `GuidanceTrafficSignal` passed to NaviStore's signal builder (found by shape,

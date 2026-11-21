@@ -295,8 +295,9 @@ class NavigationLaneChangeController:
         return plan
       if source == "current":
         current_plan = plan
-    # Naver/Kakao send no lane guidance for the next maneuver (TMAP's can also
-    # be missing). Prepare for it within the current maneuver's own lanes.
+    # Kakao sends no lane guidance for the next maneuver; TMAP's and Naver's (module
+    # 2026-11-21, from the route's lane points) can be missing too. Prepare for it within
+    # the current maneuver's own lanes.
     if current_plan is not None and proactive and not ahead_lane_present:
       next_plan = cls._next_prepare_plan(state, following, current_plan, next_distance, v_ego)
       if next_plan is not None:
