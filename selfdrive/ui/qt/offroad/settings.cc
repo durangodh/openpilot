@@ -1159,7 +1159,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamValueControlF(
       "NooTurnSpeed", "NOO TURN SPEED",
       "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 20, this));
+      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 30, this));
 
   toggleLayout->addWidget(new ParamValueControlF(
       "NooTurnEndTime", "NOO DECEL TIMING",
@@ -1174,13 +1174,13 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "현재 좌·우회전의 차로 준비를 정차 중에도 대기합니다. 설정 최저속도 미만에서는 10km/h 이상·실제 옆 차로·도로경계·BSD 조건을 모두 확인해야 진입합니다. 왼쪽은 설정과 관계없이 같은 방향 핸들 토크 확인이 필요합니다. 브레이크·반대 조향·경로 이탈·위치 오류 시 진입하지 않습니다. 기본값: 켜짐.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
-      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
+      "LaneChangeNeedTorque", "NOO·리모컨 차선변경 시작 방식 (캐럿)",
+      "NOO(내비 연동)와 리모컨의 가상 깜빡이 차선변경 시작 조건입니다. -1: NOO·리모컨 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
       "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
       "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "RemoteLaneChangeDelay", "REMOTE LANE CHANGE DELAY",
-      "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 기본값: 10.",
+      "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 리모컨 차선변경의 최저속도는 NOO 값이 아니라 조향 탭의 AUTO LANE CHANGE MIN SPEED(기본 50km/h)를 따릅니다. 기본값: 10.",
       "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "NooLaneChangeDelay", "NOO LANE CHANGE DELAY",
