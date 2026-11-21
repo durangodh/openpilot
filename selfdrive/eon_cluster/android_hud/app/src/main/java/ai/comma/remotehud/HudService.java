@@ -7890,7 +7890,7 @@ public final class HudService extends Service {
                 float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
                 // Naver 6.12's lane strip is drawn by our module at the phone box's full height and
                 // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
-                if (navApp == 2) laneH *= 0.65f;
+                if (navApp == 2) laneH *= 0.52f;   // 0.65 was still 20 % too big (2026-11-22)
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
