@@ -82,6 +82,10 @@ def window_request(window, action, path=None, clock=time.time):
   """AI car_window -> the ESP32 window command file read by bcan_blinker (bcan_blinker_core)."""
   if window not in WINDOW_IDS or action not in WINDOW_ACTIONS:
     return {"ok": False, "error": "창문(driver/passenger/rear_left/rear_right/all)과 동작(down/up/stop)을 확인하세요."}
+  if window == "driver":
+    # 2026-11-22 car test: 0x122 only reports the driver's own switch; the driver door motor
+    # does not listen to it (ESP32 answered ok, the window did not move).
+    return {"ok": False, "error": "운전석 창문은 B-CAN 으로 움직일 수 없음. 조수석·뒷좌석만 가능(all 은 이 3개)."}
   from selfdrive.eon_cluster.bcan_blinker_core import WINDOW_FILE
   path = path or WINDOW_FILE
   cmd = "W" + WINDOW_IDS[window] + WINDOW_ACTIONS[action]

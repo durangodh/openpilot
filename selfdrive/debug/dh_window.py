@@ -4,7 +4,7 @@
     python selfdrive/debug/dh_window.py 2 down     # 조수석 앞 끝까지 내림
     python selfdrive/debug/dh_window.py 2 up       # 조수석 앞 1.5초 올림 (반복해서 더 올림)
     python selfdrive/debug/dh_window.py all stop   # 모두 멈춤
-    창문: 1 운전석 앞, 2 조수석 앞, 3 운전석 뒤, 4 조수석 뒤, all 모두
+    창문: 2 조수석 앞, 3 운전석 뒤, 4 조수석 뒤, all 모두 (1 운전석 앞은 B-CAN 으로 안 움직임, 2026-11-22 실차)
     결과: grep window /data/bcan_blinker.log | tail
 """
 import json
