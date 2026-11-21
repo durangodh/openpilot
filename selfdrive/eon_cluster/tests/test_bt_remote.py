@@ -285,3 +285,22 @@ class TestEventLayout(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TestNooToggle(unittest.TestCase):
+  def test_remote_button_toggles_noo_and_labels_the_result(self):
+    params = FakeParams()
+    sync = hr.RemoteCommandSync(params, command_file=tempfile.mktemp(), lane_file=tempfile.mktemp(),
+                                blink_file=tempfile.mktemp())
+    # Accepted like the other settings commands, even with the car off.
+    allowed = hr.allowed_commands(False, False, False, False, False)
+    self.assertIn("noo_toggle", allowed)
+    self.assertEqual(sync.apply("noo_toggle", allowed), "accepted")
+    self.assertEqual(params.store["NavigationOnOpenpilot"], b"1")
+    self.assertEqual(sync.event_status()["cmd"], "NOO 켬")
+    self.assertEqual(sync.apply("noo_toggle", allowed), "accepted")
+    self.assertEqual(params.store["NavigationOnOpenpilot"], b"0")
+    self.assertEqual(sync.event_status()["cmd"], "NOO 끔")
+    # Another command keeps its own label.
+    sync.apply("hud_box", allowed)
+    self.assertEqual(sync.event_status()["cmd"], hr.COMMAND_LABELS["hud_box"])

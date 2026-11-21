@@ -1360,7 +1360,8 @@ NooPanel::NooPanel(QWidget* parent) : QWidget(parent) {
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
       {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
       {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
-      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"}}};
+      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"},
+      {"NOO 켜기 / 끄기", "noo_toggle"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
     // 화면 안에 들어가는 8개만 펼치고, 나머지는 목록을 손가락으로 끌어 스크롤한다.
     actions->setMaxVisibleItems(8);
