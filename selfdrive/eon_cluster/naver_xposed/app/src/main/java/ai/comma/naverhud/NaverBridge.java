@@ -161,6 +161,10 @@ final class NaverBridge {
 
     private void drawLaneOffscreen(Object item) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
+        if (ownLaneStrip || !laneViewClassExists(item)) {
+            drawOwnLaneStrip(item);
+            return;
+        }
         try {
             if (item == null) {
                 if (offscreenLane != null) laneImage.onUpdate(offscreenLane, false);
@@ -198,6 +202,91 @@ final class NaverBridge {
             offscreenLaneFailed = true;
             NaverHudLog.ex("lane view off screen", error);
         }
+    }
+
+    // 6.12+: 네이버 차로 View 가 없어 차로 띠를 직접 그린다(NaverLaneStrip, 같은 lane_bottom 칸).
+    private boolean ownLaneStrip;
+    private NaverLaneStrip laneStrip;
+
+    private boolean laneViewClassExists(Object item) {
+        if (item == null) return offscreenLane != null;
+        try {
+            item.getClass().getClassLoader().loadClass(NaverViewImage.LANE_VIEW_611);
+            return true;
+        } catch (Throwable missing) {
+            ownLaneStrip = true;
+            NaverHudLog.line("lane view: Naver lane view class missing, drawing the lane strip from data");
+            return false;
+        }
+    }
+
+    private void drawOwnLaneStrip(Object item) {
+        try {
+            if (laneStrip == null) {
+                android.content.Context ctx = map.latestActivity();
+                if (ctx == null) {
+                    lastLaneItem = null;   // 다음 변화 때 다시
+                    return;
+                }
+                laneStrip = new NaverLaneStrip(ctx);
+            }
+            List<?> lanes = item == null ? Collections.emptyList() : laneUnits(item);
+            int n = Math.min(NaverLaneStrip.MAX_LANES, lanes.size());
+            int[] dirs = new int[n];
+            boolean[] rec = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                Object entry = lanes.get(i);
+                rec[i] = Boolean.TRUE.equals(call(entry, "getRecommend"));
+                dirs[i] = NaverCodes.laneDirs(String.valueOf(laneGuide(entry)));
+            }
+            laneStrip.set(n, dirs, rec, item == null ? -1 : laneDistance(item));
+            if (n == 0) {
+                laneImage.onUpdate(laneStrip, false);
+                return;
+            }
+            int w = laneStrip.widthPx(), h = laneStrip.heightPx();
+            laneStrip.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            laneStrip.layout(0, 0, w, h);
+            laneImage.padLeft = 0;
+            laneImage.padTop = 0;
+            laneImage.onUpdate(laneStrip, true);
+        } catch (Throwable error) {
+            offscreenLaneFailed = true;
+            NaverHudLog.ex("own lane strip", error);
+        }
+    }
+
+    /**
+     * 차로 목록(왼쪽 → 오른쪽). 6.12 의 k()(NaviLaneUnit)에는 권장 여부가 없어서, getRecommend 가
+     * 있는 원본 목록 j()(RouteLaneUnit)를 먼저 쓴다. 없으면 예전처럼 k() → i() → j().
+     */
+    private static List<?> laneUnits(Object item) {
+        List<?> raw = asList(call(item, "j"));
+        if (!raw.isEmpty() && call(raw.get(0), "getRecommend") != null) return raw;
+        List<?> lanes = asList(call(item, "k"));
+        if (lanes.isEmpty()) lanes = asList(call(item, "i"));
+        if (lanes.isEmpty()) lanes = raw;
+        return lanes;
+    }
+
+    private static Object laneGuide(Object entry) {
+        Object guide = call(entry, "getGuideSet");
+        if (guide == null) guide = call(entry, "g");
+        // Unknown getter on this version: the lane's own text holds its arrow enum names.
+        if (guide == null || NaverCodes.laneDirs(String.valueOf(guide)) == 0) guide = entry;
+        return guide;
+    }
+
+    /** 차로 안내 지점까지 거리(m). 6.12 에는 g() 가 없어 글자(NaviLaneItem(distance=…))에서 먼저 읽는다. */
+    private static double laneDistance(Object item) {
+        java.util.regex.Matcher m = DISTANCE_TEXT.matcher(String.valueOf(item));
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) { }
+        }
+        return NaverCodes.number(call(item, "g"));
     }
 
     /** 메인 스레드: 폰 신호등 표시(NaviTrafficSignalView)가 갱신됐다. */
@@ -563,9 +652,7 @@ final class NaverBridge {
         // The lane list is k() (NaverViewImage.hasItems, the verified 6.11 lane view gate);
         // i()/j() are kept for older versions. Reading i()/j() alone gave no lanes on 6.11, so
         // every junction went out as a crossroads.
-        List<?> lanes = asList(call(item, "k"));
-        if (lanes.isEmpty()) lanes = asList(call(item, "i"));
-        if (lanes.isEmpty()) lanes = asList(call(item, "j"));
+        List<?> lanes = laneUnits(item);
         if (!laneFieldsLogged && !lanes.isEmpty()) {
             laneFieldsLogged = true;
             NaverHudLog.line("lane-fields item=" + item + " | lane0=" + lanes.get(0));
@@ -578,11 +665,9 @@ final class NaverBridge {
         for (int i = 0; i < lanes.size() && i < 8; i++) {
             Object entry = lanes.get(i);
             boolean recommended = Boolean.TRUE.equals(call(entry, "getRecommend"));
-            Object guide = call(entry, "getGuideSet");
-            if (guide == null) guide = call(entry, "g");
             // Unknown getter on this version: the lane's own text holds its arrow enum names
             // (Naver enums print as "Left#1"), which laneDirs/laneTurn read the same way.
-            if (guide == null || NaverCodes.laneDirs(String.valueOf(guide)) == 0) guide = entry;
+            Object guide = laneGuide(entry);
             int turn = NaverCodes.laneTurn(String.valueOf(guide));
             if (recommended) current = i + 1;
             if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
@@ -592,7 +677,7 @@ final class NaverBridge {
             available.append(recommended ? 1 : 0);
         }
         return "{\"source\":\"NAVER\",\"count\":" + Math.min(8, lanes.size())
-                + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(item, "g")))
+                + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(laneDistance(item))
                 + ",\"lanes\":" + details.append(']') + ",\"turn_info\":" + turns.append(']')
                 + ",\"available\":" + available.append(']') + ",\"dirs\":" + dirs.append(']') + "}";
     }

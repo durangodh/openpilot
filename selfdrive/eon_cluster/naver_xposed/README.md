@@ -70,8 +70,17 @@ every name this module uses was checked against it. Nothing was run on a phone y
   (icon setter `A`, found by shape), `OverlayImage.i/j`, zoom methods
   (`NaverMap.M/C1`, `NativeMapView.h0/p`, found by shape).
 - Removed in 6.12 (the screens moved to Compose): `NaviLaneControlView`,
-  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The lane-strip and
-  signal-view captures fall back to the module's own drawing from data.
+  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The signal image is the
+  module's own drawing (`NaverSignal`, unchanged). The lane strip's old fallback also
+  needed `NaviLaneControlView`, so on 6.12 `NaverLaneStrip` draws it from the lane data
+  (cells left to right, recommended lanes blue, arrows from the guide set, distance on
+  top) and sends it through the same `lane_bottom` path, so the HUD position and size
+  are unchanged.
+- Lane data on 6.12: `NaviLaneItem.k()` (`NaviLaneUnit`) has no recommended flag and
+  there is no `g()` distance. The module now reads the raw `j()` (`RouteLaneUnit`, with
+  `getRecommend`/`getGuideSet`) when it has the flag, and the distance from the item's
+  text (`distance=`). Before this, `lane_current` on 6.12 would have had no
+  recommended lanes.
 - Clova voice button on 6.12.2.4 (Compose): `ClovaButtonController` (its screen is
   remembered from the constructor) and the `ClovaButtonKt` composable whose 4th
   argument is the `onClick` (`ClovaButtonController.onClick` = `l()`) are found by
