@@ -142,7 +142,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                 target = m;
             }
         }
-        if (target == null) throw new NoSuchMethodException("signal builder");
+        if (target == null) throw new IllegalStateException("signal builder not found");
         XposedBridge.hookMethod(target, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 try {
