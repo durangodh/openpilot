@@ -66,6 +66,7 @@ def main():
   cancel_seq = None
   blink_requests = BlinkRequestSource()
   window_requests = WindowRequestSource()
+  call_long_seen = None   # ESP32 "cl": steering wheel call button long presses
   window_seq = None
   own_tap_time = None   # monotonic time of our last tap (a cancel clears it)
   hold_enabled = False
@@ -123,6 +124,22 @@ def main():
           dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
           hold_side = None
         hold_seq = None
+      # Call button held 0.8 s (firmware 2026-11-22): open the HUD AI voice assistant, like the
+      # remote's voice button. The first count after (re)connecting is only remembered.
+      cl = parsed.get("cl")
+      if cl is not None:
+        if call_long_seen is not None and cl != call_long_seen and enabled:
+          from selfdrive.eon_cluster.hud_remote import VOICE_FILE, _wake_remote_hud, atomic_json, read_json
+          previous = read_json(VOICE_FILE)
+          vseq = previous.get("seq", 0) if isinstance(previous, dict) else 0
+          vseq = (vseq + 1) % 1000000 if isinstance(vseq, int) else 1
+          try:
+            atomic_json(VOICE_FILE, {"seq": vseq, "ts": time.monotonic(), "mode": "ai"})
+            _wake_remote_hud()
+            dlog.write(f"call button long press: AI voice ({cl})")
+          except OSError as e:
+            dlog.write(f"call button voice failed: {e}")
+        call_long_seen = cl
       if window_seq is not None and parsed["seq"] == window_seq and parsed["res"]:
         dlog.write(f"ESP32 answer window seq {window_seq}: {parsed['res']}")
         window_seq = None

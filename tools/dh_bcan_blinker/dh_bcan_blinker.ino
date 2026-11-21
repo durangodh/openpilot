@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-21" FW_VARIANT
+#define FW_VERSION "2026-11-22" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -178,6 +178,16 @@ static uint8_t winStock[2][8];
 static bool winStockValid[2] = {false, false};
 static uint32_t winStockMs[2] = {0, 0};
 static bool winAbortReq = false;
+
+// Steering wheel call button (0x13C byte0 0x40, 2026-11-22 scan). A press held CALL_LONG_MS
+// counts once in callLong (status "cl"); the EON turns each new count into the HUD AI voice
+// assistant. Short presses stay the car's own phone button.
+#define CALL_ID 0x13C
+#define CALL_BIT 0x40
+#define CALL_LONG_MS 800
+static uint32_t callDownMs = 0;
+static bool callCounted = false;
+static uint16_t callLong = 0;
 static TapState tap = TAP_IDLE;
 static uint8_t tapBits = 0;
 static uint32_t cmdMs = 0, tapStart = 0, lastSend = 0, lastTapEnd = 0;
@@ -274,12 +284,12 @@ bool errRecent(uint32_t now) { return errSeen && now - errMs < ERR_HOLD_MS; }
 void sendStatus(uint32_t now) {
   lastStatus = now;
   if (!wifiUp) return;
-  char buf[260];
+  char buf[320];
   snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
-           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\",\"hf\":%u}",
+           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\",\"hf\":%u,\"cl\":%u}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
            lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount,
-           (unsigned)rxCount, lastCmd, (unsigned)holdFails);
+           (unsigned)rxCount, lastCmd, (unsigned)holdFails, (unsigned)callLong);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -757,6 +767,21 @@ void onFrame(uint32_t now) {  // frame in gRx
   if (m.extd || m.rtr) return;
   scanFrame(m, now);
   if (m.data_length_code < 8) return;
+  if (m.identifier == CALL_ID) {
+    if (m.data[0] & CALL_BIT) {
+      if (!callDownMs) callDownMs = now ? now : 1;
+      if (!callCounted && now - callDownMs >= CALL_LONG_MS) {
+        callCounted = true;
+        callLong++;
+        outf("%9lu  call button long press %u\n", (unsigned long)now, (unsigned)callLong);
+        sendStatus(now);   // tell the EON at once
+      }
+    } else {
+      callDownMs = 0;
+      callCounted = false;
+    }
+    return;
+  }
   if (m.identifier == WIN_ID_PANEL || m.identifier == WIN_ID_FRONT) {
     winFrame(winSlot(m.identifier), m, now);
     return;
