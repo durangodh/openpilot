@@ -206,6 +206,7 @@ public final class HudService extends Service {
     private static final float NAVI_LANE_CX = (NAVI_LANE_LEFT + NAVI_COL_LEFT) / 2f;
     /** 네비모드 차로 띠 높이: 도착정보 바(58)의 1.5배. */
     private static final float NAVI_LANE_H = 87f;
+    private static final float NAVER_LANE_SCALE = 0.65f;
     /** 네비모드 차로 띠: 가로 가운데 = 차량 마커(세 앱 모두 지도 가로 가운데), 아래끝 = INFO_Y(702). */
     private static final float NAVI_LANE_MARKER_CX = NAVI_MAP_RIGHT / 2f;
     private static final float NAVI_LANE_BOTTOM = 702f;
@@ -7888,6 +7889,9 @@ public final class HudService extends Service {
                 float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
                 // 네비모드는 도착정보 바 높이의 1.5배(2026-10-14 요청: 50% 크게).
                 float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
+                // Naver 6.12's lane strip is drawn by our module at the phone box's full height and
+                // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
+                if (navApp == 2) laneH *= NAVER_LANE_SCALE;
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
