@@ -20,6 +20,9 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 public final class NaverHudModule implements IXposedHookLoadPackage {
     private static final String NAVER_PACKAGE = "com.nhn.android.nmap";
     private static final String VERIFIED_VERSION = "6.10.0.16";
+    // 6.12 은 클로바 버튼이 Compose 로 바뀌었다. 이 버전에서만 Compose 용 음성 버튼 훅을 건다
+    // (jadx 로 확인: ClovaButtonController.onClick -> l(), ClovaButtonKt 의 onClick Function0).
+    private static final String VOICE_COMPOSE_VERSION = "6.12.2.4";
     private static final AtomicBoolean attached = new AtomicBoolean(false);
     private static volatile NaverBridge bridge;
     private static final ThreadLocal<Object> composingClova = new ThreadLocal<>();
@@ -81,6 +84,13 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                                     hookVoiceButton(target.classLoader, app);
                                 } catch (Throwable error) {
                                     log("voice hook unavailable: " + error);
+                                }
+                            } else if (VOICE_COMPOSE_VERSION.equals(info.versionName)) {
+                                try {
+                                    hookVoiceButtonCompose(target.classLoader, app);
+                                } catch (Throwable error) {
+                                    log("compose voice hook unavailable: " + error);
+                                    NaverHudLog.line("compose voice hook unavailable: " + error);
                                 }
                             } else {
                                 NaverHudLog.line("voice hook skipped on unverified version");
@@ -265,6 +275,105 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
         log("voice accessibility hook ready, id=" + Integer.toHexString(speechId));
     }
 
+    private static final String CLOVA_CONTROLLER =
+            "com.naver.map.feature.navigation.renewal.clova.ClovaButtonController";
+    private static final String CLOVA_BUTTON_KT =
+            "com.naver.map.feature.navigation.renewal.clova.compose.ClovaButtonKt";
+    // 마지막으로 만들어진 ClovaButtonController 의 화면(Fragment). 누름은 이 화면이 열려 있을 때만.
+    private static volatile java.lang.ref.WeakReference<Object> clovaFragment;
+    private static volatile View composeVoiceHost;
+
+    /**
+     * 6.12: 클로바 버튼이 Compose 라 버튼 자체에 View 가 없다. 엔미러 접근성 서비스가 찾는 id
+     * (btn_speech_recognition)를 단 아주 작은(2x2 px, 거의 투명) View 를 화면 맨 위 구석에 붙이고,
+     * 누르면 네이버가 버튼에 넘긴 onClick(ClovaButtonController.onClick)을 그대로 부른다.
+     * 클래스·메서드는 이름 대신 모양으로 찾고, 하나가 아니면 걸지 않는다.
+     */
+    private static void hookVoiceButtonCompose(ClassLoader appLoader, Context app) {
+        final int speechId = app.getResources().getIdentifier(
+                "btn_speech_recognition", "id", NAVER_PACKAGE);
+        if (speechId == 0) throw new IllegalStateException("Naver voice resource missing");
+        Class<?> controller = XposedHelpers.findClass(CLOVA_CONTROLLER, appLoader);
+        Class<?> buttonKt = XposedHelpers.findClass(CLOVA_BUTTON_KT, appLoader);
+        Class<?> fragmentType = XposedHelpers.findClass("androidx.fragment.app.Fragment", appLoader);
+        Class<?> function0 = XposedHelpers.findClass("kotlin.jvm.functions.Function0", appLoader);
+
+        java.lang.reflect.Field fragmentField = null;
+        for (java.lang.reflect.Field f : controller.getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+            if (fragmentType.isAssignableFrom(f.getType())) {
+                if (fragmentField != null) throw new IllegalStateException("several fragment fields");
+                f.setAccessible(true);
+                fragmentField = f;
+            }
+        }
+        if (fragmentField == null) throw new IllegalStateException("controller fragment field");
+        java.lang.reflect.Method button = null;
+        for (java.lang.reflect.Method m : buttonKt.getDeclaredMethods()) {
+            Class<?>[] p = m.getParameterTypes();
+            if (java.lang.reflect.Modifier.isStatic(m.getModifiers()) && m.getReturnType() == void.class
+                    && p.length >= 4 && p[3] == function0
+                    && "VoiceAssistantSessionViewModel".equals(p[0].getSimpleName())) {
+                if (button != null) throw new IllegalStateException("several clova buttons");
+                button = m;
+            }
+        }
+        if (button == null) throw new IllegalStateException("clova button composable");
+
+        final java.lang.reflect.Field fragmentOf = fragmentField;
+        XposedBridge.hookAllConstructors(controller, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    clovaFragment = new java.lang.ref.WeakReference<>(fragmentOf.get(param.thisObject));
+                } catch (Throwable error) {
+                    log("clova controller capture failed: " + error);
+                }
+            }
+        });
+        XposedBridge.hookMethod(button, new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam param) {
+                Object callback = param.args[3];
+                if (callback == null) return;
+                try {
+                    bindComposeVoice(callback, speechId);
+                } catch (Throwable error) {
+                    log("compose voice bind failed: " + error);
+                }
+            }
+        });
+        log("compose voice accessibility hook ready (" + button.getName() + "), id="
+                + Integer.toHexString(speechId));
+        NaverHudLog.line("compose voice hook ready: ClovaButtonKt." + button.getName());
+    }
+
+    private static void bindComposeVoice(Object callback, int speechId) {
+        java.lang.ref.WeakReference<Object> ref = clovaFragment;
+        Object fragment = ref == null ? null : ref.get();
+        if (fragment == null) return;
+        Object activity = XposedHelpers.callMethod(fragment, "getActivity");
+        if (!(activity instanceof Activity)) return;
+        View decor = ((Activity) activity).getWindow().getDecorView();
+        if (!(decor instanceof android.view.ViewGroup)) return;
+        View host = composeVoiceHost;
+        if (host == null || host.getContext() != activity || host.getParent() == null) {
+            host = new View((Activity) activity);
+            // 접근성은 alpha 0 인 View 를 "안 보임"으로 본다. 아주 작게, 거의 투명하게.
+            host.setAlpha(0.02f);
+            host.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    2, 2, android.view.Gravity.TOP | android.view.Gravity.START);
+            ((android.view.ViewGroup) decor).addView(host, lp);
+            composeVoiceHost = host;
+            NaverHudLog.line("compose voice host attached");
+        }
+        bindVoice(host, callback, speechId);
+        VoiceClick click;
+        synchronized (voiceClicks) {
+            click = voiceClicks.get(host);
+        }
+        if (click != null) click.fragment = ref;
+    }
+
     private static void bindVoice(View host, Object callback, int speechId) {
         host.setId(speechId);
         host.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -283,10 +392,27 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
 
     private static final class VoiceClick implements View.OnClickListener {
         private volatile Object callback;
+        // 6.12 Compose 경로: 버튼을 만든 화면. 그 화면이 붙어 있고 앞에 있을 때만 누른다
+        // (닫힌 화면의 onClick 을 부르면 네이버가 requireContext 에서 죽을 수 있다).
+        private volatile java.lang.ref.WeakReference<Object> fragment;
         private long lastClick = -1L;
 
         @Override public void onClick(View view) {
             if (!view.isAttachedToWindow() || !view.isShown() || !view.isEnabled()) return;
+            java.lang.ref.WeakReference<Object> ref = fragment;
+            if (ref != null) {
+                Object owner = ref.get();
+                try {
+                    if (owner == null || !Boolean.TRUE.equals(XposedHelpers.callMethod(owner, "isAdded"))
+                            || !Boolean.TRUE.equals(XposedHelpers.callMethod(owner, "isResumed"))) {
+                        log("voice click ignored: Clova screen not open");
+                        return;
+                    }
+                } catch (Throwable error) {
+                    log("voice click check failed: " + error);
+                    return;
+                }
+            }
             long now = SystemClock.uptimeMillis();
             if (lastClick >= 0 && now - lastClick < 350L) return;
             lastClick = now;

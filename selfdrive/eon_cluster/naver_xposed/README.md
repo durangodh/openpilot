@@ -71,8 +71,14 @@ every name this module uses was checked against it. Nothing was run on a phone y
   (`NaverMap.M/C1`, `NativeMapView.h0/p`, found by shape).
 - Removed in 6.12 (the screens moved to Compose): `NaviLaneControlView`,
   `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The lane-strip and
-  signal-view captures fall back to the module's own drawing from data; the
-  Clova voice-button hook stays off (only on 6.10.0.16).
+  signal-view captures fall back to the module's own drawing from data.
+- Clova voice button on 6.12.2.4 (Compose): `ClovaButtonController` (its screen is
+  remembered from the constructor) and the `ClovaButtonKt` composable whose 4th
+  argument is the `onClick` (`ClovaButtonController.onClick` = `l()`) are found by
+  shape. A 2x2 px, nearly transparent View with id `btn_speech_recognition` and
+  description `클로바 음성인식` is added to the window's top corner for nMirror's
+  accessibility service; a click runs that onClick only while the Clova screen is
+  added and resumed. Untested in the car.
 - Added: `lane_ahead` from `RouteInfo.getLanes()` (every lane point of the route:
   location, units left to right, `getRecommend`). Points on the route ahead of the
   car (within 30 m of it, 30-2500 m along it) with at least one recommended lane are
