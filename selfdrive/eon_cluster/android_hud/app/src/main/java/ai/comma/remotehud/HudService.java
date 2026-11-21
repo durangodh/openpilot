@@ -5407,21 +5407,35 @@ public final class HudService extends Service {
         int longColor = Color.rgb(184, 240, 154);
         float w = 475f;
         eonBoxRect(c, p, 0f, 0f, w, EON_BOX_H, Color.argb(240, 16, 22, 40), 2f, Color.WHITE);
-        text(c, p, lang("학습", "LEARNING"), 18f, 42f, 28f, muted, Paint.Align.LEFT);
+        // 2026-11-21 요청: "학습" 제목을 빼고 그 자리만큼 안의 글자를 키웠다.
         String lat = null, lng = null;
         for (int i = 0; lines != null && i < lines.length(); i++) {
             String line = lines.optString(i, "");
             if (line.startsWith("LAT")) lat = line;
             else if (line.startsWith("LONG")) lng = line;
         }
-        float y = 62f;
+        float y = 8f;
         y = drawLearnSection(c, p, lat, lang("조향", "STEERING"), latColor, y, muted, white);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
         p.setColor(Color.rgb(90, 105, 140));
         c.drawLine(18f, y + 4f, w - 18f, y + 4f, p);
         p.setStyle(Paint.Style.FILL);
-        drawLearnSection(c, p, lng, lang("롱컨", "LONG"), longColor, y + 14f, muted, white);
+        drawLearnSection(c, p, lng, lang("롱컨", "LONG"), longColor, y + 12f, muted, white);
+    }
+
+    // 학습 상자 글자: 제목 32, 상태 26, 항목 이름 23, 값 34, 한 줄 64. 조향·롱컨 각 3줄까지 496 상자에 들어간다.
+    private static final float LEARN_TITLE = 32f, LEARN_MODE = 26f, LEARN_LABEL = 23f, LEARN_VALUE = 34f;
+    private static final float LEARN_HEAD = 42f, LEARN_ROW = 64f;
+
+    /** 칸 너비를 넘으면 글자 크기를 줄여서 그린다. */
+    private static void fitText(Canvas c, Paint p, String value, float x, float y, float size,
+                                float maxWidth, int color) {
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(size);
+        float width = p.measureText(value);
+        if (width > maxWidth && maxWidth > 0f) size = Math.max(12f, size * maxWidth / width);
+        text(c, p, value, x, y, size, color, Paint.Align.LEFT);
     }
 
     private String learnLabel(String key) {
@@ -5446,17 +5460,17 @@ public final class HudService extends Service {
                                    int muted, int white) {
         float w = 475f;
         if (line == null) {
-            text(c, p, title, 18f, top + 30f, 26f, color, Paint.Align.LEFT);
-            text(c, p, lang("꺼짐", "OFF"), w - 18f, top + 30f, 24f, muted, Paint.Align.RIGHT);
-            return top + 44f;
+            text(c, p, title, 18f, top + 34f, LEARN_TITLE, color, Paint.Align.LEFT);
+            text(c, p, lang("꺼짐", "OFF"), w - 18f, top + 34f, LEARN_MODE, muted, Paint.Align.RIGHT);
+            return top + 48f;
         }
         String[] tokens = line.split("  ");
         String[] head = tokens[0].split(" ");
         String mode = head.length > 1 ? head[1] : "";
         String modeText = mode.equals("auto") || mode.equals("apply") ? lang("적용 중", "APPLIED")
                 : lang("학습만", "LEARNING");
-        text(c, p, title, 18f, top + 30f, 26f, color, Paint.Align.LEFT);
-        text(c, p, modeText, w - 18f, top + 30f, 22f, color, Paint.Align.RIGHT);
+        text(c, p, title, 18f, top + 34f, LEARN_TITLE, color, Paint.Align.LEFT);
+        text(c, p, modeText, w - 18f, top + 34f, LEARN_MODE, color, Paint.Align.RIGHT);
         float cw = (w - 36f) / 2f;
         int n = 0;
         for (int i = 1; i < tokens.length; i++) {
@@ -5466,12 +5480,12 @@ public final class HudService extends Service {
             String key = space > 0 ? token.substring(0, space) : token;
             String value = space > 0 ? token.substring(space + 1) : "";
             float x = 18f + (n % 2) * cw;
-            float y = top + 40f + (n / 2) * 54f;   // 3 rows per learner fit the 496 box
-            text(c, p, learnLabel(key), x, y + 19f, 19f, muted, Paint.Align.LEFT);
-            text(c, p, value, x, y + 47f, 27f, white, Paint.Align.LEFT);
+            float y = top + LEARN_HEAD + (n / 2) * LEARN_ROW;   // 3 rows per learner fit the 496 box
+            fitText(c, p, learnLabel(key), x, y + 22f, LEARN_LABEL, cw - 10f, muted);
+            fitText(c, p, value, x, y + 56f, LEARN_VALUE, cw - 10f, white);
             n++;
         }
-        return top + 40f + ((n + 1) / 2) * 54f;
+        return top + LEARN_HEAD + ((n + 1) / 2) * LEARN_ROW;
     }
 
     private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {
