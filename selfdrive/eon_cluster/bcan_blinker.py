@@ -124,7 +124,7 @@ def main():
           dlog.write(f"hold {hold_side} ended by ESP32: {parsed['res']}")
           hold_side = None
         hold_seq = None
-      # Call button held 0.8 s (firmware 2026-11-22): open the HUD AI voice assistant, like the
+      # Call button press (firmware 2026-11-22b): open the HUD AI voice assistant, like the
       # remote's voice button. The first count after (re)connecting is only remembered.
       cl = parsed.get("cl")
       if cl is not None:
@@ -136,7 +136,7 @@ def main():
           try:
             atomic_json(VOICE_FILE, {"seq": vseq, "ts": time.monotonic(), "mode": "ai"})
             _wake_remote_hud()
-            dlog.write(f"call button long press: AI voice ({cl})")
+            dlog.write(f"call button: AI voice ({cl})")
           except OSError as e:
             dlog.write(f"call button voice failed: {e}")
         call_long_seen = cl

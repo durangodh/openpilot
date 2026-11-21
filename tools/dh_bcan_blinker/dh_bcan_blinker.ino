@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-22" FW_VARIANT
+#define FW_VERSION "2026-11-22b" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -179,12 +179,12 @@ static bool winStockValid[2] = {false, false};
 static uint32_t winStockMs[2] = {0, 0};
 static bool winAbortReq = false;
 
-// Steering wheel call button (0x13C byte0 0x40, 2026-11-22 scan). A press held CALL_LONG_MS
-// counts once in callLong (status "cl"); the EON turns each new count into the HUD AI voice
-// assistant. Short presses stay the car's own phone button.
+// Steering wheel call button (0x13C byte0 0x40, 2026-11-22 scan). Every press counts once in
+// callLong (status "cl"); the EON turns each new count into the HUD AI voice assistant. The
+// driver makes no phone calls with the car, so a short press is enough (CALL_LONG_MS 0).
 #define CALL_ID 0x13C
 #define CALL_BIT 0x40
-#define CALL_LONG_MS 800
+#define CALL_LONG_MS 0
 static uint32_t callDownMs = 0;
 static bool callCounted = false;
 static uint16_t callLong = 0;
@@ -773,7 +773,7 @@ void onFrame(uint32_t now) {  // frame in gRx
       if (!callCounted && now - callDownMs >= CALL_LONG_MS) {
         callCounted = true;
         callLong++;
-        outf("%9lu  call button long press %u\n", (unsigned long)now, (unsigned)callLong);
+        outf("%9lu  call button press %u\n", (unsigned long)now, (unsigned)callLong);
         sendStatus(now);   // tell the EON at once
       }
     } else {
