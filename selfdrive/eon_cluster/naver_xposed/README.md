@@ -73,8 +73,9 @@ every name this module uses was checked against it. Nothing was run on a phone y
   `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The signal image is the
   module's own drawing (`NaverSignal`, unchanged). The lane strip's old fallback also
   needed `NaviLaneControlView`, so on 6.12 `NaverLaneStrip` draws it from the lane data
-  (cells left to right, recommended lanes blue, arrows from the guide set, distance on
-  top) and sends it through the same `lane_bottom` path, so the HUD position and size
+  like the phone's lane box (dark box, dashed separators, gray arrows, the direction to
+  take in green from each `NaviLaneUnit`'s `marking`/`direction`/`recommended`, distance
+  to the right) and sends it through the same `lane_bottom` path, so the HUD position and size
   are unchanged.
 - Lane data on 6.12: `NaviLaneItem.k()` (`NaviLaneUnit`) has no recommended flag and
   there is no `g()` distance. The module now reads the raw `j()` (`RouteLaneUnit`, with

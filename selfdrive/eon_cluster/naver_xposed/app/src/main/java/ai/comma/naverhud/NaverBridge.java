@@ -233,13 +233,13 @@ final class NaverBridge {
             List<?> lanes = item == null ? Collections.emptyList() : laneUnits(item);
             int n = Math.min(NaverLaneStrip.MAX_LANES, lanes.size());
             int[] dirs = new int[n];
-            boolean[] rec = new boolean[n];
+            int[] active = new int[n];
             for (int i = 0; i < n; i++) {
                 Object entry = lanes.get(i);
-                rec[i] = Boolean.TRUE.equals(call(entry, "getRecommend"));
-                dirs[i] = NaverCodes.laneDirs(String.valueOf(laneGuide(entry)));
+                dirs[i] = laneDirsOf(entry);
+                active[i] = laneActive(entry, dirs[i]);
             }
-            laneStrip.set(n, dirs, rec, item == null ? -1 : laneDistance(item));
+            laneStrip.set(n, dirs, active, item == null ? -1 : laneDistance(item));
             if (n == 0) {
                 laneImage.onUpdate(laneStrip, false);
                 return;
@@ -258,16 +258,78 @@ final class NaverBridge {
     }
 
     /**
-     * 차로 목록(왼쪽 → 오른쪽). 6.12 의 k()(NaviLaneUnit)에는 권장 여부가 없어서, getRecommend 가
-     * 있는 원본 목록 j()(RouteLaneUnit)를 먼저 쓴다. 없으면 예전처럼 k() → i() → j().
+     * 차로 목록(왼쪽 → 오른쪽). 6.12 의 k()(NaviLaneUnit)는 폰이 그리는 그대로의 차로다:
+     * guide=Road(marking=LeftStraight, direction=LeftStraightToStraight, recommended=true, …).
+     * 글자에 recommended= 가 있으면 그것을 쓰고, 없으면 getRecommend 가 있는 원본 j()(RouteLaneUnit),
+     * 그것도 아니면 예전처럼 k() → i() → j().
      */
     private static List<?> laneUnits(Object item) {
+        List<?> units = asList(call(item, "k"));
+        if (!units.isEmpty() && String.valueOf(units.get(0)).contains("recommended=")) return units;
         List<?> raw = asList(call(item, "j"));
         if (!raw.isEmpty() && call(raw.get(0), "getRecommend") != null) return raw;
-        List<?> lanes = asList(call(item, "k"));
+        List<?> lanes = units;
         if (lanes.isEmpty()) lanes = asList(call(item, "i"));
         if (lanes.isEmpty()) lanes = raw;
         return lanes;
+    }
+
+    private static final java.util.regex.Pattern LANE_MARKING =
+            java.util.regex.Pattern.compile("marking=([A-Za-z]+)");
+    private static final java.util.regex.Pattern LANE_ACTIVE =
+            java.util.regex.Pattern.compile("direction=([A-Za-z]+)");
+    private static final java.util.regex.Pattern LANE_RECOMMENDED =
+            java.util.regex.Pattern.compile("recommended=(true|false)");
+
+    /** 네이버 차로 모양 이름(LeftStraight, UturnLeft …) → 비트: 1 직진, 2 좌, 4 우, 8 유턴. */
+    static int markingBits(String name) {
+        if (name == null) return 0;
+        int bits = 0;
+        if (name.contains("Uturn")) bits |= 8;
+        if (name.contains("Left")) bits |= 2;
+        if (name.contains("Straight")) bits |= 1;
+        if (name.contains("Right")) bits |= 4;
+        return bits;
+    }
+
+    /** 권장 차로인지. NaviLaneUnit 은 글자의 recommended=, 원본 RouteLaneUnit 은 getRecommend. */
+    private static boolean laneRecommended(Object entry) {
+        java.util.regex.Matcher m = LANE_RECOMMENDED.matcher(String.valueOf(entry));
+        if (m.find()) return "true".equals(m.group(1));
+        return Boolean.TRUE.equals(call(entry, "getRecommend"));
+    }
+
+    /** 차로 화살표 모양 비트. NaviLaneUnit 은 marking=, 그 밖에는 안내 방향 집합(getGuideSet). */
+    private static int laneDirsOf(Object entry) {
+        java.util.regex.Matcher m = LANE_MARKING.matcher(String.valueOf(entry));
+        if (m.find()) return markingBits(m.group(1));
+        return NaverCodes.laneDirs(String.valueOf(laneGuide(entry)));
+    }
+
+    /**
+     * 초록으로 칠할 방향 비트. 권장 차로가 아니면 0. direction=LeftStraightToStraight 처럼
+     * "To" 뒤가 가야 할 방향이고, 방향이 없으면(null) 그 차로의 모든 화살표.
+     */
+    private static int laneActive(Object entry, int dirs) {
+        if (!laneRecommended(entry)) return 0;
+        java.util.regex.Matcher m = LANE_ACTIVE.matcher(String.valueOf(entry));
+        if (m.find()) {
+            String d = m.group(1);
+            int to = d.lastIndexOf("To");
+            int bits = markingBits(to >= 0 ? d.substring(to + 2) : d);
+            if (bits != 0) return bits & (dirs == 0 ? bits : dirs);
+        }
+        return dirs;
+    }
+
+    /** 비트 → laneTurn/laneDirs 가 읽는 방향 글자. */
+    private static String bitsText(int bits) {
+        StringBuilder b = new StringBuilder("[");
+        if ((bits & 1) != 0) b.append("Forward,");
+        if ((bits & 2) != 0) b.append("Left,");
+        if ((bits & 4) != 0) b.append("Right,");
+        if ((bits & 8) != 0) b.append("Backward,");
+        return b.append(']').toString();
     }
 
     private static Object laneGuide(Object entry) {
@@ -664,10 +726,9 @@ final class NaverBridge {
         int current = 1;
         for (int i = 0; i < lanes.size() && i < 8; i++) {
             Object entry = lanes.get(i);
-            boolean recommended = Boolean.TRUE.equals(call(entry, "getRecommend"));
-            // Unknown getter on this version: the lane's own text holds its arrow enum names
-            // (Naver enums print as "Left#1"), which laneDirs/laneTurn read the same way.
-            Object guide = laneGuide(entry);
+            boolean recommended = laneRecommended(entry);
+            // 6.12 NaviLaneUnit: marking= 으로, 그 밖에는 안내 방향 집합으로 화살표를 읽는다.
+            Object guide = bitsText(laneDirsOf(entry));
             int turn = NaverCodes.laneTurn(String.valueOf(guide));
             if (recommended) current = i + 1;
             if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
