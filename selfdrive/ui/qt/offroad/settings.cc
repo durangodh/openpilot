@@ -1259,6 +1259,14 @@ NooPanel::NooPanel(QWidget* parent) : QWidget(parent) {
       "리모컨 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시. 레버의 AUTO LANE CHANGE DELAY와 별개입니다. 리모컨 차선변경의 최저속도는 NOO 값이 아니라 조향 탭의 AUTO LANE CHANGE MIN SPEED(기본 50km/h)를 따릅니다. 기본값: 10.",
       "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "NooRouteSteer", "NOO ROUTE STEER (경로선 회전 보조)",
+      "NOO 회전 직전(60m 안, 50km/h 이하)에 내비 경로선의 모양을 조향에 섞습니다. 0: 끔 / 1: 표시만(화면 아래 map=NN%(표시), 조향은 그대로) / 2: 조향 적용(20km/h 이하 최대 60%, 50km/h에서 0%). 네이버는 NAVER HUD 모듈 업데이트(경로 앞 800m 원본 좌표) 후 정확해집니다. 핸들을 잡거나 반대로 돌리면 바로 꺼집니다. 처음엔 1로 회전마다 표시가 맞는지 확인한 뒤 2로 바꾸세요. 기본값: 0.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooHighwayPrepare", "NOO HIGHWAY EXIT PREPARE (m)",
+      "고속도로(제한속도 80km/h 이상) 진출로(분기)에서 차로 준비를 시작하는 최대 거리(m)입니다. 옮길 차로 수 × 300m + 200m 만큼 앞에서 시작하고 이 값을 넘지 않습니다. 예: 3차로 옮김 → 1100m 지만 설정 1000이면 1000m. 0: 끔(예전처럼 약 350m). 진출 전 다른 출구 전용 차로로 빠지지 않는지 처음엔 지켜보세요. 기본값: 1000.",
+      "../assets/offroad/icon_road.png", 0, 2000, 100, 0, 1000, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "NooLaneChangeDelay", "NOO LANE CHANGE DELAY",
       "NOO(내비 연동) 차선변경: 깜빡이를 켜고 이 시간만큼 기다린 뒤 차선변경을 시작합니다(0.1초 단위, 10 = 1.0초). 0: 즉시(예전 동작). NOO 차선변경 시작 방식이 1(토크 필요)이면 이 값 대신 핸들 토크로 시작합니다. 기본값: 10.",
       "../assets/offroad/icon_road.png", 0, 30, 1, 0, 10, this));

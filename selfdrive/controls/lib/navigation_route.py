@@ -547,7 +547,12 @@ class NavigationRouteData:
     vehicle = cls._lat_lon(state.get("vehicle")) if isinstance(state, dict) else None
     if not isinstance(route, dict) or vehicle is None:
       return None
-    raw_points = route.get("polyline")
+    # Naver also sends polyline_near: the route at full resolution from the car to ~800 m
+    # ahead. Its whole-route polyline is thinned to 500 points, which can cut a junction's
+    # corner on a long route, so the near window is preferred whenever it is present.
+    raw_points = route.get("polyline_near")
+    if not isinstance(raw_points, list) or len(raw_points) < 5:
+      raw_points = route.get("polyline")
     if not isinstance(raw_points, list) or len(raw_points) < 5:
       return None
 

@@ -402,6 +402,12 @@ class DesireHelper:
         noo_lc_speed_kph = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH
       lo, hi = NOO_LANE_CHANGE_SPEED_RANGE_KPH
       self.noo_lane_change_speed_min = max(lo, min(hi, noo_lc_speed_kph)) * CV.KPH_TO_MS
+      # NooHighwayPrepare: how far ahead (m) a highway exit may start its lane preparation; 0 = off.
+      try:
+        highway_m = int(self.params.get('NooHighwayPrepare', encoding='utf8') or '1000')
+      except (TypeError, ValueError):
+        highway_m = 1000
+      self.noo_controller.highway_prepare_m = float(max(0, min(2000, highway_m)))
       try:
         self.auto_lane_change_timer_setting = int(
           self.params.get("AutoLaneChangeTimer", encoding="utf8") or "0")

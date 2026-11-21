@@ -36,6 +36,11 @@ final class NaverBridge {
     private volatile boolean started;
     private long lastPolylineAt;
     private String polyline = "[]";
+    // EON NOO 회전 보조용: 차 위치부터 앞 NEAR_AHEAD_M 까지 원본 해상도 경로점(1초마다).
+    // 전체 경로(polyline)는 최대 500점으로 솎아 내서, 긴 경로에서는 교차로 모서리가 사라진다.
+    private long lastNearAt;
+    private String polylineNear = "[]";
+    private static final double NEAR_AHEAD_M = 800.0;
     private String congestion = "\"\"";
 
     // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
@@ -255,21 +260,26 @@ final class NaverBridge {
 
         Object route = value(NaverStore.get(s, "GuidanceRemaining"));
         Object goal = call(route, "getGoal");
+        Object position = value(NaverStore.get(s, "GuidePoint"));
+        Object location = call(position, "getLocation");
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastPolylineAt >= 5000) {
             polyline = routePolyline(s);
             congestion = congestion(value(NaverStore.get(s, "GuidanceTrafficStatus")));
             lastPolylineAt = now;
         }
+        if (now - lastNearAt >= 1000) {
+            polylineNear = guiding ? nearPolyline(s, location) : "[]";
+            lastNearAt = now;
+        }
         send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
                 + NaverCodes.round(NaverCodes.number(call(goal, "distance")))
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
-                + ",\"polyline\":" + polyline + ",\"congestion\":" + congestion
+                + ",\"polyline\":" + polyline + ",\"polyline_near\":" + polylineNear
+                + ",\"congestion\":" + congestion
                 + ",\"congestion_progress\":" + decimal(congestionProgress(
                         value(NaverStore.get(s, "GuidanceTrafficStatus")), route)) + "}");
 
-        Object position = value(NaverStore.get(s, "GuidePoint"));
-        Object location = call(position, "getLocation");
         Object road = value(NaverStore.get(s, "AddressAndRoadNameData"));
         send("vehicle", "{\"source\":\"NAVER\",\"lat\":" + decimal(fieldNumber(location, "latitude"))
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
@@ -704,6 +714,57 @@ final class NaverBridge {
                     .append(",\"lon\":").append(decimal(fieldNumber(p, "longitude"))).append('}');
         }
         return out.append(']').toString();
+    }
+
+    /**
+     * 차 위치에서 가장 가까운 경로점부터 앞 NEAR_AHEAD_M 까지를 솎지 않고 보낸다(뒤로 5점 포함).
+     * 경로점이 수천 개여도 반사 호출이 많지 않게, 먼저 최대 300점을 건너뛰며 찾고 그 주변만 정밀하게 찾는다.
+     * 차가 경로에서 150 m 넘게 떨어져 있으면 비운다(EON 은 그때 회전 보조를 쓰지 않는다).
+     */
+    private static String nearPolyline(Object store, Object location) {
+        double lat = fieldNumber(location, "latitude");
+        double lon = fieldNumber(location, "longitude");
+        if (!(Math.abs(lat) > 0.1 && Math.abs(lon) > 0.1)) return "[]";
+        List<?> points = asList(call(call(call(value(NaverStore.get(store, "CurrentRoute")), "e"), "j"), "getPathPoints"));
+        int n = points.size();
+        if (n < 2) return "[]";
+        double cosLat = Math.max(0.1, Math.cos(Math.toRadians(lat)));
+        int stride = Math.max(1, n / 300);
+        int best = -1;
+        double bestD = Double.MAX_VALUE;
+        for (int i = 0; i < n; i += stride) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) return "[]";
+        int from = Math.max(0, best - stride), to = Math.min(n - 1, best + stride);
+        for (int i = from; i <= to; i++) {
+            double d = distSq(points.get(i), lat, lon, cosLat);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (bestD > 150.0 * 150.0) return "[]";
+        StringBuilder out = new StringBuilder("[");
+        double along = 0, prevLat = 0, prevLon = 0;
+        for (int i = Math.max(0, best - 5); i < n && i < best + 2000; i++) {
+            Object p = points.get(i);
+            double pLat = fieldNumber(p, "latitude"), pLon = fieldNumber(p, "longitude");
+            if (i > best) {
+                double dy = (pLat - prevLat) * 111320.0, dx = (pLon - prevLon) * 111320.0 * cosLat;
+                along += Math.sqrt(dx * dx + dy * dy);
+            }
+            prevLat = pLat;
+            prevLon = pLon;
+            if (out.length() > 1) out.append(',');
+            out.append("{\"lat\":").append(decimal(pLat)).append(",\"lon\":").append(decimal(pLon)).append('}');
+            if (along > NEAR_AHEAD_M) break;
+        }
+        return out.append(']').toString();
+    }
+
+    private static double distSq(Object point, double lat, double lon, double cosLat) {
+        double dy = (fieldNumber(point, "latitude") - lat) * 111320.0;
+        double dx = (fieldNumber(point, "longitude") - lon) * 111320.0 * cosLat;
+        return dx * dx + dy * dy;
     }
 
     /**

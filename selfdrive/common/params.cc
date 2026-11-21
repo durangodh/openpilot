@@ -249,6 +249,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooUnifiedMigrated", PERSISTENT},
     {"NooTurnSpeed", PERSISTENT},
     {"NooMode", PERSISTENT},
+    {"NooRouteSteer", PERSISTENT},
+    {"NooHighwayPrepare", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
     {"NooLaneChangeSpeed", PERSISTENT},     // NOO 차선준비 최저속도(km/h)
     {"NooTurnPocket", PERSISTENT},         // carrot turn-pocket wait / >=10 km/h start

@@ -57,6 +57,8 @@ def manager_init() -> None:
     ("NavigationOnOpenpilot", "0"),
     ("NooTurnSpeed", "30"),
     ("NooMode", "0"),
+    ("NooRouteSteer", "0"),
+    ("NooHighwayPrepare", "1000"),
     ("EonClusterHudTmapIcon", "0"),
     ("NooTurnEndTime", "6"),
     ("NooLaneChangeSpeed", "30"),
