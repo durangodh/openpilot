@@ -207,6 +207,8 @@ final class NaverBridge {
     // 6.12+: 네이버 차로 View 가 없어 차로 띠를 직접 그린다(NaverLaneStrip, 같은 lane_bottom 칸).
     private boolean ownLaneStrip;
     private NaverLaneStrip laneStrip;
+    // 6.12: 화면의 원본 차로 상자를 잘라 온다. 못 찾으면 위 laneStrip 으로 그린다.
+    private NaverLaneCapture screenLane;
 
     private boolean laneViewClassExists(Object item) {
         if (item == null) return offscreenLane != null;
@@ -239,11 +241,27 @@ final class NaverBridge {
                 dirs[i] = laneDirsOf(entry);
                 active[i] = laneActive(entry, dirs[i]);
             }
-            laneStrip.set(n, dirs, active, item == null ? -1 : laneDistance(item));
+            double meters = item == null ? -1 : laneDistance(item);
+            laneStrip.set(n, dirs, active, meters);
+            if (screenLane == null) {
+                screenLane = new NaverLaneCapture(laneStrip.getContext(), new NaverLaneCapture.Listener() {
+                    @Override public void onCaptured(android.view.View view) {
+                        laneImage.padLeft = 0;
+                        laneImage.padTop = 0;
+                        laneImage.onUpdate(view, true);
+                    }
+
+                    @Override public void onLost() {
+                        drawOwnLaneStrip(lastLaneItem);   // live() 가 false 라 직접 그린 띠
+                    }
+                });
+            }
+            screenLane.update(map.latestActivity(), n, meters);
             if (n == 0) {
                 laneImage.onUpdate(laneStrip, false);
                 return;
             }
+            if (screenLane.live()) return;   // 원본 상자 그림을 이미 보내는 중
             int w = laneStrip.widthPx(), h = laneStrip.heightPx();
             laneStrip.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
                     android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));

@@ -1,0 +1,251 @@
+package ai.comma.naverhud;
+
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.PixelCopy;
+import android.view.View;
+import android.view.Window;
+
+import java.util.Locale;
+
+/**
+ * 네이버 6.12: 화면에 그려진 원본 차로 상자를 그대로 잘라 HUD 로 보낸다(2026-11-22 요청 "네이버지도
+ * 원본 그대로"). 6.12 는 차로 표시를 Compose 로 그려 떼어 올 View 가 없으므로, 네이버 창을
+ * PixelCopy 로 떠서(창 자신의 그림이라 위에 덮인 다른 앱과 상관없다) LaneBoxFinder 로 상자를 찾는다.
+ *
+ * 500ms 마다: 상자 위치를 모르거나 차로 수가 바뀌었거나 3초가 지났으면 창 전체를 절반 크기로 떠서
+ * 찾고, 위치를 알면 그 부분만 원래 해상도로 떠 온다. 남은 거리 글자는 상자 오른쪽에 직접 붙인다
+ * (폰 글자는 지도 위에 있어 같이 자르면 지도가 섞인다).
+ *
+ * 1.5초 넘게 상자를 못 뜨면 lost 를 불러 예전처럼 직접 그린 차로 띠(NaverLaneStrip)로 돌아간다.
+ */
+final class NaverLaneCapture {
+    interface Listener {
+        /** 메인 스레드: 잘라 온 그림이 처음 준비됐다(이후 view 를 보내면 된다). */
+        void onCaptured(View view);
+
+        /** 메인 스레드: 한동안 못 떴다. 직접 그린 띠로 돌아간다. */
+        void onLost();
+    }
+
+    private static final long TICK_MS = 500;
+    private static final long SEARCH_EVERY_MS = 3000;
+    private static final long STALE_MS = 1500;
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Handler worker;
+    private final Listener listener;
+    private final ImageView view;
+    private Activity activity;
+    private int lanes;
+    private String label = "";
+    private boolean running, live, busy, loggedFound, loggedMiss, loggedError;
+    private Rect box;            // 창 좌표(원래 해상도)
+    private int boxLanes;
+    private long searchedAt, capturedAt = -1;
+    private int misses;
+
+    NaverLaneCapture(Context context, Listener listener) {
+        this.listener = listener;
+        this.view = new ImageView(context);
+        HandlerThread t = new HandlerThread("naver-lane-capture");
+        t.start();
+        worker = new Handler(t.getLooper());
+    }
+
+    /** 메인 스레드: 차로 항목이 바뀔 때. n=0 이면 멈춘다. */
+    void update(Activity activity, int n, double meters) {
+        this.activity = activity;
+        this.lanes = n;
+        label = meters < 0 ? "" : meters >= 1000 ? String.format(Locale.US, "%.1fkm", meters / 1000.0)
+                : String.format(Locale.US, "%dm", Math.max(0, Math.round(meters / 10.0) * 10));
+        view.setLabel(label);
+        if (n <= 0 || activity == null) {
+            running = false;
+            live = false;
+            return;
+        }
+        if (!running) {
+            running = true;
+            capturedAt = SystemClock.elapsedRealtime();   // 첫 그림까지 STALE_MS 기다린다
+            main.post(this::tick);
+        }
+    }
+
+    /** 잘라 온 그림을 지금 쓰는 중이면 true. */
+    boolean live() {
+        return live;
+    }
+
+    private void tick() {
+        if (!running) return;
+        long now = SystemClock.elapsedRealtime();
+        if (live && now - capturedAt > STALE_MS) {
+            live = false;
+            listener.onLost();
+        }
+        if (!busy) capture(now);
+        main.postDelayed(this::tick, TICK_MS);
+    }
+
+    private void capture(long now) {
+        Activity a = activity;
+        Window window = a == null || a.isFinishing() ? null : a.getWindow();
+        View decor = window == null ? null : window.peekDecorView();
+        if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0 || !decor.isAttachedToWindow()) return;
+        try {
+            final int n = lanes;
+            if (box == null || boxLanes != n || now - searchedAt > SEARCH_EVERY_MS) {
+                searchedAt = now;
+                final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
+                final Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
+                busy = true;
+                PixelCopy.request(window, small, result -> {
+                    Rect found = null;
+                    if (result == PixelCopy.SUCCESS) {
+                        int[] px = new int[sw * sh];
+                        small.getPixels(px, 0, sw, 0, 0, sw, sh);
+                        int[] r = LaneBoxFinder.find(px, sw, sh, n);
+                        if (r != null) {
+                            found = new Rect(Math.max(0, r[0] * 2 - 4), Math.max(0, r[1] * 2 - 3),
+                                    Math.min(sw * 2, r[2] * 2 + 6), Math.min(sh * 2, r[3] * 2 + 5));
+                        }
+                    }
+                    small.recycle();
+                    final Rect f = found;
+                    final int res = result;
+                    main.post(() -> {
+                        busy = false;
+                        onSearched(f, n, res, sw * 2, sh * 2);
+                    });
+                }, worker);
+            } else {
+                cropBox(window, box);
+            }
+        } catch (Throwable error) {
+            busy = false;
+            if (!loggedError) {
+                loggedError = true;
+                NaverHudLog.ex("lane capture", error);
+            }
+        }
+    }
+
+    private void onSearched(Rect found, int n, int result, int w, int h) {
+        if (found == null) {
+            box = null;
+            misses++;
+            if (!loggedMiss || misses % 120 == 0) {
+                loggedMiss = true;
+                NaverHudLog.line("lane capture: box not found (lanes=" + n + " copy=" + result + " window=" + w + "x" + h
+                        + " misses=" + misses + ")");
+            }
+            return;
+        }
+        if (!loggedFound || box == null || boxLanes != n) {
+            NaverHudLog.line("lane capture: box " + found.toShortString() + " lanes=" + n + " window=" + w + "x" + h);
+            loggedFound = true;
+        }
+        box = found;
+        boxLanes = n;
+        Activity a = activity;
+        if (running && a != null && !a.isFinishing() && a.getWindow() != null) cropBox(a.getWindow(), found);
+    }
+
+    private void cropBox(Window window, final Rect r) {
+        final Bitmap crop = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888);
+        busy = true;
+        PixelCopy.request(window, r, crop, result -> {
+            boolean ok = false;
+            if (result == PixelCopy.SUCCESS) {
+                int[] px = new int[crop.getWidth() * crop.getHeight()];
+                crop.getPixels(px, 0, crop.getWidth(), 0, 0, crop.getWidth(), crop.getHeight());
+                ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
+            }
+            final boolean good = ok;
+            main.post(() -> {
+                busy = false;
+                if (!good) {
+                    crop.recycle();
+                    box = null;      // 다음 틱에 다시 찾는다
+                    return;
+                }
+                capturedAt = SystemClock.elapsedRealtime();
+                view.setImage(crop);
+                if (!live && running) {
+                    live = true;
+                    listener.onCaptured(view);
+                }
+            });
+        }, worker);
+    }
+
+    /** 잘라 온 상자 + 오른쪽 거리 글자. NaverViewImage 가 500ms 마다 이 View 를 그려 보낸다. */
+    static final class ImageView extends View {
+        private static final int TEXT_GAP_FRAC = 5;   // 상자 높이의 1/5
+        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bmpPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        private Bitmap image;
+        private String label = "";
+
+        ImageView(Context context) {
+            super(context);
+            text.setColor(Color.WHITE);
+            text.setFakeBoldText(true);
+            edge.setColor(Color.argb(230, 0, 0, 0));
+            edge.setFakeBoldText(true);
+            edge.setStyle(Paint.Style.STROKE);
+            edge.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        void setLabel(String s) {
+            if (!s.equals(label)) {
+                label = s;
+                relayout();
+            }
+        }
+
+        void setImage(Bitmap b) {
+            Bitmap old = image;
+            image = b;
+            if (old != null && old != b) old.recycle();
+            relayout();
+        }
+
+        private void relayout() {
+            if (image == null) return;
+            int h = image.getHeight();
+            text.setTextSize(h * 0.53f);
+            edge.setTextSize(h * 0.53f);
+            edge.setStrokeWidth(Math.max(2f, h * 0.09f));
+            int w = image.getWidth();
+            if (!label.isEmpty()) w += h / TEXT_GAP_FRAC + (int) Math.ceil(text.measureText(label)) + 4;
+            measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY));
+            layout(0, 0, w, h);
+            invalidate();
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            Bitmap b = image;
+            if (b == null || b.isRecycled()) return;
+            c.drawBitmap(b, 0, 0, bmpPaint);
+            if (label.isEmpty()) return;
+            int h = b.getHeight();
+            Paint.FontMetrics fm = text.getFontMetrics();
+            float y = h / 2f - (fm.ascent + fm.descent) / 2f;
+            float x = b.getWidth() + h / (float) TEXT_GAP_FRAC;
+            c.drawText(label, x, y, edge);
+            c.drawText(label, x, y, text);
+        }
+    }
+}
