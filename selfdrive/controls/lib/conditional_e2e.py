@@ -262,7 +262,9 @@ class ConditionalE2EController:
     # The AI sees green and no car waits right ahead: launch, like the model's start sign.
     if self.stopping and vision_phase == "red":
       raw_start_sign = False
-    elif (self.stopping and vision_phase == "green" and
+    # Also while launching: the car needs a moment to roll, and a model that still sees a stop
+    # must not take the launch back every 0.5 s (prepare abort) while the light is green.
+    elif ((self.stopping or self.prepare) and vision_phase == "green" and
           not (lead_present and radar_lead_distance < E2E_GREEN_LEAD_CLEAR)):
       raw_start_sign = True
     self.stop_sign_count = self.stop_sign_count + 1 if raw_stop_sign else 0

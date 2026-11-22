@@ -101,3 +101,20 @@ def test_green_waits_for_a_car_right_ahead():
   c = stopped_for_signal()
   wait(c, 20, vision_phase="green", lead_present=True, radar_lead_present=True, radar_lead_distance=8.0)
   assert not c.prepare
+
+
+def test_green_launch_survives_the_car_taking_time_to_move():
+  c = stopped_for_signal()
+  wait(c, 6, vision_phase="green")
+  assert c.prepare
+  for _ in range(40):                            # 2 s still at 0 km/h while the car pulls away
+    wait(c, 1, vision_phase="green")
+    assert c.prepare and not c.stopping
+
+
+def test_red_seen_while_the_model_launches_stops_again():
+  c = stopped_for_signal()
+  go(c, 6)                                       # model-only launch, nothing seen
+  assert c.prepare
+  wait(c, 12, vision_phase="red")                # still at 0 km/h and the AI sees red
+  assert c.stopping and not c.prepare
