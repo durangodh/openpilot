@@ -23,6 +23,7 @@ from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, li
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.turn_accel import get_future_curvature, limit_accel_in_future_turns
 from selfdrive.controls.lib.events import Events
+from selfdrive.controls.lib.e2e_stop_log import E2EStopLog
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
                                                     E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
@@ -49,6 +50,8 @@ class LongitudinalPlanner:
     self.experimental_mode_enabled = False
     self.traffic_stop_mode = 2
     self.conditional_e2e = ConditionalE2EController(DT_MDL)
+    # Day-time signal stop tuning: logs automatic and missed stops (/data/e2e_stop.log).
+    self.e2e_stop_log = E2EStopLog(DT_MDL)
     # Navigation C-ITS signal (Naver/Kakao) assists traffic-stop detection.
     self.navigation_route = NavigationRouteData(GUIDE_FILE)
     self.auto_e2e_stopping = False
@@ -195,6 +198,17 @@ class LongitudinalPlanner:
       signal_phase=signal["phase"] if signal else None,
       signal_distance=signal["distance"] if signal else -1.0,
       signal_remaining=signal["remaining"] if signal else -1.0)
+    try:
+      self.e2e_stop_log.update(
+        enabled=active, stopping=self.conditional_e2e.stopping, v_ego=car_state.vEgo,
+        brake_pressed=car_state.brakePressed, gas_pressed=car_state.gasPressed, model_valid=model_valid,
+        model_x=path_stop_x, model_v_end=float(model_msg.velocity.x[-1]) if model_valid else 0.0,
+        model_v0=float(model_msg.velocity.x[0]) if model_valid else 0.0,
+        model_y=float(model_msg.position.y[-1]) if model_valid else 0.0,
+        lead_present=bool(lead_one.status), lead_distance=float(lead_one.dRel),
+        signal_phase=signal["phase"] if signal else None)
+    except Exception:
+      pass
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance
