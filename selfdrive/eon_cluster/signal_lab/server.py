@@ -235,7 +235,7 @@ class Results:
                      'roundtrip_ms': round(age * 1000, 1), 'received_unix_ms': int(time.time() * 1000)}
       self.received_at = now
       if self.output:
-        # Separate file: neither navigation_route nor longitudinal control consumes it.
+        # Candidate file only. Optional APILOT stop-hold reads it behind independent nav/standstill gates.
         dest = Path(self.output)
         tmp = dest.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.latest, ensure_ascii=False), encoding='utf-8')

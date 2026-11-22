@@ -19,3 +19,5 @@ Build tools/LiteRT are pinned by SHA-256 in `dependencies.json`; the Korean mode
 New app code/model are AGPL-3.0; complete app/bridge source is in this repository. Refer to LICENSE, model provenance in assets/THIRD_PARTY_NOTICES.txt and LiteRT license in assets/LiteRT-LICENSE.txt.
 
 0.3은 서버의 중앙 후보 안정화 결과를 표시합니다. 회색 원본 박스와 색상 안정 후보를 구분하며, 내 진행 신호는 미확정입니다. 표시 조건·지연·제약은 `../signal_lab/README.md`를 참고하세요. 시험 남은 시간을 화면에 표시합니다.
+
+0.4 APK는 EON의 선택적 APILOT 정차 유지 보조 설정을 안내합니다. 보조는 이온웹에서 별도로 켜야 하며, 내비 진행 방향 빨강 + 기존 정차 상태 + 안정된 앱 빨강이 모두 필요합니다. 앱은 주행 중 제동이나 초록불 출발 명령을 전송하지 않습니다. 상세 조건과 입력 소실 시 기존 제어로 돌아가는 동작은 `../signal_lab/README.md`를 참고하세요.

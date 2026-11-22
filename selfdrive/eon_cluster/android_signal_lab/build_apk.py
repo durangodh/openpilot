@@ -78,8 +78,8 @@ def main():
        '--output', BUILD / 'dex'] + sorted((BUILD / 'classes').rglob('*.class')) + jars[1:])
   unsigned = BUILD / 'unsigned.apk'
   manifest = ET.parse(ROOT / 'AndroidManifest.xml')
-  manifest.getroot().set('{http://schemas.android.com/apk/res/android}versionCode', os.environ.get('SIGNAL_LAB_VERSION_CODE', '3'))
-  manifest.getroot().set('{http://schemas.android.com/apk/res/android}versionName', os.environ.get('SIGNAL_LAB_VERSION_NAME', '0.3-korea-stable'))
+  manifest.getroot().set('{http://schemas.android.com/apk/res/android}versionCode', os.environ.get('SIGNAL_LAB_VERSION_CODE', '4'))
+  manifest.getroot().set('{http://schemas.android.com/apk/res/android}versionName', os.environ.get('SIGNAL_LAB_VERSION_NAME', '0.4-apilot-hold'))
   manifest.write(BUILD / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
   run([CACHE / 'aapt2', 'link', '-I', CACHE / 'android.jar', '--manifest', BUILD / 'AndroidManifest.xml',
        '-A', ROOT / 'assets', '-o', unsigned])

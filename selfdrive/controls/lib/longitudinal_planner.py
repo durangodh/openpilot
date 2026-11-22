@@ -12,6 +12,7 @@ from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
+from selfdrive.controls.lib.phone_signal_hold import phone_red_hint
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
@@ -173,6 +174,12 @@ class LongitudinalPlanner:
     except Exception:
       signal = None
 
+    # Avoid file work unless the existing APILOT stop and navigation red apply.
+    phone_red = bool(active and self.auto_e2e_enabled and not self.experimental_mode_enabled and
+                     self.traffic_stop_mode == 2 and
+                     self.conditional_e2e.stopping and 0.0 <= car_state.vEgo < .1 and
+                     signal and signal['phase'] == 'red' and 0.0 < signal['distance'] <= 60.0 and
+                     phone_red_hint())
     mode = self.conditional_e2e.update(
       available=active and self.auto_e2e_enabled,
       experimental_mode=self.experimental_mode_enabled,
@@ -194,7 +201,8 @@ class LongitudinalPlanner:
       vision_lead_present=vision_lead_present,
       signal_phase=signal["phase"] if signal else None,
       signal_distance=signal["distance"] if signal else -1.0,
-      signal_remaining=signal["remaining"] if signal else -1.0)
+      signal_remaining=signal["remaining"] if signal else -1.0,
+      phone_red_hint=phone_red)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance

@@ -116,6 +116,7 @@ class ConditionalE2EController:
   def reset(self):
     self.stopping = False
     self.prepare = False
+    self.phone_red_hold_active = False
     self.stop_distance = 0.0
     self.stop_sign_count = 0
     self.start_sign_count = 0
@@ -175,7 +176,8 @@ class ConditionalE2EController:
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
              vision_lead_present, signal_phase=None, signal_distance=-1.0,
-             signal_remaining=-1.0):
+             signal_remaining=-1.0, phone_red_hint=False):
+    self.phone_red_hold_active = False
     if not available:
       self.reset()
       return 'acc'
@@ -250,6 +252,15 @@ class ConditionalE2EController:
     # sustained confirmation that prevent one noisy model frame from launching.
     raw_start_sign = (not raw_stop_sign and model_x > E2E_START_MIN_DISTANCE and
                       (model_v > 5.0 or model_v > model_v0 + 2.0))
+    # A phone colour is never a stopping target or a departure command. Only
+    # veto model-only launch from an already established APILOT standstill,
+    # with independent navigation red for ego's movement. Gas stays in charge.
+    self.phone_red_hold_active = (traffic_stop_mode == 2 and not experimental_mode and self.stopping and
+                                  0.0 <= v_ego < .1 and phone_red_hint is True and
+                                  signal_phase == "red" and 0.0 < signal_distance <= 60.0 and
+                                  not right_blinker and not gas_pressed and not brake_pressed)
+    if self.phone_red_hold_active:
+      raw_start_sign = False
     self.stop_sign_count = self.stop_sign_count + 1 if raw_stop_sign else 0
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker
@@ -304,7 +315,7 @@ class ConditionalE2EController:
         self.prepare_abort_count = 0
         self.mode_release_hold_count = 0
         self.stop_distance = 0.0
-      elif confirmed_lead_before_stop:
+      elif confirmed_lead_before_stop and not self.phone_red_hold_active:
         # The real lead is closer than the model stop line; let ACC follow it.
         self.stopping = False
         self.prepare = False

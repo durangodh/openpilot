@@ -8,6 +8,11 @@ on:
       - 'selfdrive/eon_cluster/android_signal_lab/**'
       - 'selfdrive/eon_cluster/signal_lab/**'
       - '.github/workflows/build-signal-lab.yml'
+      - 'selfdrive/controls/lib/conditional_e2e.py'
+      - 'selfdrive/controls/lib/longitudinal_planner.py'
+      - 'selfdrive/controls/lib/phone_signal_hold.py'
+      - 'selfdrive/controls/lib/tests/test_phone_signal_hold.py'
+      - 'selfdrive/eon_web.py'
 
 concurrency:
   group: signal-lab-${{ github.ref }}
@@ -28,12 +33,14 @@ jobs:
       - name: Check pairing, transport, stale detections and Korean decoding
         run: |
           python3 -m unittest discover -s selfdrive/eon_cluster/signal_lab/tests -v
+          python3 -m pip install pytest==8.4.2
+          python3 -m pytest -q selfdrive/controls/lib/tests/test_conditional_e2e.py selfdrive/controls/lib/tests/test_signal_assist.py selfdrive/controls/lib/tests/test_phone_signal_hold.py
           javac -d "$RUNNER_TEMP/signal-decoder" selfdrive/eon_cluster/android_signal_lab/src/ai/comma/signallab/Decoder.java selfdrive/eon_cluster/android_signal_lab/tests/DecoderCheck.java
           java -cp "$RUNNER_TEMP/signal-decoder" ai.comma.signallab.DecoderCheck
       - name: Build and verify same-signature main-phone APK
         run: |
           export SIGNAL_LAB_VERSION_CODE=$((2000 + GITHUB_RUN_NUMBER))
-          export SIGNAL_LAB_VERSION_NAME="0.3-korea-stable-r${GITHUB_RUN_NUMBER}"
+          export SIGNAL_LAB_VERSION_NAME="0.4-apilot-hold-r${GITHUB_RUN_NUMBER}"
           python3 selfdrive/eon_cluster/android_signal_lab/build_apk.py
       - uses: actions/upload-artifact@v4
         with:
@@ -50,6 +57,12 @@ jobs:
               --title "EON Korean Signal Lab" \
               --notes "Main-phone Korean traffic-light observation. Four-digit pairing. Display only; no vehicle control. Corresponding source is in selfdrive/eon_cluster/android_signal_lab and signal_lab."
           fi
+          cat > "$RUNNER_TEMP/signal-lab-notes.md" <<'NOTES'
+          Korean traffic-light candidate app, four-digit pairing, same trial signature.
+          EON's optional APILOT standstill-hold aid is OFF by default. It only vetoes a model-only departure from an existing standstill when independent navigation red and a stable phone red agree. It does not add AI-only braking or green-light launch. Missing input returns to existing control. See signal_lab/README.md for conditions and limitations. No vehicle testing claimed.
+          Corresponding source: selfdrive/eon_cluster/android_signal_lab, signal_lab and selfdrive/controls/lib/phone_signal_hold.py.
+          NOTES
+          gh release edit signal-lab-auto --notes-file "$RUNNER_TEMP/signal-lab-notes.md"
           gh release upload signal-lab-auto \
             selfdrive/eon_cluster/android_signal_lab/EonSignalLab-Korea-latest.apk \
             selfdrive/eon_cluster/android_signal_lab/EonSignalLab-Korea-latest.apk.sha256 --clobber

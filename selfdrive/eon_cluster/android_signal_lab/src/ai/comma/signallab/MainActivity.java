@@ -33,7 +33,7 @@ public final class MainActivity extends Activity {
         super.onCreate(b);
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(24,20,24,16);layout.setBackgroundColor(Color.rgb(17,24,39));
         TextView title=new TextView(this);title.setText("한국 신호등 · EON 시험");title.setTextColor(Color.WHITE);title.setTextSize(23);layout.addView(title);
-        TextView note=new TextView(this);note.setText("EON 전방 영상을 메인폰에서 분석합니다.\n표시는 후보이며 내 진행 신호는 미확정입니다.\n회색: 원본 · 색상: 중앙 안정 후보\n차량 제어에 사용하지 않는 10분 시험입니다.");note.setTextColor(0xffffcc66);note.setTextSize(14);layout.addView(note);
+        TextView note=new TextView(this);note.setText("EON 전방 영상을 메인폰에서 분석합니다.\n표시는 후보이며 내 진행 신호는 미확정입니다.\n회색: 원본 · 색상: 중앙 안정 후보\nEON 정차 유지 보조는 별도 설정입니다.\n10분 동안 신호 후보를 전송합니다.");note.setTextColor(0xffffcc66);note.setTextSize(14);layout.addView(note);
         host=new EditText(this);host.setTextColor(Color.WHITE);host.setHintTextColor(0xffaab4c4);host.setSingleLine();host.setHint("이온 IP:7799");host.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);host.setText(getSharedPreferences("signal",0).getString("host",""));layout.addView(host);
         token=new EditText(this);token.setTextColor(Color.WHITE);token.setHintTextColor(0xffaab4c4);token.setSingleLine();token.setHint("이온에 표시된 연결 코드 4자리");token.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);token.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4)});String savedCode=getSharedPreferences("signal",0).getString("token","");token.setText(savedCode.matches("[0-9]{4}")?savedCode:"");layout.addView(token);
         LinearLayout buttons=new LinearLayout(this);

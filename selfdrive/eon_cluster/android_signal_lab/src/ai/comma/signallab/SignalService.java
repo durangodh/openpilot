@@ -45,7 +45,7 @@ public final class SignalService extends Service {
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,SignalService.class).setAction("STOP"),PendingIntent.FLAG_IMMUTABLE);
         Notification notification=new Notification.Builder(this,"signal_lab").setSmallIcon(android.R.drawable.ic_menu_view)
-                .setContentTitle("한국 신호등 인식 시험").setContentText("EON 영상 분석 · 차량 제어 미연동")
+                .setContentTitle("한국 신호등 인식 시험").setContentText("EON 영상 분석 · 신호 후보 전송")
                 .setContentIntent(open).addAction(new Notification.Action.Builder(null,"중지",stop).build()).setOngoing(true).build();
         startForeground(71,notification);
     }
