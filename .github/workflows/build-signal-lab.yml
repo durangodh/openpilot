@@ -62,7 +62,7 @@ jobs:
           fi
           cat > "$RUNNER_TEMP/signal-lab-notes.md" <<'NOTES'
           Korean traffic-light app for the S20 HUD phone: analyses EON's road camera and helps EON's automatic signal stop.
-          A stable red (or an amber EON can still stop for) lets weaker model slowing count as a signal stop, and while stopped for it a model-only launch waits. Green departure is the model's own. Gas always wins; stale or missing results leave the stop exactly as before. Switch: EON Web, on by default. Runs every drive after pairing once (starts on phone boot). No vehicle testing claimed.
+          A stable red (or an amber EON can still stop for) lets weaker model slowing count as a signal stop, while stopped for it a model-only launch waits, and a stable green launches again (unless a car waits right ahead). Gas always wins; stale or missing results leave the stop exactly as before. Switch: EON Web, on by default. Runs every drive after pairing once (starts on phone boot). No vehicle testing claimed.
           Corresponding source: selfdrive/eon_cluster/android_signal_lab, signal_lab and selfdrive/controls/lib/korean_signal.py.
           NOTES
           gh release edit signal-lab-auto --notes-file "$RUNNER_TEMP/signal-lab-notes.md"

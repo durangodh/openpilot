@@ -6,11 +6,14 @@ navigation apps have no signal data at many junctions. A stable red (or amber) f
 works like the navigation red in conditional_e2e:
 
   * weaker model slowing is accepted as a signal stop (the stop position is still the model's);
-  * while stopped for the signal, a model-only launch waits as long as the red is seen.
+  * while stopped for the signal, a model-only launch waits as long as the red is seen;
+  * stopped for the signal and green is seen (and no car right ahead): automatic departure, like
+    the model's own start sign (2026-11-22 request). The model's start sign still works too.
 
-Green departure is unchanged (the model's). Red together with a left arrow counts as red unless
-the left blinker is on. Anything stale (> 1 s), unpaired, ambiguous or switched off is ignored,
-so the stop then behaves exactly as before. Gas always wins.
+Red together with a left arrow counts as red going straight and as green with the left blinker;
+a left arrow seen alone only counts with the left blinker (its red may just be missed). Anything
+stale (> 1 s), unpaired, ambiguous or switched off is ignored, so the stop then behaves exactly as
+before. Gas always wins.
 """
 import json
 import math
@@ -45,7 +48,7 @@ def setting(enabled=None, path=ENABLED_FILE):
 
 
 def read_signal(path=RESULT_FILE, now=time.time):
-  """'red', 'yellow', 'green', 'red_left' (red + left arrow), or None."""
+  """'red', 'yellow', 'green', 'red_left' (red + left arrow), 'left' (arrow alone), or None."""
   try:
     with open(path, encoding='utf8') as f:
       raw = f.read(32769)
@@ -67,18 +70,22 @@ def read_signal(path=RESULT_FILE, now=time.time):
       return 'red_left' if 'left' in labels else 'red'
     if 'yellow' in labels:
       return 'yellow'
-    if 'green' in labels or 'left' in labels:
+    if 'green' in labels:
       return 'green'
+    if 'left' in labels:
+      return 'left'
     return None
   except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
     return None
 
 
 def stop_phase(signal, left_blinker):
-  """The phase that matters for ego: red_left is red unless turning left."""
+  """The phase that matters for ego: red_left is red going straight, green turning left."""
   if signal == 'red_left':
-    return None if left_blinker else 'red'
-  if signal in ('red', 'yellow'):
+    return 'green' if left_blinker else 'red'
+  if signal == 'left':
+    return 'green' if left_blinker else None
+  if signal in ('red', 'yellow', 'green'):
     return signal
   return None
 

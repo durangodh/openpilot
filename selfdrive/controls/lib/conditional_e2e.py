@@ -46,6 +46,9 @@ SIGNAL_ASSIST_MODEL_V = 6.0            # m/s, weaker model end speed accepted
 SIGNAL_ASSIST_MODEL_RATIO = 0.85       # or this fraction of the current model speed
 SIGNAL_GREEN_ON_ARRIVAL_MARGIN = 2.0   # s, red that turns green before arrival is ignored
 SIGNAL_AMBER_STOP_DECEL = 3.0          # m/s^2, amber is only a stop if this suffices
+# Korean traffic-light AI green: launch only with no lead closer than this (a queue is left to the
+# lead departure logic).
+E2E_GREEN_LEAD_CLEAR = 20.0
 
 
 def signal_requires_stop(phase, distance, remaining, v_ego):
@@ -255,10 +258,13 @@ class ConditionalE2EController:
     # sustained confirmation that prevent one noisy model frame from launching.
     raw_start_sign = (not raw_stop_sign and model_x > E2E_START_MIN_DISTANCE and
                       (model_v > 5.0 or model_v > model_v0 + 2.0))
-    # Stopped for the signal and the AI still sees red: no model-only launch. Green departure
-    # stays the model's; gas still launches (below).
+    # Stopped for the signal and the AI still sees red: no model-only launch (gas still launches).
+    # The AI sees green and no car waits right ahead: launch, like the model's start sign.
     if self.stopping and vision_phase == "red":
       raw_start_sign = False
+    elif (self.stopping and vision_phase == "green" and
+          not (lead_present and radar_lead_distance < E2E_GREEN_LEAD_CLEAR)):
+      raw_start_sign = True
     self.stop_sign_count = self.stop_sign_count + 1 if raw_stop_sign else 0
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker

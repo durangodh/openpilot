@@ -136,7 +136,7 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <a id="signalLabMonitor" hidden target="_blank" rel="noopener">수신 결과 보기</a>
 <p class="hint">S20의 신호등 앱에 이온 IP:7799와 4자리 코드를 입력합니다.</p>
 <label><input id="phoneSignalHold" type="checkbox" disabled> 한국 신호등 AI 자동 정지 보조 (기본 켜짐)</label>
-<p class="hint">S20 앱이 빨간불(또는 멈출 수 있는 노란불)을 안정적으로 보면, 모델의 약한 감속도 신호 정지로 인정하고 정지 중 빨간불이면 모델만으로는 출발하지 않습니다. 녹색불 출발은 모델 그대로입니다. 가속 페달이 항상 우선합니다.</p></div>
+<p class="hint">S20 앱이 빨간불(또는 멈출 수 있는 노란불)을 안정적으로 보면, 모델의 약한 감속도 신호 정지로 인정하고 정지 중 빨간불이면 모델만으로는 출발하지 않고, 녹색불을 보면 자동으로 다시 출발합니다(바로 앞에 차가 있으면 앞차 출발을 따릅니다). 가속 페달이 항상 우선합니다.</p></div>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
