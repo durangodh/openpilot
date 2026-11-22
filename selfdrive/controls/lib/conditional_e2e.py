@@ -46,9 +46,6 @@ SIGNAL_ASSIST_MODEL_V = 6.0            # m/s, weaker model end speed accepted
 SIGNAL_ASSIST_MODEL_RATIO = 0.85       # or this fraction of the current model speed
 SIGNAL_GREEN_ON_ARRIVAL_MARGIN = 2.0   # s, red that turns green before arrival is ignored
 SIGNAL_AMBER_STOP_DECEL = 3.0          # m/s^2, amber is only a stop if this suffices
-# Korean traffic-light AI green: launch only with no lead closer than this (a queue is left to the
-# lead departure logic).
-E2E_GREEN_LEAD_CLEAR = 20.0
 
 
 def signal_requires_stop(phase, distance, remaining, v_ego):
@@ -119,7 +116,6 @@ class ConditionalE2EController:
   def reset(self):
     self.stopping = False
     self.prepare = False
-    self.ai_stop = False
     self.stop_distance = 0.0
     self.stop_sign_count = 0
     self.start_sign_count = 0
@@ -179,7 +175,7 @@ class ConditionalE2EController:
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
              vision_lead_present, signal_phase=None, signal_distance=-1.0,
-             signal_remaining=-1.0, vision_phase=None):
+             signal_remaining=-1.0):
     if not available:
       self.reset()
       return 'acc'
@@ -191,12 +187,7 @@ class ConditionalE2EController:
 
     # aPilot disables traffic-light stopping in HIGH/FAST mode. Explicit E2E
     # still remains blended, matching ExperimentalMode behavior.
-    # Korean traffic-light AI red/amber (computed again with the model below): FAST keeps the
-    # signal stop for it (2026-11-22). A stop the AI started is finished even if the light drops
-    # out of view for a moment; switching to FAST still cancels a model-only stop as before.
-    ai_red = vision_phase in ("red", "yellow")
-    fast_mode = driving_mode == 4
-    if fast_mode and not (ai_red or (self.ai_stop and (self.stopping or self.prepare))):
+    if driving_mode == 4:
       self.reset()
       self.reason = E2E_REASON_MANUAL if experimental_mode else E2E_REASON_ACC
       return 'blended' if experimental_mode else 'acc'
@@ -216,7 +207,6 @@ class ConditionalE2EController:
     filtered_stop_x = max(0.0, fmean(self.stop_x_history))
     v_ego_kph = v_ego * 3.6
 
-    vision_stop = False
     if v_ego_kph < 1.0:
       raw_stop_sign = model_x < 20.0 and model_v < 10.0
     elif v_ego_kph < 82.0:
@@ -236,11 +226,6 @@ class ConditionalE2EController:
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
       signal_stop = signal_requires_stop(signal_phase, signal_distance, signal_remaining, v_ego)
-      # Korean traffic-light AI (korean_signal): a red, or an amber ego can still stop for before
-      # the model's stop point, accepts the same weaker model slowing. It has no distance, so the
-      # range checks below stay the model's own.
-      vision_stop = (vision_phase == "red" or
-                     (vision_phase == "yellow" and v_ego ** 2 / (2.0 * SIGNAL_AMBER_STOP_DECEL) < model_x))
       if signal_stop:
         distance_cap = max(distance_cap, min(SIGNAL_ASSIST_MAX_DISTANCE,
                                              signal_distance + SIGNAL_ASSIST_MODEL_MARGIN))
@@ -249,17 +234,13 @@ class ConditionalE2EController:
         in_range = in_range and model_x < signal_distance + SIGNAL_ASSIST_MODEL_MARGIN
       straight_stop = (abs(model_y) < 5.0 and
                        (model_v < 3.0 or model_v < model_v0 * 0.7 or
-                        ((signal_stop or vision_stop) and (model_v < SIGNAL_ASSIST_MODEL_V or
+                        (signal_stop and (model_v < SIGNAL_ASSIST_MODEL_V or
                                           model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
-      curve_stop = ((model_v < 3.0 or (vision_stop and model_v < SIGNAL_ASSIST_MODEL_V)) and
+      curve_stop = (model_v < 3.0 and
                     abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
-      # FAST: only the AI's red / amber makes a signal stop.
-      if fast_mode and not vision_stop:
-        straight_stop = curve_stop = False
       raw_stop_sign = in_range and (straight_stop or curve_stop)
     else:
       raw_stop_sign = False
-      vision_stop = False
     # 3 VISION: ACC plus E2E only for a confirmed vision-only lead. No signal
     # stop, so stopping/prepare (and their launch) never start.
     if traffic_stop_mode == 3:
@@ -269,15 +250,6 @@ class ConditionalE2EController:
     # sustained confirmation that prevent one noisy model frame from launching.
     raw_start_sign = (not raw_stop_sign and model_x > E2E_START_MIN_DISTANCE and
                       (model_v > 5.0 or model_v > model_v0 + 2.0))
-    # Stopped for the signal and the AI still sees red: no model-only launch (gas still launches).
-    # The AI sees green and no car waits right ahead: launch, like the model's start sign.
-    if self.stopping and vision_phase == "red":
-      raw_start_sign = False
-    # Also while launching: the car needs a moment to roll, and a model that still sees a stop
-    # must not take the launch back every 0.5 s (prepare abort) while the light is green.
-    elif ((self.stopping or self.prepare) and vision_phase == "green" and
-          not (lead_present and radar_lead_distance < E2E_GREEN_LEAD_CLEAR)):
-      raw_start_sign = True
     self.stop_sign_count = self.stop_sign_count + 1 if raw_stop_sign else 0
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker
@@ -366,14 +338,8 @@ class ConditionalE2EController:
 
     elif (stop_sign and (not effective_lead_present or lead_beyond_stop) and not gas_pressed and
           (abs(steering_angle_deg) <= 5.0 or
-           ((model_v < 3.0 or vision_stop) and
-            abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
+           (model_v < 3.0 and abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
       self.stopping = True
-      self.ai_stop = vision_stop
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / (2.0 * E2E_STOP_MIN_DECEL))
 
-    if self.stopping and vision_phase == "red":
-      self.ai_stop = True
-    elif not (self.stopping or self.prepare):
-      self.ai_stop = False
     return self.select_mode(experimental_mode, traffic_stop_mode)

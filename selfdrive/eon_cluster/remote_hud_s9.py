@@ -12,7 +12,6 @@ from selfdrive.eon_cluster import remote_hud as base
 from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.rear_camera import RearCameraHold
-from selfdrive.controls.lib.korean_signal import read_signal
 from selfdrive.eon_cluster.section_average import SectionAverage
 from selfdrive.eon_cluster.navi_layout import NaviLayout
 from selfdrive.eon_cluster.trip_report import TripReport
@@ -164,11 +163,6 @@ def _packet(sm, *args, **kwargs):
   # EON 박스 자리: 1 HUD 정보(기존), 2 주행요약, 3 학습(오토튠). 경고 팝업은 어느 쪽이든 그 위에 덮는다.
   packet["hudInfoBox"] = _bounded_int("EonClusterHudInfoBox", 1, 1, 3)
   packet["learn"] = _learn_lines()
-  # Korean traffic-light AI (S20 app via signal_lab): a coloured dot next to the HUD clock.
-  try:
-    packet["aiSignal"] = read_signal() or ""
-  except Exception:
-    packet["aiSignal"] = ""
   _update_trip(sm)
   packet["trip"] = _trip_report.snapshot()
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)

@@ -131,12 +131,6 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <path d="M128 184 L122 200 L128 197 L134 200 Z" fill="white"/></svg>
 <p id="navigationStatus" role="status"></p><p id="navigationGuidance"></p>
 </details>
-<div class="card"><h3>한국 신호등 AI 연결 (S20)</h3>
-<p id="signalLabCode">연결 코드 확인 중</p><button id="signalLabRefresh">코드 새로고침</button>
-<a id="signalLabMonitor" hidden target="_blank" rel="noopener">수신 결과 보기</a>
-<p class="hint">S20의 신호등 앱에 이온 IP:7799와 4자리 코드를 입력합니다.</p>
-<label><input id="phoneSignalHold" type="checkbox" disabled> 한국 신호등 AI 자동 정지 보조 (기본 켜짐)</label>
-<p class="hint">S20 앱이 빨간불(또는 멈출 수 있는 노란불)을 안정적으로 보면, 모델의 약한 감속도 신호 정지로 인정하고 정지 중 빨간불이면 모델만으로는 출발하지 않고, 녹색불을 보면 자동으로 다시 출발합니다(바로 앞에 차가 있으면 앞차 출발을 따릅니다). 가속 페달이 항상 우선합니다.</p></div>
 <div class="card"><h3>ESP32 깜빡이 보드</h3>
 <p id="espInfo">보드 확인 중</p>
 <p><a id="espUpdate" hidden target="_blank" rel="noopener">펌웨어 업데이트 열기</a> &nbsp; <a id="espLog" hidden target="_blank" rel="noopener">보드 기록</a></p>
@@ -469,42 +463,6 @@ async function loadRecording() {
   catch (_) { recording = null; recordingStatus.textContent = '녹화 설정을 불러오지 못했습니다.'; }
   renderRecording();
 }
-
-async function loadSignalLab() {
-  const target = document.querySelector('#signalLabCode');
-  const monitor = document.querySelector('#signalLabMonitor');
-  try {
-    const state = await read('/api/signal-lab.json');
-    target.textContent = state.code ? '연결 코드: ' + state.code + ' · 주소: ' + location.hostname + ':' + state.port
-      : '서비스 시작 대기 · EON 업데이트 후 재시작하세요.';
-    monitor.hidden = !state.code;
-    const hold = document.querySelector('#phoneSignalHold'); hold.checked = state.stop_hold_enabled === true; hold.disabled = false;
-    if (state.code) monitor.href = 'http://' + location.hostname + ':' + state.port + '/#' + state.code;
-  } catch (_) { target.textContent = '연결 코드를 확인할 수 없습니다.'; monitor.hidden = true; }
-}
-document.querySelector('#phoneSignalHold').onchange = async function() {
-  this.disabled = true;
-  try {
-    const r = await fetch('/api/signal-hold', {method:'POST', headers:{'Content-Type':'application/json','X-EON-Action':'set-signal-hold'}, body:JSON.stringify({enabled:this.checked})});
-    if (!r.ok) throw Error('설정 저장 실패');
-  } catch(e) { alert(e.message); }
-  await loadSignalLab();
-};
-document.querySelector('#signalLabRefresh').onclick = loadSignalLab;
-loadSignalLab();
-async function loadEsp() {
-  const info = document.querySelector('#espInfo'), up = document.querySelector('#espUpdate'), lg = document.querySelector('#espLog');
-  try {
-    const s = await read('/api/esp32.json');
-    if (s.ip) {
-      info.textContent = '보드 IP: ' + s.ip + (s.link === 2 ? ' (연결됨)' : ' (최근 연결)');
-      up.href = 'http://' + s.ip + '/update'; up.textContent = '펌웨어 업데이트 열기 (http://' + s.ip + '/update)';
-      lg.href = 'http://' + s.ip + '/log'; up.hidden = lg.hidden = false;
-    } else { info.textContent = '보드가 아직 연결되지 않았습니다.'; up.hidden = lg.hidden = true; }
-  } catch (_) { info.textContent = '보드 상태를 읽을 수 없습니다.'; }
-}
-loadEsp();
-
 async function loadStatus() {
   const target = document.querySelector('#driveStatus');
   try {
@@ -943,6 +901,18 @@ document.querySelector('#webSettingsForm').addEventListener('submit', () => {
   document.cookie = startPageKey + '=' + initialPage + '; Path=/; Max-Age=31536000; SameSite=Strict';
 });
 openPage(initialPage);
+async function loadEsp() {
+  const info = document.querySelector('#espInfo'), up = document.querySelector('#espUpdate'), lg = document.querySelector('#espLog');
+  try {
+    const s = await read('/api/esp32.json');
+    if (s.ip) {
+      info.textContent = '보드 IP: ' + s.ip + (s.link === 2 ? ' (연결됨)' : ' (최근 연결)');
+      up.href = 'http://' + s.ip + '/update'; up.textContent = '펌웨어 업데이트 열기 (http://' + s.ip + '/update)';
+      lg.href = 'http://' + s.ip + '/log'; up.hidden = lg.hidden = false;
+    } else { info.textContent = '보드가 아직 연결되지 않았습니다.'; up.hidden = lg.hidden = true; }
+  } catch (_) { info.textContent = '보드 상태를 읽을 수 없습니다.'; }
+}
+loadEsp();
 </script></html>
 """.encode("utf-8")
 
@@ -1399,7 +1369,7 @@ class Handler(BaseHTTPRequestHandler):
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
-              "/api/bt-remote": "set-bt-mapping", "/api/signal-hold": "set-signal-hold",
+              "/api/bt-remote": "set-bt-mapping",
               "/api/logs/delete": "delete-route", "/api/logs/delete-all": "delete-all-routes",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
@@ -1414,7 +1384,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping", "set-signal-hold"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -1426,14 +1396,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
           self.send_json({"output": "잘못된 요청입니다."}, 400)
           return
-        if action == "set-signal-hold":
-          if type(payload.get("enabled")) is not bool:
-            self.send_json({"output": "켜기/끄기 값이 필요합니다."}, 400)
-            return
-          from selfdrive.controls.lib.korean_signal import setting
-          result = {"enabled": setting(payload["enabled"])}
-          status = 200
-        elif action == "set-recording":
+        if action == "set-recording":
           status, result = set_recording(payload.get("key"), payload.get("enabled"))
         elif action == "delete-route":
           status, output = delete_route(payload.get("route"))
@@ -1503,12 +1466,6 @@ class Handler(BaseHTTPRequestHandler):
       st = st if isinstance(st, dict) else {}
       ip = st.get("ip")
       self.send_json({"ip": ip if isinstance(ip, str) and ip.count(".") == 3 else None, "link": st.get("link")})
-    elif path == "/api/signal-lab.json":
-      from selfdrive.eon_cluster.signal_lab.server import pairing_info
-      from selfdrive.controls.lib.korean_signal import setting
-      state = pairing_info()
-      state['stop_hold_enabled'] = setting()
-      self.send_json(state)
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":

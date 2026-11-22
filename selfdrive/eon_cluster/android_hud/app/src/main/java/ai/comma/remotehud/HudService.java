@@ -5326,7 +5326,6 @@ public final class HudService extends Service {
         float left = DRIVE_MID - clockWidth / 2f;
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
         text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
-        drawAiSignalDots(c, p, state, left + dateW + gap + timeW + 18f, 35f);
 
 
         if (signalValid) {
@@ -5339,50 +5338,6 @@ public final class HudService extends Service {
                 drawTopTurnArrow(c, p, DRIVE_MID + arrowOffset, 1f);
             }
         }
-    }
-
-    /**
-     * Korean traffic-light AI (EON camera -> S20 app): coloured dots right of the clock, no words
-     * (2026-11-22). red / yellow / green; red + left arrow = red dot and a green dot with an arrow,
-     * a left arrow alone = green dot with an arrow. Nothing when there is no stable fresh result.
-     */
-    private void drawAiSignalDots(Canvas c, Paint p, JSONObject state, float x, float cy) {
-        String sig = state.optString("aiSignal", "");
-        long age = SystemClock.elapsedRealtime() - lastEonRxElapsed;
-        if (sig.isEmpty() || age < 0L || age > 1500L) return;
-        float r = 12f;
-        p.setShader(null);
-        if ("red".equals(sig) || "red_left".equals(sig)) {
-            signalDot(c, p, x + r, cy, r, Color.rgb(255, 64, 64), false);
-            x += 2f * r + 8f;
-        } else if ("yellow".equals(sig)) {
-            signalDot(c, p, x + r, cy, r, Color.rgb(255, 200, 40), false);
-        } else if ("green".equals(sig)) {
-            signalDot(c, p, x + r, cy, r, Color.rgb(50, 220, 110), false);
-        }
-        if ("red_left".equals(sig) || "left".equals(sig)) {
-            signalDot(c, p, x + r, cy, r, Color.rgb(50, 220, 110), true);
-        }
-    }
-
-    private void signalDot(Canvas c, Paint p, float cx, float cy, float r, int color, boolean leftArrow) {
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(200, 0, 0, 0));
-        c.drawCircle(cx, cy, r + 2.5f, p);
-        p.setColor(color);
-        c.drawCircle(cx, cy, r, p);
-        if (!leftArrow) return;
-        p.setColor(Color.WHITE);
-        scratchPath.rewind();
-        scratchPath.moveTo(cx - 8f, cy);
-        scratchPath.lineTo(cx - 1f, cy - 6f);
-        scratchPath.lineTo(cx - 1f, cy - 2.5f);
-        scratchPath.lineTo(cx + 7f, cy - 2.5f);
-        scratchPath.lineTo(cx + 7f, cy + 2.5f);
-        scratchPath.lineTo(cx - 1f, cy + 2.5f);
-        scratchPath.lineTo(cx - 1f, cy + 6f);
-        scratchPath.close();
-        c.drawPath(scratchPath, p);
     }
 
     private void drawTopTurnArrow(Canvas c, Paint p, float centerX, float direction) {
