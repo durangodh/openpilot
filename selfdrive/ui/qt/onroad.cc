@@ -639,6 +639,7 @@ struct BcanBlinkerStatus {
   bool event = false;
   bool ok = false;
   QString dir, why;
+  QString ip;   // ESP32 board IP (shown next to the EON IP, for its /update page)
 };
 
 static BcanBlinkerStatus readBcanBlinkerStatus() {
@@ -660,6 +661,7 @@ static BcanBlinkerStatus readBcanBlinkerStatus() {
   cached.valid = true;
   cached.link = o.value("link").toInt(0);
   cached.rssi = o.value("rssi").toInt(0);
+  cached.ip = o.value("ip").toString();
   const QJsonObject ev = o.value("event").toObject();
   const double ev_ts = ev.value("wall").toDouble(-1.0);
   if (ev_ts >= 0.0 && wall - ev_ts >= 0.0 && wall - ev_ts <= 3.0) {
@@ -936,6 +938,17 @@ void NvgWindow::drawCarrotInfoContent(QPainter &p) {
       configFont(p, "Open Sans", 34, "Bold");
       p.setPen(QColor(255, 255, 255, 255));
       p.drawText(tx, base_y, scc_tail);
+      tx += QFontMetrics(p.font()).horizontalAdvance(scc_tail);
+    }
+
+    // ESP32 깜빡이 보드 IP (업데이트: http://<IP>/update). 연결되면 초록, 아니면 회색.
+    {
+      const BcanBlinkerStatus esp = readBcanBlinkerStatus();
+      if (esp.valid && !esp.ip.isEmpty()) {
+        configFont(p, "Open Sans", 34, "Regular");
+        p.setPen(esp.link == 2 ? QColor(120, 230, 150, 230) : QColor(180, 180, 180, 200));
+        p.drawText(tx + 24, base_y, "ESP " + esp.ip);
+      }
     }
 
     configFont(p, "Open Sans", 34, "Regular");  // 이후 그리기용으로 원복
