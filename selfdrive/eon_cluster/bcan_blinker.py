@@ -343,6 +343,8 @@ def main():
     if now >= next_status_write:
       next_status_write = now + STATUS_WRITE_S
       payload = {"wall": time.time(), "link": link, "rssi": status["rssi"] if status and link != LINK_NONE else 0}
+      if esp_ip:
+        payload["ip"] = esp_ip   # EON Web links the board's update page with it
       if event is not None:
         payload["event"] = {k: v for k, v in event.items() if k != "pending"}
       try:
