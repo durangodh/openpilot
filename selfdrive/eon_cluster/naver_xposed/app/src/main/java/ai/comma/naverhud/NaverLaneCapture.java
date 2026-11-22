@@ -40,6 +40,11 @@ final class NaverLaneCapture {
     private static final long TICK_MS = 500;
     private static final long SEARCH_EVERY_MS = 3000;
     private static final long STALE_MS = 1500;
+    // Real screens to tune the finder with (2026-11-22): the half-size window copy with the found
+    // box (green) and Naver's distance labels (yellow), once a minute while lanes are shown.
+    private static final long DUMP_EVERY_MS = 60_000;
+    private long dumpedAt = -DUMP_EVERY_MS;
+    private final java.io.File dumpDir;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Handler worker;
@@ -57,6 +62,13 @@ final class NaverLaneCapture {
     NaverLaneCapture(Context context, Listener listener) {
         this.listener = listener;
         this.view = new ImageView(context);
+        java.io.File dir = null;
+        try {
+            dir = context.getExternalFilesDir(null);
+        } catch (Throwable ignored) {
+            // no dump
+        }
+        dumpDir = dir;
         HandlerThread t = new HandlerThread("naver-lane-capture");
         t.start();
         worker = new Handler(t.getLooper());
@@ -107,6 +119,17 @@ final class NaverLaneCapture {
             if (box == null || boxLanes != n || now - searchedAt > SEARCH_EVERY_MS) {
                 searchedAt = now;
                 final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
+                // Naver's own distance label bounds, scaled to the half-size copy.
+                final java.util.List<int[]> anchors = new java.util.ArrayList<>();
+                try {
+                    for (int[] r : NaverScreenSemantics.distances(NaverScreenSemantics.read(decor), decor.getWidth(), decor.getHeight())) {
+                        anchors.add(new int[]{r[0] / 2, r[1] / 2, r[2] / 2, r[3] / 2});
+                    }
+                } catch (Throwable ignored) {
+                    // pixels alone
+                }
+                final boolean dump = now - dumpedAt > DUMP_EVERY_MS;
+                if (dump) dumpedAt = now;
                 final Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
                 busy = true;
                 PixelCopy.request(window, small, result -> {
@@ -114,13 +137,14 @@ final class NaverLaneCapture {
                     if (result == PixelCopy.SUCCESS) {
                         int[] px = new int[sw * sh];
                         small.getPixels(px, 0, sw, 0, 0, sw, sh);
-                        int[] r = LaneBoxFinder.find(px, sw, sh, n);
+                        int[] r = LaneBoxFinder.find(px, sw, sh, n, anchors);
+                        if (dump) dumpCapture(small, r, anchors, n);
                         if (r != null) {
                             found = new Rect(Math.max(0, r[0] * 2 - 4), Math.max(0, r[1] * 2 - 3),
                                     Math.min(sw * 2, r[2] * 2 + 6), Math.min(sh * 2, r[3] * 2 + 5));
                         }
                     }
-                    small.recycle();
+                    if (!dump || result != PixelCopy.SUCCESS) small.recycle();
                     final Rect f = found;
                     final int res = result;
                     main.post(() -> {
@@ -137,6 +161,37 @@ final class NaverLaneCapture {
                 loggedError = true;
                 NaverHudLog.ex("lane capture", error);
             }
+        }
+    }
+
+    /** Worker thread: writes lane_capture_<n>.png (last 5 kept) and recycles the bitmap. */
+    private void dumpCapture(Bitmap small, int[] box, java.util.List<int[]> anchors, int lanes) {
+        try {
+            if (dumpDir == null) return;
+            Bitmap out = small.copy(Bitmap.Config.ARGB_8888, true);
+            Canvas c = new Canvas(out);
+            Paint p = new Paint();
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setColor(Color.YELLOW);
+            for (int[] a : anchors) c.drawRect(a[0], a[1], a[2], a[3], p);
+            if (box != null) {
+                p.setColor(Color.GREEN);
+                c.drawRect(box[0], box[1], box[2], box[3], p);
+            }
+            int slot = (int) ((System.currentTimeMillis() / 60000) % 5);
+            java.io.File f = new java.io.File(dumpDir, "lane_capture_" + slot + ".png");
+            try (java.io.FileOutputStream os = new java.io.FileOutputStream(f)) {
+                out.compress(Bitmap.CompressFormat.PNG, 100, os);
+            }
+            out.recycle();
+            NaverHudLog.line("lane capture dump " + f.getName() + " lanes=" + lanes + " box="
+                    + (box == null ? "none" : box[0] + "," + box[1] + "," + box[2] + "," + box[3])
+                    + " labels=" + anchors.size());
+        } catch (Throwable error) {
+            NaverHudLog.ex("lane capture dump", error);
+        } finally {
+            small.recycle();
         }
     }
 

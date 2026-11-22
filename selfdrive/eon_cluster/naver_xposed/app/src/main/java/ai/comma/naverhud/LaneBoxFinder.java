@@ -30,6 +30,15 @@ final class LaneBoxFinder {
 
     /** {left, top, right, bottom}(포함) 또는 못 찾으면 null. */
     static int[] find(int[] px, int w, int h, int lanes) {
+        return find(px, w, h, lanes, null);
+    }
+
+    /**
+     * anchors: distance text boxes {l, t, r, b} in the same pixels (Naver's own "59m" label from
+     * NaverScreenSemantics). A candidate right next to one (label to its right, or above it for
+     * 5+ lanes) is strongly preferred.
+     */
+    static int[] find(int[] px, int w, int h, int lanes, java.util.List<int[]> anchors) {
         if (lanes <= 0 || w <= 0 || h <= 0) return null;
         boolean[] d = new boolean[w * h];
         for (int i = 0; i < d.length; i++) d[i] = dark(px[i]);
@@ -97,7 +106,7 @@ final class LaneBoxFinder {
                 }
                 if (++b.miss > 1 || y >= h) {
                     open.remove(k);
-                    double score = score(b, px, d, w, h, lanes);
+                    double score = score(b, px, d, w, h, lanes) + anchorBonus(b, anchors);
                     if (score < bestScore) {
                         bestScore = score;
                         best = new int[]{b.x0, b.y0, b.x1, b.yLast};
@@ -167,6 +176,18 @@ final class LaneBoxFinder {
         // the map near the junction (prefer the fixed one).
         if (b.y0 < 0.45 * h) s += 0.5;
         return s;
+    }
+
+    private static double anchorBonus(Box b, java.util.List<int[]> anchors) {
+        if (anchors == null || anchors.isEmpty()) return 0.0;
+        int bh = b.yLast - b.y0 + 1;
+        for (int[] a : anchors) {
+            int cy = (a[1] + a[3]) / 2;
+            boolean right = a[0] >= b.x1 - 2 && a[0] - b.x1 <= bh && cy >= b.y0 - bh / 3 && cy <= b.yLast + bh / 3;
+            boolean above = a[3] <= b.y0 + 2 && b.y0 - a[3] <= bh && a[0] <= b.x1 && a[2] >= b.x0;
+            if (right || above) return -1.0;
+        }
+        return 0.0;
     }
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */
