@@ -63,7 +63,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/remote-hud-signing.p12"
           echo "REMOTE_HUD_KEYSTORE_PATH=$RUNNER_TEMP/remote-hud-signing.p12" >> "$GITHUB_ENV"
           echo "REMOTE_HUD_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "REMOTE_HUD_VERSION_NAME=1.39-night-stratus-b${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "REMOTE_HUD_VERSION_NAME=1.80-r${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
       # v0.19+ builds the checked-in tree as-is.
       # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
       # they rewrote v0.17 sources into v0.18 at build time, which is why the
@@ -117,12 +117,9 @@ jobs:
           REMOTE_HUD_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
           REMOTE_HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
           REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
-          # The in-app updater only offers a higher versionCode. A fixed 191 made every new build
-          # look "already latest" (2026-11-22); count up with the workflow run instead.
         run: |
-          # (expressions cannot add numbers, so the shell does it)
-          export REMOTE_HUD_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
-          export REMOTE_HUD_VERSION_NAME="1.80-r${GITHUB_RUN_NUMBER}"
+          # Keep the single version assignment above. Installed b625 already has
+          # versionCode 100625; a smaller base silently blocks in-app updates.
           gradle :app:assembleDebug --stacktrace
       - name: Verify existing HUD signing certificate
         run: |
@@ -138,6 +135,16 @@ jobs:
           cert = matches[0].lower()
           assert cert == "8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06", cert
           print("Verified existing HUD certificate SHA-256: " + cert)
+          aapt = signer.with_name("aapt")
+          badging = subprocess.check_output([str(aapt), "dump", "badging", str(apk)], text=True)
+          package = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging)
+          assert package, "Missing APK version metadata"
+          expected_code = 100000 + int(os.environ["GITHUB_RUN_NUMBER"])
+          expected_name = "1.80-r" + os.environ["GITHUB_RUN_NUMBER"]
+          assert package[1] == "ai.comma.remotehud", package[1]
+          assert int(package[2]) == expected_code and expected_code > 100625, package[2]
+          assert package[3] == expected_name, package[3]
+          print("Verified upgrade version:", package[2], package[3])
           PY
       - uses: actions/upload-artifact@v4
         with:
