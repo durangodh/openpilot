@@ -67,6 +67,18 @@ final class NaverHudMap {
             "PassedOutlineColor", "Progress", "PatternImage", "PatternInterval", "ZIndex",
             "GlobalZIndex", "HideCollidedSymbols", "HideCollidedMarkers", "HideCollidedCaptions",
             "Visible"};
+    /**
+     * Markers on the guided map (2026-11-22: the lane bubble Naver floats over the next junction,
+     * cameras, destination...) are mirrored too, so the HUD map shows the phone's own icons.
+     */
+    private static final String MARKER_CLASS = "com.naver.maps.map.overlay.Marker";
+    private static final String[] MARKER_PROPS = {
+            "Position", "Icon", "Anchor", "Angle", "Flat", "Alpha", "IconTintColor", "ZIndex",
+            "GlobalZIndex", "CaptionText", "CaptionColor", "CaptionHaloColor", "CaptionTextSize",
+            "SubCaptionText", "HideCollidedSymbols", "HideCollidedMarkers", "HideCollidedCaptions",
+            "ForceShowIcon", "IconPerspectiveEnabled", "Visible"};
+    private static final String[] MARKER_SCALED = {"Width", "Height"};
+    private static final Set<String> loggedMarkers = Collections.synchronizedSet(new HashSet<>());
     /** 밀도 비율을 곱해 복사하는 픽셀 속성. */
     private static final String[] SCALED_PROPS = {"Width", "OutlineWidth"};
 
@@ -119,7 +131,7 @@ final class NaverHudMap {
             XposedHelpers.findAndHookMethod(overlay, "o", naverMap, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     Object o = param.thisObject;
-                    if (isPath(o)) attached.put(o, Boolean.TRUE);
+                    if (isPath(o) || isMarker(o)) attached.put(o, Boolean.TRUE);
                 }
             });
             overlayHooked = overlayMapField != null;
@@ -127,6 +139,10 @@ final class NaverHudMap {
         } catch (Throwable error) {
             NaverHudLog.ex("HUD map overlay tracking unavailable", error);
         }
+    }
+
+    private static boolean isMarker(Object o) {
+        return o != null && MARKER_CLASS.equals(o.getClass().getName());
     }
 
     private static boolean isPath(Object o) {
@@ -430,9 +446,16 @@ final class NaverHudMap {
                 dst = src.getClass().getConstructor().newInstance();
                 mirrors.put(src, dst);
             }
-            for (String p : COPY_PROPS) copyProp(src, dst, p, 1f, src);
-            for (String p : SCALED_PROPS) copyProp(src, dst, p, ratio, src);
-            if (overlayMapField.get(dst) != hudMap && hasCoords(dst)) {
+            boolean marker = isMarker(src);
+            if (marker) {
+                for (String p : MARKER_PROPS) copyProp(src, dst, p, 1f, src);
+                for (String p : MARKER_SCALED) copyProp(src, dst, p, ratio, src);
+                logMarker(src);
+            } else {
+                for (String p : COPY_PROPS) copyProp(src, dst, p, 1f, src);
+                for (String p : SCALED_PROPS) copyProp(src, dst, p, ratio, src);
+            }
+            if (overlayMapField.get(dst) != hudMap && (marker ? invoke(dst, "getPosition") != null : hasCoords(dst))) {
                 call(dst, "o", new Class<?>[]{hudMap.getClass()}, hudMap);
             }
         }
@@ -445,6 +468,20 @@ final class NaverHudMap {
             } catch (Throwable ignored) { }
             copied.remove(e.getKey());
             it.remove();
+        }
+    }
+
+    /** First sight of each kind of marker (icon size + caption) for the log, at most 40. */
+    private static void logMarker(Object m) {
+        try {
+            Object icon = invoke(m, "getIcon");
+            String key = String.valueOf(icon) + "|" + invoke(m, "getCaptionText");
+            if (loggedMarkers.size() >= 40 || !loggedMarkers.add(key)) return;
+            NaverHudLog.line("HUD map marker icon=" + icon + " caption=" + invoke(m, "getCaptionText")
+                    + " size=" + invoke(m, "getWidth") + "x" + invoke(m, "getHeight")
+                    + " anchor=" + invoke(m, "getAnchor") + " z=" + invoke(m, "getZIndex"));
+        } catch (Throwable ignored) {
+            // log only
         }
     }
 
