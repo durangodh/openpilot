@@ -311,6 +311,8 @@ final class NaverBridge {
     }
 
     /** 권장 차로인지. NaviLaneUnit 은 글자의 recommended=, 원본 RouteLaneUnit 은 getRecommend. */
+    private static int laneLogCount;
+
     private static boolean laneRecommended(Object entry) {
         java.util.regex.Matcher m = LANE_RECOMMENDED.matcher(String.valueOf(entry));
         if (m.find()) return "true".equals(m.group(1));
@@ -329,15 +331,25 @@ final class NaverBridge {
      * "To" 뒤가 가야 할 방향이고, 방향이 없으면(null) 그 차로의 모든 화살표.
      */
     private static int laneActive(Object entry, int dirs) {
-        if (!laneRecommended(entry)) return 0;
-        java.util.regex.Matcher m = LANE_ACTIVE.matcher(String.valueOf(entry));
+        String text = String.valueOf(entry);
+        // recommended= missing (6.12 units without it, 2026-11-22: nothing turned white): the
+        // direction=...To<dir> part alone decides, like Naver's own white arrows.
+        boolean flagged = LANE_RECOMMENDED.matcher(text).find();
+        if (flagged && !laneRecommended(entry)) return 0;
+        if (!flagged && call(entry, "getRecommend") != null && !laneRecommended(entry)) return 0;
+        if (laneLogCount < 12) {
+            laneLogCount++;
+            NaverHudLog.line("lane-unit " + text);
+        }
+        java.util.regex.Matcher m = LANE_ACTIVE.matcher(text);
         if (m.find()) {
             String d = m.group(1);
             int to = d.lastIndexOf("To");
             int bits = markingBits(to >= 0 ? d.substring(to + 2) : d);
             if (bits != 0) return bits & (dirs == 0 ? bits : dirs);
+            if (!flagged) return 0;
         }
-        return dirs;
+        return flagged || call(entry, "getRecommend") != null ? dirs : 0;
     }
 
     /** 비트 → laneTurn/laneDirs 가 읽는 방향 글자. */

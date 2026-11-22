@@ -17,8 +17,8 @@ import java.util.Locale;
  * 이 View 를 기존 lane_bottom 경로(NaverViewImage: 잘라서 530x84 칸에 맞춤)로 보내므로 HUD
  * 위치·크기는 그대로다(2026-11-21 실차 사진 기준: 폰 상자 3차로 ≈ 200x85).
  *
- * 검은 둥근 상자 안에 왼쪽 → 오른쪽 차로, 차로 사이 점선. 화살표는 회색, 권장 차로에서 가야 할
- * 방향(active)만 초록. 상자 오른쪽에 남은 거리(30m, 1.2km).
+ * 검은 둥근 상자 안에 왼쪽 → 오른쪽 차로, 차로 사이 점선. 화살표는 어두운 회색, 가야 할
+ * 방향(active)만 흰색(네이버 원본과 같게). 상자 오른쪽에 남은 거리(30m, 1.2km).
  * 비트(NaverBridge.markingBits): 1 직진, 2 좌, 4 우, 8 유턴.
  */
 final class NaverLaneStrip extends View {
@@ -27,10 +27,10 @@ final class NaverLaneStrip extends View {
     private static final int CELL_H = 64;
     private static final int TEXT_GAP = 14;
     static final int MAX_LANES = 8;
-    private static final int GREEN = Color.rgb(52, 209, 110);
-    // Arrows other than the ones to take stay gray: white made every lane look like the one to
-    // take (2026-11-22, back from solid white).
-    private static final int GRAY = Color.rgb(150, 150, 150);
+    // Like Naver's own box (2026-11-22 photo): the directions to take are white, the others a dark
+    // gray that barely shows on the box, no lane separators.
+    private static final int GREEN = Color.WHITE;
+    private static final int GRAY = Color.rgb(92, 92, 92);
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -49,7 +49,7 @@ final class NaverLaneStrip extends View {
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setStrokeWidth(7f);
+        stroke.setStrokeWidth(8f);
         dash.setStyle(Paint.Style.STROKE);
         dash.setStrokeWidth(2f);
         dash.setColor(Color.argb(150, 255, 255, 255));
@@ -91,13 +91,9 @@ final class NaverLaneStrip extends View {
         if (count <= 0) return;
         float boxW = count * CELL_W;
         fill.setStyle(Paint.Style.FILL);
-        fill.setColor(Color.argb(235, 34, 34, 36));
+        fill.setColor(Color.argb(240, 38, 38, 40));
         rect.set(0, 0, boxW, CELL_H);
         c.drawRoundRect(rect, 10f, 10f, fill);
-        for (int i = 1; i < count; i++) {
-            float x = i * CELL_W;
-            c.drawLine(x, 10f, x, CELL_H - 10f, dash);
-        }
         for (int i = 0; i < count; i++) {
             drawLane(c, i * CELL_W + CELL_W / 2f, dirs[i], active[i]);
         }
@@ -118,9 +114,9 @@ final class NaverLaneStrip extends View {
             return;
         }
         // Short, compact arrows like the phone's: stem from 80 % to 50 % of the cell, heads near 20 %.
-        float bottom = CELL_H * 0.82f;
-        float mid = CELL_H * 0.52f;
-        float head = CELL_H * 0.16f;
+        float bottom = CELL_H * 0.86f;
+        float mid = CELL_H * 0.50f;
+        float head = CELL_H * 0.12f;
         // 줄기: 가야 할 갈래가 하나라도 있으면 초록
         stroke.setColor(on != 0 ? GREEN : GRAY);
         c.drawLine(cx, bottom, cx, mid, stroke);
@@ -136,11 +132,11 @@ final class NaverLaneStrip extends View {
                     c.drawLine(cx, mid, cx, head + 10f, stroke);
                     arrowHead(c, cx, head, 0f, -1f);
                 } else if (bit == 2) {
-                    curve(c, cx, mid, cx - 14f, mid - 12f);
-                    arrowHead(c, cx - 22f, mid - 12f, -1f, 0f);
+                    curve(c, cx, mid, cx - 12f, mid - 16f);
+                    arrowHead(c, cx - 25f, mid - 16f, -1f, 0f);
                 } else if (bit == 4) {
-                    curve(c, cx, mid, cx + 14f, mid - 12f);
-                    arrowHead(c, cx + 22f, mid - 12f, 1f, 0f);
+                    curve(c, cx, mid, cx + 12f, mid - 16f);
+                    arrowHead(c, cx + 25f, mid - 16f, 1f, 0f);
                 } else {
                     path.reset();
                     path.moveTo(cx, mid);
@@ -164,7 +160,7 @@ final class NaverLaneStrip extends View {
 
     /** (x, y) 끝점, (dx, dy) 진행 방향 단위벡터. */
     private void arrowHead(Canvas c, float x, float y, float dx, float dy) {
-        float len = 13f, half = 9f;
+        float len = 15f, half = 12f;
         float bx = x - dx * len, by = y - dy * len;
         path.reset();
         path.moveTo(x, y);
