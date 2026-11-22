@@ -26,14 +26,14 @@ import java.util.Locale;
  * 찾고, 위치를 알면 그 부분만 원래 해상도로 떠 온다. 남은 거리 글자는 상자 오른쪽에 직접 붙인다
  * (폰 글자는 지도 위에 있어 같이 자르면 지도가 섞인다).
  *
- * 1.5초 넘게 상자를 못 뜨면 lost 를 불러 예전처럼 직접 그린 차로 띠(NaverLaneStrip)로 돌아간다.
+ * 1.5초 넘게 상자를 못 뜨면 숨기고 재탐색한다. 자체 화살표로 대체하지 않는다.
  */
 final class NaverLaneCapture {
     interface Listener {
         /** 메인 스레드: 잘라 온 그림이 처음 준비됐다(이후 view 를 보내면 된다). */
         void onCaptured(View view);
 
-        /** 메인 스레드: 한동안 못 떴다. 직접 그린 띠로 돌아간다. */
+        /** 메인 스레드: 캡처가 끊겼거나 안내가 끝났다. 기존 그림을 숨긴다. */
         void onLost();
     }
 
@@ -53,6 +53,8 @@ final class NaverLaneCapture {
     private int boxLanes;
     private long searchedAt, capturedAt = -1;
     private int misses;
+    private long generation;
+    private final Runnable tickTask = this::tick;
 
     NaverLaneCapture(Context context, Listener listener) {
         this.listener = listener;
@@ -64,6 +66,13 @@ final class NaverLaneCapture {
 
     /** 메인 스레드: 차로 항목이 바뀔 때. n=0 이면 멈춘다. */
     void update(Activity activity, int n, double meters) {
+        boolean changed = this.activity != activity || this.lanes != n;
+        if (changed || n <= 0 || activity == null) {
+            generation++;
+            box = null;
+            live = false;
+            listener.onLost();
+        }
         this.activity = activity;
         this.lanes = n;
         label = meters < 0 ? "" : meters >= 1000 ? String.format(Locale.US, "%.1fkm", meters / 1000.0)
@@ -71,19 +80,14 @@ final class NaverLaneCapture {
         view.setLabel(label);
         if (n <= 0 || activity == null) {
             running = false;
-            live = false;
+            main.removeCallbacks(tickTask);
             return;
         }
         if (!running) {
             running = true;
             capturedAt = SystemClock.elapsedRealtime();   // 첫 그림까지 STALE_MS 기다린다
-            main.post(this::tick);
+            main.post(tickTask);
         }
-    }
-
-    /** 잘라 온 그림을 지금 쓰는 중이면 true. */
-    boolean live() {
-        return live;
     }
 
     private void tick() {
@@ -94,16 +98,17 @@ final class NaverLaneCapture {
             listener.onLost();
         }
         if (!busy) capture(now);
-        main.postDelayed(this::tick, TICK_MS);
+        main.postDelayed(tickTask, TICK_MS);
     }
 
     private void capture(long now) {
         Activity a = activity;
-        Window window = a == null || a.isFinishing() ? null : a.getWindow();
+        Window window = a == null || a.isFinishing() || a.isDestroyed() ? null : a.getWindow();
         View decor = window == null ? null : window.peekDecorView();
         if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0 || !decor.isAttachedToWindow()) return;
         try {
             final int n = lanes;
+            final long requestGeneration = generation;
             if (box == null || boxLanes != n || now - searchedAt > SEARCH_EVERY_MS) {
                 searchedAt = now;
                 final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
@@ -125,6 +130,7 @@ final class NaverLaneCapture {
                     final int res = result;
                     main.post(() -> {
                         busy = false;
+                        if (!running || requestGeneration != generation) return;
                         onSearched(f, n, res, sw * 2, sh * 2);
                     });
                 }, worker);
@@ -162,31 +168,43 @@ final class NaverLaneCapture {
     }
 
     private void cropBox(Window window, final Rect r) {
+        final long requestGeneration = generation;
         final Bitmap crop = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888);
         busy = true;
-        PixelCopy.request(window, r, crop, result -> {
-            boolean ok = false;
-            if (result == PixelCopy.SUCCESS) {
-                int[] px = new int[crop.getWidth() * crop.getHeight()];
-                crop.getPixels(px, 0, crop.getWidth(), 0, 0, crop.getWidth(), crop.getHeight());
-                ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
-            }
-            final boolean good = ok;
-            main.post(() -> {
-                busy = false;
-                if (!good) {
-                    crop.recycle();
-                    box = null;      // 다음 틱에 다시 찾는다
-                    return;
+        try {
+            PixelCopy.request(window, r, crop, result -> {
+                boolean ok = false;
+                if (result == PixelCopy.SUCCESS) {
+                    int[] px = new int[crop.getWidth() * crop.getHeight()];
+                    crop.getPixels(px, 0, crop.getWidth(), 0, 0, crop.getWidth(), crop.getHeight());
+                    ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
                 }
-                capturedAt = SystemClock.elapsedRealtime();
-                view.setImage(crop);
-                if (!live && running) {
-                    live = true;
-                    listener.onCaptured(view);
-                }
-            });
-        }, worker);
+                final boolean good = ok;
+                main.post(() -> {
+                    busy = false;
+                    if (!running || requestGeneration != generation) {
+                        crop.recycle();
+                        return;
+                    }
+                    if (!good) {
+                        crop.recycle();
+                        box = null;      // 다음 틱에 다시 찾는다
+                        return;
+                    }
+                    capturedAt = SystemClock.elapsedRealtime();
+                    view.setImage(crop);
+                    if (!live && running) {
+                        live = true;
+                        listener.onCaptured(view);
+                    }
+                });
+            }, worker);
+        } catch (RuntimeException error) {
+            busy = false;
+            crop.recycle();
+            box = null;
+            throw error;
+        }
     }
 
     /** 잘라 온 상자 + 오른쪽 거리 글자. NaverViewImage 가 500ms 마다 이 View 를 그려 보낸다. */

@@ -161,8 +161,8 @@ final class NaverBridge {
 
     private void drawLaneOffscreen(Object item) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
-        if (ownLaneStrip || !laneViewClassExists(item)) {
-            drawOwnLaneStrip(item);
+        if (screenLaneOnly || !laneViewClassExists(item)) {
+            captureLaneOnScreen(item);
             return;
         }
         try {
@@ -204,10 +204,8 @@ final class NaverBridge {
         }
     }
 
-    // 6.12+: 네이버 차로 View 가 없어 차로 띠를 직접 그린다(NaverLaneStrip, 같은 lane_bottom 칸).
-    private boolean ownLaneStrip;
-    private NaverLaneStrip laneStrip;
-    // 6.12: 화면의 원본 차로 상자를 잘라 온다. 못 찾으면 위 laneStrip 으로 그린다.
+    // 6.12+: Compose 차로 상자는 화면 원본만 보낸다. 캡처 실패 시 숨긴다.
+    private boolean screenLaneOnly;
     private NaverLaneCapture screenLane;
 
     private boolean laneViewClassExists(Object item) {
@@ -216,35 +214,21 @@ final class NaverBridge {
             item.getClass().getClassLoader().loadClass(NaverViewImage.LANE_VIEW_611);
             return true;
         } catch (Throwable missing) {
-            ownLaneStrip = true;
-            NaverHudLog.line("lane view: Naver lane view class missing, drawing the lane strip from data");
+            screenLaneOnly = true;
+            NaverHudLog.line("lane view: Compose lane box, using screen capture only");
             return false;
         }
     }
 
-    private void drawOwnLaneStrip(Object item) {
+    private void captureLaneOnScreen(Object item) {
         try {
-            if (laneStrip == null) {
-                android.content.Context ctx = map.latestActivity();
-                if (ctx == null) {
-                    lastLaneItem = null;   // 다음 변화 때 다시
+            Activity activity = map.latestActivity();
+            if (screenLane == null) {
+                if (activity == null) {
+                    lastLaneItem = null;   // 화면이 준비되면 다시 시도
                     return;
                 }
-                laneStrip = new NaverLaneStrip(ctx);
-            }
-            List<?> lanes = item == null ? Collections.emptyList() : laneUnits(item);
-            int n = Math.min(NaverLaneStrip.MAX_LANES, lanes.size());
-            int[] dirs = new int[n];
-            int[] active = new int[n];
-            for (int i = 0; i < n; i++) {
-                Object entry = lanes.get(i);
-                dirs[i] = laneDirsOf(entry);
-                active[i] = laneActive(entry, dirs[i]);
-            }
-            double meters = item == null ? -1 : laneDistance(item);
-            laneStrip.set(n, dirs, active, meters);
-            if (screenLane == null) {
-                screenLane = new NaverLaneCapture(laneStrip.getContext(), new NaverLaneCapture.Listener() {
+                screenLane = new NaverLaneCapture(activity, new NaverLaneCapture.Listener() {
                     @Override public void onCaptured(android.view.View view) {
                         laneImage.padLeft = 0;
                         laneImage.padTop = 0;
@@ -252,26 +236,16 @@ final class NaverBridge {
                     }
 
                     @Override public void onLost() {
-                        drawOwnLaneStrip(lastLaneItem);   // live() 가 false 라 직접 그린 띠
+                        laneImage.onUpdate(null, false);
                     }
                 });
             }
-            screenLane.update(map.latestActivity(), n, meters);
-            if (n == 0) {
-                laneImage.onUpdate(laneStrip, false);
-                return;
-            }
-            if (screenLane.live()) return;   // 원본 상자 그림을 이미 보내는 중
-            int w = laneStrip.widthPx(), h = laneStrip.heightPx();
-            laneStrip.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
-                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
-            laneStrip.layout(0, 0, w, h);
-            laneImage.padLeft = 0;
-            laneImage.padTop = 0;
-            laneImage.onUpdate(laneStrip, true);
+            int n = item == null ? 0 : laneUnits(item).size();
+            screenLane.update(activity, n, item == null ? -1 : laneDistance(item));
         } catch (Throwable error) {
-            offscreenLaneFailed = true;
-            NaverHudLog.ex("own lane strip", error);
+            laneImage.onUpdate(null, false);
+            lastLaneItem = null;   // 일시적인 캡처 오류로 영구 중단하지 않는다
+            NaverHudLog.ex("lane screen capture", error);
         }
     }
 
