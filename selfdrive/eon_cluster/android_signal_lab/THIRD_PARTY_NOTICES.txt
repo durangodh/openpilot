@@ -1,0 +1,25 @@
+EON Signal Lab Korea 0.2 — observer prototype
+
+New app, bridge, tests and optional patches: AGPL-3.0-or-later.
+Full corresponding source and reproducible build inputs are included in this package.
+
+Model: LightSignal YOLOv8n, release v20260727, author flywithu.
+https://github.com/flywithu/LightSignal
+https://github.com/flywithu/LightSignal/releases/tag/v20260727
+Model weights: AGPL-3.0, see LICENSE.
+SHA-256: 458c8f1273ae407e6fa8334159a7f6dc29c88a2680b15eae2771105b0bdeffc2
+Input: float32 RGB [1,640,640,3], 0..1, centered letterbox 114.
+Output: float32 [1,9,8400], pixel xywh, classes Green/Left/Red/Speed_Sign/Yellow.
+Training data: original-korean-traffic-light, Min Yong Park, CC BY 4.0,
+https://universe.roboflow.com/min-yong-park/original-korean-traffic-light
+plus the model author's custom examples, as described in the model card.
+No private LightSignal app source is used.
+
+LiteRT 1.4.0 and LiteRT API 1.4.0: Google AI Edge Authors, Apache-2.0.
+https://github.com/google-ai-edge/LiteRT
+Runtime license: licenses/LiteRT-LICENSE.txt.
+
+Android build components: Android Open Source Project, Apache-2.0 and component
+licenses. These build tools are fetched on demand and are not bundled in the APK.
+
+This observer is integrated into durangodh/openpilot g_blinker for display only.

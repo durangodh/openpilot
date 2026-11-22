@@ -175,7 +175,7 @@ class ConditionalE2EController:
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
              vision_lead_present, signal_phase=None, signal_distance=-1.0,
-             signal_remaining=-1.0):
+             signal_remaining=-1.0, vision_phase=None):
     if not available:
       self.reset()
       return 'acc'
@@ -226,6 +226,11 @@ class ConditionalE2EController:
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
       signal_stop = signal_requires_stop(signal_phase, signal_distance, signal_remaining, v_ego)
+      # Korean traffic-light AI (korean_signal): a red, or an amber ego can still stop for before
+      # the model's stop point, accepts the same weaker model slowing. It has no distance, so the
+      # range checks below stay the model's own.
+      vision_stop = (vision_phase == "red" or
+                     (vision_phase == "yellow" and v_ego ** 2 / (2.0 * SIGNAL_AMBER_STOP_DECEL) < model_x))
       if signal_stop:
         distance_cap = max(distance_cap, min(SIGNAL_ASSIST_MAX_DISTANCE,
                                              signal_distance + SIGNAL_ASSIST_MODEL_MARGIN))
@@ -234,7 +239,7 @@ class ConditionalE2EController:
         in_range = in_range and model_x < signal_distance + SIGNAL_ASSIST_MODEL_MARGIN
       straight_stop = (abs(model_y) < 5.0 and
                        (model_v < 3.0 or model_v < model_v0 * 0.7 or
-                        (signal_stop and (model_v < SIGNAL_ASSIST_MODEL_V or
+                        ((signal_stop or vision_stop) and (model_v < SIGNAL_ASSIST_MODEL_V or
                                           model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
       curve_stop = (model_v < 3.0 and
                     abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
@@ -250,6 +255,10 @@ class ConditionalE2EController:
     # sustained confirmation that prevent one noisy model frame from launching.
     raw_start_sign = (not raw_stop_sign and model_x > E2E_START_MIN_DISTANCE and
                       (model_v > 5.0 or model_v > model_v0 + 2.0))
+    # Stopped for the signal and the AI still sees red: no model-only launch. Green departure
+    # stays the model's; gas still launches (below).
+    if self.stopping and vision_phase == "red":
+      raw_start_sign = False
     self.stop_sign_count = self.stop_sign_count + 1 if raw_stop_sign else 0
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker
