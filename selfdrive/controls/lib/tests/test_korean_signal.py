@@ -118,3 +118,25 @@ def test_red_seen_while_the_model_launches_stops_again():
   assert c.prepare
   wait(c, 12, vision_phase="red")                # still at 0 km/h and the AI sees red
   assert c.stopping and not c.prepare
+
+
+def test_fast_mode_stops_only_for_the_ai_red():
+  c = ConditionalE2EController(DT_MDL)
+  for _ in range(20):
+    update(c, driving_mode=4, model_x=50.0, model_v0=10.0, model_v_end=1.0, v_ego=10.0)
+  assert not c.stopping                           # FAST: model stop alone is still off
+  for _ in range(20):
+    update(c, driving_mode=4, model_x=50.0, model_v0=10.0, model_v_end=1.0, v_ego=10.0, vision_phase="red")
+  assert c.stopping
+  for _ in range(5):                              # the red goes out of view: the stop is finished
+    update(c, driving_mode=4, model_x=10.0, model_v0=0.0, model_v_end=0.0, v_ego=0.0)
+  assert c.stopping
+
+
+def test_ai_red_allows_a_stop_with_the_wheel_turned():
+  for phase, expect in ((None, False), ("red", True)):
+    c = ConditionalE2EController(DT_MDL)
+    for _ in range(20):
+      update(c, model_x=90.0, model_v0=15.0, model_v_end=5.0, v_ego=12.0, steering_angle_deg=8.0,
+             vision_phase=phase)
+    assert c.stopping is expect
