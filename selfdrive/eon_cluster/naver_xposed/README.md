@@ -70,17 +70,13 @@ every name this module uses was checked against it. Nothing was run on a phone y
   (icon setter `A`, found by shape), `OverlayImage.i/j`, zoom methods
   (`NaverMap.M/C1`, `NativeMapView.h0/p`, found by shape).
 - Removed in 6.12 (the screens moved to Compose): `NaviLaneControlView`,
-  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. Since 2026-11-22,
-  `NaverLaneCapture` copies the actual Naver window once every 500 ms for both
-  lane/distance and traffic-signal overlays. Compose accessibility bounds, when
-  exposed, locate the distance and signal/countdown. Pixel discovery finds the
-  lane box and compact signal housing otherwise; known side/above distance
-  layouts supply capture margins when text bounds are unavailable. Both overlays
-  contain only captured pixels (including the phone map background behind text).
-  No arrows, distances, lamps or countdowns are synthesized. Missing regions are
-  cleared and retried; late copies from a previous session are discarded.
-  The capture requires the phone's Naver window to be rendered. Pixel detection
-  has synthetic fixture coverage; exact 6.12 phone layouts still need device verification.
+  `NaviTrafficSignalView`, `NaviClovaButtonComponent`. The signal image is the
+  module's own drawing (`NaverSignal`, unchanged). The lane strip's old fallback also
+  needed `NaviLaneControlView`, so on 6.12 `NaverLaneStrip` draws it from the lane data
+  like the phone's lane box (dark box, dashed separators, gray arrows, the direction to
+  take in green from each `NaviLaneUnit`'s `marking`/`direction`/`recommended`, distance
+  to the right) and sends it through the same `lane_bottom` path, so the HUD position and size
+  are unchanged.
 - Lane data on 6.12: `NaviLaneItem.k()` (`NaviLaneUnit`) has no recommended flag and
   there is no `g()` distance. The module now reads the raw `j()` (`RouteLaneUnit`, with
   `getRecommend`/`getGuideSet`) when it has the flag, and the distance from the item's
@@ -141,8 +137,8 @@ strip goes. An empty item sends a CNV2 clear.
 the phone's own signal view (per-direction lamps and countdown) is drawn and
 sent on `/api/navi/ws/v2/image/naver/traffic_signal`, so the HUD shows the
 same signals as the phone and hides them when the phone does. Until that view
-has been updated once, nothing is shown. On Compose versions, the window-capture
-path described above supplies the original signal and countdown instead.
+has been updated once, the module falls back to drawing its own lamp from the
+straight (or only) signal.
 
 ## Junction view (crossroad_expanded)
 
