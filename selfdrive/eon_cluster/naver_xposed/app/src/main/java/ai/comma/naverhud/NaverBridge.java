@@ -21,7 +21,6 @@ final class NaverBridge {
     private final NaverMapCapture map = new NaverMapCapture(client);
     // 확인한 버전에서만: 화면 스냅샷 대신 지도 엔진으로 직접 그린다.
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
-    private final NaverSignal signalImage = new NaverSignal(client);
     private final NaverJunction junction = new NaverJunction(client);
     // HUD 지도 아래 차로 띠와 신호등: 폰 표시 뷰를 그대로 떠서 보낸다.
     private final NaverViewImage laneImage = new NaverViewImage(client, "lane_bottom", 530, 84, 1000, 1f);
@@ -161,10 +160,7 @@ final class NaverBridge {
 
     private void drawLaneOffscreen(Object item) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
-        if (screenLaneOnly || !laneViewClassExists(item)) {
-            captureLaneOnScreen(item);
-            return;
-        }
+        if (screenGuidance()) return;   // Compose 화면은 publish()의 공용 캡처로 보낸다
         try {
             if (item == null) {
                 if (offscreenLane != null) laneImage.onUpdate(offscreenLane, false);
@@ -204,49 +200,50 @@ final class NaverBridge {
         }
     }
 
-    // 6.12+: Compose 차로 상자는 화면 원본만 보낸다. 캡처 실패 시 숨긴다.
-    private boolean screenLaneOnly;
+    private Boolean useScreenGuidance;
     private NaverLaneCapture screenLane;
 
-    private boolean laneViewClassExists(Object item) {
-        if (item == null) return offscreenLane != null;
-        try {
-            item.getClass().getClassLoader().loadClass(NaverViewImage.LANE_VIEW_611);
-            return true;
-        } catch (Throwable missing) {
-            screenLaneOnly = true;
-            NaverHudLog.line("lane view: Compose lane box, using screen capture only");
-            return false;
+    private boolean screenGuidance() {
+        if (useScreenGuidance == null) {
+            try {
+                context.getClassLoader().loadClass(NaverViewImage.SIGNAL_VIEW);
+                useScreenGuidance = false;
+            } catch (Throwable missing) {
+                useScreenGuidance = true;
+                NaverHudLog.line("Compose guidance: original lane/distance/signal screen capture only");
+            }
         }
+        return useScreenGuidance;
     }
 
-    private void captureLaneOnScreen(Object item) {
-        try {
-            Activity activity = map.latestActivity();
-            if (screenLane == null) {
-                if (activity == null) {
-                    lastLaneItem = null;   // 화면이 준비되면 다시 시도
-                    return;
+    private void captureScreenGuidance(Object laneItem, Object signalItem, boolean driving) {
+        final int count = !driving || laneItem == null ? 0 : laneUnits(laneItem).size();
+        final boolean signal = driving && NaverViewImage.hasItems(signalItem);
+        mainHandler.post(() -> {
+            try {
+                Activity activity = map.latestActivity();
+                if (screenLane == null) {
+                    if (activity == null) return;
+                    screenLane = new NaverLaneCapture(activity, new NaverLaneCapture.Listener() {
+                        @Override public void onCaptured(android.view.View view) {
+                            laneImage.padLeft = 0;
+                            laneImage.padTop = 0;
+                            laneImage.onUpdate(view, true);
+                        }
+                        @Override public void onLost() { laneImage.onUpdate(null, false); }
+                        @Override public void onSignalCaptured(android.view.View view) {
+                            signalView.onUpdate(view, true);
+                        }
+                        @Override public void onSignalLost() { signalView.onUpdate(null, false); }
+                    });
                 }
-                screenLane = new NaverLaneCapture(activity, new NaverLaneCapture.Listener() {
-                    @Override public void onCaptured(android.view.View view) {
-                        laneImage.padLeft = 0;
-                        laneImage.padTop = 0;
-                        laneImage.onUpdate(view, true);
-                    }
-
-                    @Override public void onLost() {
-                        laneImage.onUpdate(null, false);
-                    }
-                });
+                screenLane.update(activity, count, signal);
+            } catch (Throwable error) {
+                laneImage.onUpdate(null, false);
+                signalView.onUpdate(null, false);
+                NaverHudLog.ex("guidance screen capture", error);
             }
-            int n = item == null ? 0 : laneUnits(item).size();
-            screenLane.update(activity, n, item == null ? -1 : laneDistance(item));
-        } catch (Throwable error) {
-            laneImage.onUpdate(null, false);
-            lastLaneItem = null;   // 일시적인 캡처 오류로 영구 중단하지 않는다
-            NaverHudLog.ex("lane screen capture", error);
-        }
+        });
     }
 
     /**
@@ -445,12 +442,17 @@ final class NaverBridge {
         Object laneItem = value(NaverStore.get(s, "NaviLaneItem"));
         send("lane_current", lane(laneItem));
         boolean driving = guiding || (mode != null && "SafeDriving".equals(String.valueOf(mode)));
-        laneFallback(laneItem, driving);
         Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
         // 네이버는 안심주행(목적지 없음)에도 신호 정보를 갱신한다. 예전에는 길안내 중에만 보내
         // 안심주행에서 HUD 신호등이 안 떴다(2026-10-16).
-        publishSignalImage(driving ? signalItem : null);
+        if (screenGuidance()) {
+            captureScreenGuidance(laneItem, signalItem, driving);
+        } else {
+            laneFallback(laneItem, driving);
+            // Older Naver versions already publish the original signal View via the hook.
+            // Never reconstruct a substitute signal from data.
+        }
         junction.publish(s, guiding);
 
         // 검증 안 된 버전에서 난독화 게터가 비어 있는지 한 번 기록한다.
@@ -736,7 +738,6 @@ final class NaverBridge {
     }
 
     private static boolean laneFieldsLogged;
-    private boolean signalLogged;
     private String lastRerouteSignature = "";
 
     /**
@@ -777,50 +778,6 @@ final class NaverBridge {
             "(?i)re-?rout|offroute|off_route|deviat|research|recalc|routesearch|searching");
     private static final java.util.regex.Pattern REROUTE_IDLE = java.util.regex.Pattern.compile(
             "(?i)\\b(none|idle|complete|completed|done|finish|finished|success|fail|failed)\\b");
-
-    /** 폰이 표시하는 신호(없으면 직진·유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
-    private void publishSignalImage(Object item) {
-        // 폰 신호등 뷰를 뜨고 있으면 그 그림(폰과 같은 신호·잔여초)만 쓴다.
-        if (signalView.used()) return;
-        try {
-            if (item == null || Boolean.TRUE.equals(call(item, "h"))) {
-                signalImage.clear();
-                return;
-            }
-            List<?> signals = asList(call(item, "k"));
-            // 폰이 표시하는 신호(TrafficSignalInfoKt.d: 우선순위가 가장 높은 신호)를 그대로 쓴다.
-            Object chosen = null;
-            try {
-                chosen = de.robv.android.xposed.XposedHelpers.callStaticMethod(
-                        de.robv.android.xposed.XposedHelpers.findClass(
-                                "com.naver.map.core.navigation.model.TrafficSignalInfoKt",
-                                item.getClass().getClassLoader()), "d", item);
-            } catch (Throwable ignored) {
-            }
-            if (chosen == null && signals.size() == 1) chosen = signals.get(0);
-            boolean leftGo = false;
-            for (Object e : signals) {
-                String guide = String.valueOf(call(e, "g")).toLowerCase(java.util.Locale.ROOT);
-                if (chosen == null && (guide.contains("straight") || guide.contains("through") || guide.contains("직진"))) {
-                    chosen = e;
-                }
-                if (guide.contains("left") && signalColor(String.valueOf(call(e, "j"))) == 3) leftGo = true;
-            }
-            int color = chosen == null ? 0 : signalColor(String.valueOf(call(chosen, "j")));
-            if (!signalLogged && !signals.isEmpty()) {
-                signalLogged = true;
-                NaverHudLog.line("signal image: n=" + signals.size() + " chosen=" + (chosen == null ? "-"
-                        : call(chosen, "g") + "/" + call(chosen, "j") + "/" + call(chosen, "i")) + " color=" + color);
-            }
-            if (color == 0) {
-                signalImage.clear();
-            } else {
-                signalImage.publish(color, (int) NaverCodes.number(call(chosen, "i")), leftGo);
-            }
-        } catch (Throwable error) {
-            NaverHudLog.ex("signal image", error);
-        }
-    }
 
     /** navigation_route._signal_phase 와 같은 규칙. 1 빨강 / 2 노랑 / 3 초록 / 0 모름. */
     static int signalColor(String state) {
