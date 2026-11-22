@@ -131,12 +131,6 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <path d="M128 184 L122 200 L128 197 L134 200 Z" fill="white"/></svg>
 <p id="navigationStatus" role="status"></p><p id="navigationGuidance"></p>
 </details>
-<div class="card"><h3>메인폰 신호등 AI 연결</h3>
-<p id="signalLabCode">연결 코드 확인 중</p><button id="signalLabRefresh">코드 새로고침</button>
-<a id="signalLabMonitor" hidden target="_blank" rel="noopener">수신 결과 보기</a>
-<p class="hint">메인폰 앱에 이온 IP:7799와 4자리 코드를 입력합니다. HUD에는 인식 후보를 표시합니다.</p>
-<label><input id="phoneSignalHold" type="checkbox" disabled> APILOT 메인폰 빨간불 정차 유지 보조</label>
-<p class="hint">기본 꺼짐. APILOT(2)에서 기존 모델이 이미 정지한 뒤, 내비의 진행 방향 신호와 앱의 안정된 빨강이 일치할 때만 모델의 성급한 출발을 보류합니다. 주행 중 자동 제동이나 초록불 자동 출발을 추가하지 않습니다. 입력이 사라지면 기존 제어로 돌아가며 독립적인 정지 보장 기능은 아닙니다. 가속페달은 우선합니다.</p></div>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
@@ -465,30 +459,6 @@ async function loadRecording() {
   catch (_) { recording = null; recordingStatus.textContent = '녹화 설정을 불러오지 못했습니다.'; }
   renderRecording();
 }
-
-async function loadSignalLab() {
-  const target = document.querySelector('#signalLabCode');
-  const monitor = document.querySelector('#signalLabMonitor');
-  try {
-    const state = await read('/api/signal-lab.json');
-    target.textContent = state.code ? '연결 코드: ' + state.code + ' · 주소: ' + location.hostname + ':' + state.port
-      : '서비스 시작 대기 · EON 업데이트 후 재시작하세요.';
-    monitor.hidden = !state.code;
-    const hold = document.querySelector('#phoneSignalHold'); hold.checked = state.stop_hold_enabled === true; hold.disabled = false;
-    if (state.code) monitor.href = 'http://' + location.hostname + ':' + state.port + '/#' + state.code;
-  } catch (_) { target.textContent = '연결 코드를 확인할 수 없습니다.'; monitor.hidden = true; }
-}
-document.querySelector('#phoneSignalHold').onchange = async function() {
-  this.disabled = true;
-  try {
-    const r = await fetch('/api/signal-hold', {method:'POST', headers:{'Content-Type':'application/json','X-EON-Action':'set-signal-hold'}, body:JSON.stringify({enabled:this.checked})});
-    if (!r.ok) throw Error('설정 저장 실패');
-  } catch(e) { alert(e.message); }
-  await loadSignalLab();
-};
-document.querySelector('#signalLabRefresh').onclick = loadSignalLab;
-loadSignalLab();
-
 async function loadStatus() {
   const target = document.querySelector('#driveStatus');
   try {
@@ -1383,7 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
       return
     action = {"/api/git/pull": "git-pull", "/api/params": "set-param",
               "/api/recording": "set-recording", "/api/git/switch": "git-switch",
-              "/api/bt-remote": "set-bt-mapping", "/api/signal-hold": "set-signal-hold",
+              "/api/bt-remote": "set-bt-mapping",
               "/api/logs/delete": "delete-route", "/api/logs/delete-all": "delete-all-routes",
               "/api/system/reboot": "reboot", "/api/system/rebuild": "rebuild"}.get(self.path)
     if action is None:
@@ -1398,7 +1368,7 @@ class Handler(BaseHTTPRequestHandler):
       self.send_json({"output": "EON 웹 화면에서 실행하세요."}, 403)
       return
     try:
-      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping", "set-signal-hold"):
+      if action in ("set-param", "set-recording", "git-switch", "delete-route", "delete-all-routes", "set-bt-mapping"):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit() or len(length) > 4 or not 0 < int(length) <= 1024:
           self.send_json({"output": "잘못된 요청입니다."}, 400)
@@ -1410,14 +1380,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
           self.send_json({"output": "잘못된 요청입니다."}, 400)
           return
-        if action == "set-signal-hold":
-          if type(payload.get("enabled")) is not bool:
-            self.send_json({"output": "켜기/끄기 값이 필요합니다."}, 400)
-            return
-          from selfdrive.controls.lib.phone_signal_hold import setting
-          result = {"enabled": setting(payload["enabled"])}
-          status = 200
-        elif action == "set-recording":
+        if action == "set-recording":
           status, result = set_recording(payload.get("key"), payload.get("enabled"))
         elif action == "delete-route":
           status, output = delete_route(payload.get("route"))
@@ -1478,12 +1441,6 @@ class Handler(BaseHTTPRequestHandler):
     elif trace_http.is_trace_path(path):
       self.close_connection = True
       trace_http.serve(self.connection, path, allow_delete=False)
-    elif path == "/api/signal-lab.json":
-      from selfdrive.eon_cluster.signal_lab.server import pairing_info
-      from selfdrive.controls.lib.phone_signal_hold import setting
-      state = pairing_info()
-      state['stop_hold_enabled'] = setting()
-      self.send_json(state)
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":

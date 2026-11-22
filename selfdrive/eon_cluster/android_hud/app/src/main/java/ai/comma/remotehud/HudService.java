@@ -7888,9 +7888,9 @@ public final class HudService extends Service {
                 float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
                 // 네비모드는 도착정보 바 높이의 1.5배(2026-10-14 요청: 50% 크게).
                 float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
-                // The original Naver crop now includes its own distance label. The former
-                // 52% reduction made both arrows and digits too small compared with the phone.
-                if (navApp == 2) laneH = naviLayout ? 65f : ETA_H;
+                // Naver 6.12's lane strip is drawn by our module at the phone box's full height and
+                // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
+                if (navApp == 2) laneH *= 0.52f;   // 0.65 was still 20 % too big (2026-11-22)
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
@@ -7939,7 +7939,6 @@ public final class HudService extends Service {
         // This sits in the user's requested top-right corner and is deliberately
         // independent of map/guidance availability during an app transition.
         drawMapSourceBadge(c, p, s);
-        drawSignalLabObserver(c, p, s);
 
         // The navi column has fixed anchors. Render its guidance last so map
         // assets cannot cover the turn rows or the ETA, and discard paint state
@@ -7952,40 +7951,6 @@ public final class HudService extends Service {
 
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
-    }
-
-
-    // Review-only observer badge: never feeds navigation or vehicle control.
-    private void drawSignalLabObserver(Canvas c, Paint original, JSONObject s) {
-        JSONObject ai = s.optJSONObject("aiSignalObserver");
-        long packetAge = SystemClock.elapsedRealtime() - lastEonRxElapsed;
-        if (ai == null || !ai.optBoolean("observerOnly", false) || packetAge < 0L
-                || ai.optLong("ageMs", 99999L) + packetAge > 1200L) return;
-        org.json.JSONArray ds = ai.optJSONArray("detections");
-        if (ds == null) return;
-        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
-        for (int i = 0; i < ds.length(); i++) {
-            JSONObject d = ds.optJSONObject(i);
-            if (d == null) continue;
-            String label = d.optString("label", "");
-            if ("red".equals(label)) names.add("빨강");
-            else if ("green".equals(label)) names.add("초록");
-            else if ("yellow".equals(label)) names.add("노랑");
-            else if ("left".equals(label)) names.add("좌회전");
-        }
-        String text = names.isEmpty() ? "AI 후보 없음" : "AI 후보: " + android.text.TextUtils.join("/", names);
-        Paint p = new Paint(original);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(210, 15, 23, 42));
-        p.setTextSize(19f);
-        p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        p.setTextAlign(Paint.Align.LEFT);
-        text = android.text.TextUtils.ellipsize(text, new android.text.TextPaint(p), 218f, android.text.TextUtils.TruncateAt.END).toString();
-        float x = naviLayout ? 960f : MAP_LEFT + 24f;
-        float y = naviLayout ? 126f : 292f;
-        c.drawRoundRect(x - 8f, y - 23f, x + p.measureText(text) + 8f, y + 9f, 7f, 7f, p);
-        p.setColor(0xffffd166);
-        c.drawText(text, x, y, p);
     }
 
     private int beginGuideElement(Canvas c, JSONObject l, String name, float x, float y) {

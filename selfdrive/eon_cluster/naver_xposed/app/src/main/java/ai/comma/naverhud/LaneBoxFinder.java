@@ -30,14 +30,10 @@ final class LaneBoxFinder {
 
     /** {left, top, right, bottom}(포함) 또는 못 찾으면 null. */
     static int[] find(int[] px, int w, int h, int lanes) {
-        return find(px, w, h, lanes, java.util.Collections.emptyList());
-    }
-
-    static int[] find(int[] px, int w, int h, int lanes, java.util.List<int[]> labels) {
-        if (w <= 0 || h <= 0 || px == null || px.length != w * h) return null;
+        if (lanes <= 0 || w <= 0 || h <= 0) return null;
         boolean[] d = new boolean[w * h];
         for (int i = 0; i < d.length; i++) d[i] = dark(px[i]);
-        int minRun = 20; // Lane count is advisory and may lag a Compose frame.
+        int minRun = Math.max(20, lanes * 12);
         java.util.ArrayList<Box> open = new java.util.ArrayList<>();
         int[] best = null;
         double bestScore = Double.MAX_VALUE;
@@ -101,7 +97,7 @@ final class LaneBoxFinder {
                 }
                 if (++b.miss > 1 || y >= h) {
                     open.remove(k);
-                    double score = score(b, px, d, w, h, lanes, labels);
+                    double score = score(b, px, d, w, lanes);
                     if (score < bestScore) {
                         bestScore = score;
                         best = new int[]{b.x0, b.y0, b.x1, b.yLast};
@@ -122,26 +118,11 @@ final class LaneBoxFinder {
     }
 
     /** 낮을수록 좋다. 조건에 안 맞으면 MAX_VALUE. */
-    private static double score(Box b, int[] px, boolean[] d, int w, int h, int lanes, java.util.List<int[]> labels) {
+    private static double score(Box b, int[] px, boolean[] d, int w, int lanes) {
         int bw = b.x1 - b.x0 + 1, bh = b.yLast - b.y0 + 1;
-        if (bh < 14 || bh > h * .28 || b.full < 3 || bw > 0.95 * w) return Double.MAX_VALUE;
+        if (bh < 14 || b.full < 3 || bw > 0.95 * w) return Double.MAX_VALUE;
         double aspect = bw / (double) bh;
-        if (aspect < .55 || aspect > 8 * 1.7) return Double.MAX_VALUE;
-        double cx = (b.x0 + b.x1) / (2.0 * w);
-        // Naver's speed/school-zone plaque is at the map edge, unlike its lane strip.
-        // A distance anchor below can override this for an atypical original layout.
-        boolean anchored = false;
-        for (int[] label : labels) {
-            int lw = label[2]-label[0]+1, lh = label[3]-label[1]+1;
-            if (lw < 1 || lw > bh * 4 || lh < 1 || lh > bh * 1.6) continue;
-            int dx = Math.max(0, Math.max(b.x0-label[2], label[0]-b.x1));
-            int dy = Math.max(0, Math.max(b.y0-label[3], label[1]-b.yLast));
-            // Original distance is beside or above the arrow box, not inside it.
-            boolean beside = label[0] > b.x1 && label[1] <= b.yLast && label[3] >= b.y0;
-            boolean above = label[3] < b.y0 && label[0] <= b.x1 && label[2] >= b.x0;
-            if ((beside || above) && Math.hypot(dx, dy) < bh * 1.6) anchored = true;
-        }
-        if (!anchored && (cx < .15 || cx > .85)) return Double.MAX_VALUE;
+        if (aspect < 0.55 * lanes || aspect > 1.7 * lanes) return Double.MAX_VALUE;
         int darkN = 0, brightN = 0;
         for (int y = b.y0; y <= b.yLast; y++) {
             int row = y * w;
@@ -151,81 +132,8 @@ final class LaneBoxFinder {
             }
         }
         double area = bw * (double) bh;
-        if (darkN < 0.5 * area || brightN < 0.015 * area || !hasArrow(px, w, b)) return Double.MAX_VALUE;
-        int estimated = Math.max(1, Math.min(8, (int) Math.round(aspect / .95)));
-        double shapeError = Math.abs(Math.log(aspect / (.95 * estimated)));
-        double hintError = lanes > 0 ? Math.min(.3, Math.abs(lanes-estimated) * .05) : 0;
-        // Original metre-label proximity wins over a stale lane-count hint.
-        return shapeError + hintError + (anchored ? 0 : 2);
-    }
-
-    /** Require an actual filled arrowhead and its centred narrower shaft.
-     * Dark plaques containing 30 / 188m are not lane guidance, wherever they sit.
-     * Inspect connected glyphs in four directions, preserving original pixels.
-     */
-    private static boolean hasArrow(int[] px, int stride, Box b) {
-        int w = b.x1-b.x0+1, h = b.yLast-b.y0+1;
-        boolean[] ink = new boolean[w*h], seen = new boolean[w*h];
-        int[] queue = new int[w*h];
-        for (int y=1; y<h-1; y++) for (int x=1; x<w-1; x++)
-            ink[y*w+x] = bright(px[(b.y0+y)*stride+b.x0+x]);
-        for (int seed=0; seed<ink.length; seed++) {
-            if (!ink[seed] || seen[seed]) continue;
-            int read=0, count=1, x0=seed%w, x1=x0, y0=seed/w, y1=y0;
-            queue[0]=seed; seen[seed]=true;
-            while (read<count) {
-                int i=queue[read++], x=i%w, y=i/w;
-                x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);
-                for (int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++) {
-                    int nx=x+dx, ny=y+dy;
-                    if(nx<0||nx>=w||ny<0||ny>=h)continue;
-                    int ni=ny*w+nx;
-                    if(ink[ni]&&!seen[ni]){seen[ni]=true;queue[count++]=ni;}
-                }
-            }
-            int gw=x1-x0+1, gh=y1-y0+1;
-            if(count<12||gw<4||gh<4||Math.max(gw,gh)<8)continue;
-            for(int direction=0;direction<4;direction++) {
-                int length=direction<2?gh:gw, cross=direction<2?gw:gh;
-                int[] lo=new int[length], hi=new int[length], amount=new int[length];
-                java.util.Arrays.fill(lo,cross);java.util.Arrays.fill(hi,-1);
-                for(int k=0;k<count;k++) {
-                    int x=queue[k]%w-x0, y=queue[k]/w-y0;
-                    int u=direction==0?y:direction==1?gh-1-y:direction==2?x:gw-1-x;
-                    int v=direction<2?x:y;
-                    lo[u]=Math.min(lo[u],v);hi[u]=Math.max(hi[u],v);amount[u]++;
-                }
-                int tip=hi[0]-lo[0]+1;
-                if(tip>Math.max(3,cross*.30))continue;
-                for(int base=2;base<=Math.min(length-3,(int)(length*.55));base++) {
-                    int span=hi[base]-lo[base]+1;
-                    if(span<5||span<cross*.25||span<tip+3)continue;
-                    float center=(lo[base]+hi[base])/2f;
-                    if(Math.abs((lo[0]+hi[0])/2f-center)>Math.max(1f,span*.15))continue;
-                    if(lo[0]-lo[base]<1||hi[base]-hi[0]<1)continue;
-                    boolean solid=true;
-                    int previous=tip, growth=0;
-                    for(int u=0;u<=base;u++) {
-                        int width=hi[u]-lo[u]+1;
-                        if(width<1||amount[u]<width*.75||width+1<previous){solid=false;break;}
-                        if(width>previous)growth++;
-                        previous=width;
-                    }
-                    if(!solid||growth<2)continue;
-                    int shaft=Math.max(2,Math.min(4,length/5));
-                    if(base+shaft>=length)continue;
-                    boolean narrow=true;
-                    for(int u=base+1;u<=base+shaft;u++) {
-                        int width=hi[u]-lo[u]+1;
-                        if(width<1||width>span*.65||Math.abs((lo[u]+hi[u])/2f-center)>Math.max(1f,span*.2)) {
-                            narrow=false;break;
-                        }
-                    }
-                    if(narrow)return true;
-                }
-            }
-        }
-        return false;
+        if (darkN < 0.5 * area || brightN < 0.015 * area) return Double.MAX_VALUE;
+        return Math.abs(Math.log(aspect / (0.95 * lanes)));
     }
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */

@@ -237,7 +237,7 @@ final class NaverBridge {
                         @Override public void onSignalLost() { signalView.onUpdate(null, false); }
                     });
                 }
-                screenLane.update(activity, count, signal, driving);
+                screenLane.update(activity, count, signal);
             } catch (Throwable error) {
                 laneImage.onUpdate(null, false);
                 signalView.onUpdate(null, false);

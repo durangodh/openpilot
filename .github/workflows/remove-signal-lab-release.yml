@@ -1,0 +1,19 @@
+name: Remove reverted Signal Lab release
+on:
+  push:
+    branches: [g_blinker]
+    paths: ['.github/workflows/remove-signal-lab-release.yml']
+permissions:
+  contents: write
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove withdrawn phone APK release and its tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view signal-lab-auto >/dev/null 2>&1; then
+            gh release delete signal-lab-auto --cleanup-tag --yes
+          fi
