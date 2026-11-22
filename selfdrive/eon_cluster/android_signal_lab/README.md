@@ -17,3 +17,5 @@ python3 selfdrive/eon_cluster/android_signal_lab/build_apk.py
 Build tools/LiteRT are pinned by SHA-256 in `dependencies.json`; the Korean model is downloaded into ignored `assets/korean-signal.tflite` when missing. No Gradle installation is required. The same public trial key supplied with the 0.1 source package is encoded in `signing/trial.p12.base64` so updates replace the original app. This key is for this experimental app, unrelated to the permanent Remote HUD key. CI supplies monotonically increasing version codes.
 
 New app code/model are AGPL-3.0; complete app/bridge source is in this repository. Refer to LICENSE, model provenance in assets/THIRD_PARTY_NOTICES.txt and LiteRT license in assets/LiteRT-LICENSE.txt.
+
+0.3은 서버의 중앙 후보 안정화 결과를 표시합니다. 회색 원본 박스와 색상 안정 후보를 구분하며, 내 진행 신호는 미확정입니다. 표시 조건·지연·제약은 `../signal_lab/README.md`를 참고하세요. 시험 남은 시간을 화면에 표시합니다.

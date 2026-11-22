@@ -33,7 +33,7 @@ public final class MainActivity extends Activity {
         super.onCreate(b);
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(24,20,24,16);layout.setBackgroundColor(Color.rgb(17,24,39));
         TextView title=new TextView(this);title.setText("한국 신호등 · EON 시험");title.setTextColor(Color.WHITE);title.setTextSize(23);layout.addView(title);
-        TextView note=new TextView(this);note.setText("EON 전방 영상을 메인폰에서 분석합니다.\n표시는 후보이며 내 진행 신호는 미확정입니다.\n차량 제어에 사용하지 않는 10분 시험입니다.");note.setTextColor(0xffffcc66);note.setTextSize(14);layout.addView(note);
+        TextView note=new TextView(this);note.setText("EON 전방 영상을 메인폰에서 분석합니다.\n표시는 후보이며 내 진행 신호는 미확정입니다.\n회색: 원본 · 색상: 중앙 안정 후보\n차량 제어에 사용하지 않는 10분 시험입니다.");note.setTextColor(0xffffcc66);note.setTextSize(14);layout.addView(note);
         host=new EditText(this);host.setTextColor(Color.WHITE);host.setHintTextColor(0xffaab4c4);host.setSingleLine();host.setHint("이온 IP:7799");host.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);host.setText(getSharedPreferences("signal",0).getString("host",""));layout.addView(host);
         token=new EditText(this);token.setTextColor(Color.WHITE);token.setHintTextColor(0xffaab4c4);token.setSingleLine();token.setHint("이온에 표시된 연결 코드 4자리");token.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);token.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4)});String savedCode=getSharedPreferences("signal",0).getString("token","");token.setText(savedCode.matches("[0-9]{4}")?savedCode:"");layout.addView(token);
         LinearLayout buttons=new LinearLayout(this);
@@ -69,11 +69,15 @@ public final class MainActivity extends Activity {
             Bitmap image=s.image;float scale=Math.min(getWidth()/(float)image.getWidth(),getHeight()/(float)image.getHeight());
             float w=image.getWidth()*scale,h=image.getHeight()*scale,x=(getWidth()-w)/2,y=(getHeight()-h)/2;
             paint.setStyle(Paint.Style.FILL);c.drawBitmap(image,null,new RectF(x,y,x+w,y+h),paint);
-            for(Decoder.Detection d:s.detections){
-                paint.setColor(color(d.cls));paint.setStrokeWidth(3);paint.setStyle(Paint.Style.STROKE);
+            // Retain raw detections for diagnosis, without giving each one a signal colour.
+            paint.setColor(0xff8c96a5);paint.setStrokeWidth(1.5f);paint.setStyle(Paint.Style.STROKE);
+            for(Decoder.Detection d:s.detections)c.drawRect(x+d.x0*w,y+d.y0*h,x+d.x1*w,y+d.y1*h,paint);
+            int labelRow=0;
+            for(Decoder.Detection d:s.highlights){
+                paint.setColor(color(d.cls));paint.setStrokeWidth(4);paint.setStyle(Paint.Style.STROKE);
                 c.drawRect(x+d.x0*w,y+d.y0*h,x+d.x1*w,y+d.y1*h,paint);
                 paint.setStyle(Paint.Style.FILL);paint.setTextSize(24);
-                c.drawText(Decoder.KOREAN[d.cls]+" "+Math.round(d.score*100)+"%",x+d.x0*w,Math.max(y+26,y+d.y0*h-4),paint);
+                c.drawText(Decoder.KOREAN[d.cls]+" "+Math.round(d.score*100)+"%",x+d.x0*w,Math.max(y+26,y+d.y0*h-4-26*(labelRow++)),paint);
             }
         }
     }

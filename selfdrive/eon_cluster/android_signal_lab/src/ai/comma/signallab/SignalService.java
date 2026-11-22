@@ -26,10 +26,11 @@ import org.json.JSONObject;
 public final class SignalService extends Service {
     public static final class Snapshot {
         public final Bitmap image;
-        public final List<Decoder.Detection> detections;
+        public final List<Decoder.Detection> detections, highlights;
         public final String text;
         public final long at;
-        Snapshot(Bitmap b,List<Decoder.Detection> d,String t){image=b;detections=d;text=t;at=SystemClock.elapsedRealtime();}
+        Snapshot(Bitmap b,List<Decoder.Detection> d,String t){this(b,d,Collections.emptyList(),t);}
+        Snapshot(Bitmap b,List<Decoder.Detection> d,List<Decoder.Detection> h,String t){image=b;detections=d;highlights=h;text=t;at=SystemClock.elapsedRealtime();}
     }
     static volatile Snapshot snapshot=new Snapshot(null,Collections.emptyList(),"연결 대기");
     static volatile boolean active;
@@ -71,6 +72,37 @@ public final class SignalService extends Service {
     static byte[] bounded(InputStream in,int limit)throws Exception{
         java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] b=new byte[16384];int n;
         while((n=in.read(b))!=-1){if(out.size()+n>limit)throw new IllegalArgumentException("응답 크기 초과");out.write(b,0,n);}return out.toByteArray();
+    }
+    static List<Decoder.Detection> highlights(JSONObject selection)throws Exception{
+        java.util.ArrayList<Decoder.Detection> out=new java.util.ArrayList<>();
+        if(selection==null||selection.optInt("version")!=1||!"stable".equals(selection.optString("status"))
+                ||!Boolean.FALSE.equals(selection.opt("ego_signal_confirmed")))return out;
+        JSONArray ds=selection.optJSONArray("detections");
+        if(ds==null||ds.length()>4)return out;
+        for(int i=0;i<ds.length();i++){
+            JSONObject d=ds.getJSONObject(i);int cls=-1;
+            for(int j=0;j<Decoder.LABELS.length;j++)if(j!=3&&Decoder.LABELS[j].equals(d.optString("label")))cls=j;
+            JSONArray box=d.getJSONArray("box");float score=(float)d.getDouble("score");
+            if(cls<0||box.length()!=4||!Float.isFinite(score)||score<.35f||score>1f)throw new IllegalArgumentException("잘못된 중앙 후보");
+            float[] b=new float[4];
+            for(int j=0;j<4;j++){b[j]=(float)box.getDouble(j);if(!Float.isFinite(b[j])||b[j]<0||b[j]>1)throw new IllegalArgumentException("잘못된 후보 위치");}
+            if(b[2]<=b[0]||b[3]<=b[1])throw new IllegalArgumentException("빈 후보 위치");
+            out.add(new Decoder.Detection(cls,score,b[0],b[1],b[2],b[3]));
+        }
+        return out;
+    }
+    static String selectionText(JSONObject selection,List<Decoder.Detection> chosen){
+        if(selection==null||selection.optInt("version")!=1)return "EON 업데이트 필요 · 안정화 결과 없음";
+        String state=selection.optString("status");
+        if("stable".equals(state)&&!chosen.isEmpty()){
+            java.util.ArrayList<String> names=new java.util.ArrayList<>();
+            for(Decoder.Detection d:chosen)names.add(Decoder.KOREAN[d.cls]);
+            return "중앙 안정 후보: "+android.text.TextUtils.join("/",names)+" · 내 신호 미확정";
+        }
+        if("ambiguous".equals(state))return "비슷한 위치의 여러 후보 · 미확정";
+        if("conflict".equals(state))return "신호 색 충돌 · 미확정";
+        if("warming".equals(state))return "중앙 후보 연속 확인 중";
+        return "중앙 후보 없음";
     }
     void run(){
         long sessionStart=SystemClock.elapsedRealtime();
@@ -119,8 +151,13 @@ public final class SignalService extends Service {
                             if(code!=200)throw new IllegalStateException(code==400?"결과가 늦거나 세션이 바뀌어 폐기됨":"결과 전송 실패 (HTTP "+code+")");
                             try(InputStream in=post.getInputStream()){reply=new JSONObject(new String(bounded(in,8192),StandardCharsets.UTF_8));}
                         }finally{post.disconnect();}
-                        String status=String.format(java.util.Locale.ROOT,"후보 %d개 · 추론 %dms · 왕복 %.0fms",found.size(),infer,reply.optDouble("roundtrip_ms"));
-                        snapshot=new Snapshot(image,found,status);
+                        JSONObject selection=reply.optJSONObject("selection");
+                        List<Decoder.Detection> chosen=highlights(selection);
+                        long remaining=Math.max(0,(10*60*1000L-(SystemClock.elapsedRealtime()-sessionStart))/1000);
+                        String status=selectionText(selection,chosen)+"\n"+String.format(java.util.Locale.ROOT,
+                                "원본 %d개 · 추론 %dms · 왕복 %.0fms · 남은 %d:%02d",found.size(),infer,
+                                reply.optDouble("roundtrip_ms"),remaining/60,remaining%60);
+                        snapshot=new Snapshot(image,found,chosen,status);
                     }catch(Exception e){if(running){snapshot=new Snapshot(null,Collections.emptyList(),e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());Thread.sleep(1000);}}
                     long wait=200-(SystemClock.elapsedRealtime()-begin);
                     if(wait>0)Thread.sleep(wait);else Thread.sleep(20);

@@ -17,7 +17,12 @@ def read_observer(path='/dev/shm/eon_signal_lab.json', now=time.time):
     age = now() - float(data.get('received_unix_ms', 0)) / 1000.0
     if not math.isfinite(age) or not 0 <= age <= 1.2:
       return None
-    ds = data.get('detections')
+    selection = data.get('selection')
+    if not isinstance(selection, dict) or selection.get('version') != 1 or selection.get('ego_signal_confirmed') is not False:
+      return None
+    if selection.get('status') not in ('stable', 'warming', 'ambiguous', 'conflict', 'none'):
+      return None
+    ds = selection.get('detections') if selection['status'] == 'stable' else []
     if not isinstance(ds, list) or len(ds) > 32:
       return None
     clean = []
@@ -28,6 +33,6 @@ def read_observer(path='/dev/shm/eon_signal_lab.json', now=time.time):
       if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
         return None
       clean.append({'label': d['label'], 'score': confidence})
-    return {'observerOnly': True, 'ageMs': int(age * 1000), 'detections': clean}
+    return {'observerOnly': True, 'ageMs': int(age * 1000), 'detections': clean, 'selectionStatus': selection['status']}
   except (OSError, ValueError, TypeError, OverflowError):
     return None

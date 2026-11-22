@@ -93,6 +93,87 @@ class BadResult(ValueError):
   pass
 
 
+class CandidateFilter:
+  """Conservative display heuristic; central position does not establish ego relevance.
+
+  Coordinates refer to the receiver's upper-70% camera crop. The lower band is
+  excluded to reduce vehicle-lamp candidates, at the cost of missing low heads.
+  Never carry a colour across missing, conflicting, or spatially changed evidence.
+  """
+  VERSION = 1
+  CONFIRM_SECONDS = .6
+  MAX_GAP = .65
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.previous = None
+    self.signature = None
+    self.since = self.last = None
+    self.hits = 0
+
+  @staticmethod
+  def center(d):
+    x0, y0, x1, y1 = d['box']
+    return (x0 + x1) / 2, (y0 + y1) / 2
+
+  @staticmethod
+  def overlap(a, b):
+    ax, ay, ar, ab = a['box']
+    bx, by, br, bb = b['box']
+    inter = max(0, min(ar, br) - max(ax, bx)) * max(0, min(ab, bb) - max(ay, by))
+    return inter / max(1e-9, min((ar-ax)*(ab-ay), (br-bx)*(bb-by)))
+
+  @classmethod
+  def result(cls, status, detections=None):
+    return {'version': cls.VERSION, 'status': status, 'detections': detections or [],
+            'ego_signal_confirmed': False}
+
+  def update(self, detections, now):
+    groups = []
+    for d in sorted(detections, key=lambda d: -d['score']):
+      x, y = self.center(d)
+      x0, y0, x1, y1 = d['box']
+      if d['score'] < .35 or not (.2 <= x <= .8 and .08 <= y <= .72):
+        continue
+      if x1-x0 > .30 or y1-y0 > .18:
+        continue
+      group = next((g for g in groups if self.overlap(g[0], d) > .4), None)
+      if group is None:
+        groups.append([d])
+      elif not any(p['label'] == d['label'] for p in group):
+        group.append(d)  # Keep simultaneous red + left; suppress duplicate tile boxes.
+    if not groups:
+      self.reset()
+      return self.result('none')
+    groups.sort(key=lambda g: abs(self.center(g[0])[0] - .5))
+    if len(groups) > 1 and (abs(self.center(groups[1][0])[0] - .5) -
+                            abs(self.center(groups[0][0])[0] - .5)) < .04:
+      self.reset()
+      return self.result('ambiguous')
+    chosen = groups[0]
+    signature = frozenset(d['label'] for d in chosen)
+    if ('red' in signature and 'green' in signature or
+        'yellow' in signature and len(signature) > 1):
+      self.reset()
+      return self.result('conflict')
+    representative = chosen[0]
+    cx, cy = self.center(representative)
+    same = False
+    if self.previous is not None and self.signature == signature and self.last < now <= self.last + self.MAX_GAP:
+      px, py = self.center(self.previous)
+      same = (self.overlap(self.previous, representative) > .1 and
+              abs(cx-px) <= .04 and abs(cy-py) <= .04)
+    if not same:
+      self.since, self.hits = now, 1
+    else:
+      self.hits += 1
+    self.previous, self.signature, self.last = representative, signature, now
+    stable = self.hits >= 3 and now - self.since >= self.CONFIRM_SECONDS
+    return self.result('stable' if stable else 'warming', chosen if stable else None)
+
+
 class Results:
   def __init__(self, clock=time.monotonic, output=None):
     self.clock, self.output = clock, output
@@ -101,6 +182,7 @@ class Results:
     self.frames = collections.OrderedDict()
     self.seq, self.last_accepted = 0, 0
     self.latest, self.received_at = None, 0.0
+    self.candidates = CandidateFilter()
 
   def issue(self):
     with self.lock:
@@ -148,7 +230,8 @@ class Results:
       self.latest = {'protocol': 1, 'session': self.session, 'frame_id': frame,
                      'observer_only': True, 'ego_signal_confirmed': False,
                      'model_sha256': MODEL_SHA, 'model': 'Korean LightSignal v20260727',
-                     'detections': clean, 'infer_ms': round(infer_ms, 1),
+                     'detections': clean, 'selection': self.candidates.update(clean, now),
+                     'infer_ms': round(infer_ms, 1),
                      'roundtrip_ms': round(age * 1000, 1), 'received_unix_ms': int(time.time() * 1000)}
       self.received_at = now
       if self.output:
@@ -164,7 +247,7 @@ class Results:
       age = self.clock() - self.received_at
       if self.latest is None or age < 0 or age > DISPLAY_TTL:
         return {'protocol': 1, 'observer_only': True, 'ego_signal_confirmed': False,
-                'status': 'stale', 'detections': []}
+                'status': 'stale', 'detections': [], 'selection': CandidateFilter.result('none')}
       out = dict(self.latest)
       out['age_ms'] = int(age * 1000)
       out['status'] = 'candidate' if out['detections'] else 'none'
@@ -212,7 +295,7 @@ class Camera:
       return out.getvalue(), image.width, image.height
 
 
-PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>EON 한국 신호등 시험</title><style>body{background:#111827;color:white;font:20px sans-serif;padding:24px}input,button{font:inherit;max-width:95%}pre{white-space:pre-wrap}b{color:#fbbf24}</style><h2>한국 신호등 · 관찰 모드</h2><b>표시는 후보입니다. 내 진행 방향의 신호로 확정하지 않습니다.</b><p><input id="token" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="4자리 연결 코드"><button id="go">연결</button></p><pre id="out">앱에서 인식을 시작하세요.</pre><script>let active=false;const out=document.querySelector('#out'),token=document.querySelector('#token');token.value=location.hash.slice(1);document.querySelector('#go').onclick=()=>{active=true;poll()};const names={red:'빨강',yellow:'노랑',green:'초록',left:'좌회전'};async function poll(){if(!active)return;try{const r=await fetch('/state',{headers:{Authorization:'Bearer '+token.value},cache:'no-store'});if(!r.ok)throw Error('연결 코드 또는 서버 확인');const s=await r.json();out.textContent=s.status==='stale'?'결과 대기 / 연결 지연':s.detections.map(d=>names[d.label]+' '+Math.round(d.score*100)+'%').join('\n')+'\n추론 '+s.infer_ms+'ms · 왕복 '+s.roundtrip_ms+'ms\n내 진행 신호: 미확정';}catch(e){out.textContent=e.message}setTimeout(poll,300)}if(token.value){active=true;poll()}</script></html>'''
+PAGE = r'''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>EON 한국 신호등 시험</title><style>body{background:#111827;color:white;font:20px sans-serif;padding:24px}input,button{font:inherit;max-width:95%}pre{white-space:pre-wrap}b{color:#fbbf24}</style><h2>한국 신호등 · 관찰 모드</h2><b>표시는 후보입니다. 내 진행 방향의 신호로 확정하지 않습니다.</b><p><input id="token" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="4자리 연결 코드"><button id="go">연결</button></p><pre id="out">앱에서 인식을 시작하세요.</pre><script>let active=false;const out=document.querySelector('#out'),token=document.querySelector('#token');token.value=location.hash.slice(1);document.querySelector('#go').onclick=()=>{active=true;poll()};const names={red:'빨강',yellow:'노랑',green:'초록',left:'좌회전'};async function poll(){if(!active)return;try{const r=await fetch('/state',{headers:{Authorization:'Bearer '+token.value},cache:'no-store'});if(!r.ok)throw Error('연결 코드 또는 서버 확인');const s=await r.json();out.textContent=s.status==='stale'?'결과 대기 / 연결 지연':(s.selection&&s.selection.status==='stable'?s.selection.detections.map(d=>names[d.label]+' '+Math.round(d.score*100)+'%').join('\n'):'중앙 후보 미확정 ('+(s.selection?s.selection.status:'구버전')+')')+'\n추론 '+s.infer_ms+'ms · 왕복 '+s.roundtrip_ms+'ms\n내 진행 신호: 미확정';}catch(e){out.textContent=e.message}setTimeout(poll,300)}if(token.value){active=true;poll()}</script></html>'''
 
 
 class Server(ThreadingHTTPServer):
@@ -304,7 +387,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.respond(413, {'error': 'body too large or empty'})
       data = json.loads(self.rfile.read(length).decode('utf-8'))
       result = self.server.results.accept(data)
-      self.respond(200, {'ok': True, 'roundtrip_ms': result['roundtrip_ms']})
+      self.respond(200, {'ok': True, 'roundtrip_ms': result['roundtrip_ms'], 'selection': result['selection']})
     except (ValueError, UnicodeError) as error:
       self.respond(400, {'error': str(error)})
 
