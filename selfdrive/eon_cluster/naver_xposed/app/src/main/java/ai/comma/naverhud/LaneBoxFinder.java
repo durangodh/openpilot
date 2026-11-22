@@ -151,12 +151,81 @@ final class LaneBoxFinder {
             }
         }
         double area = bw * (double) bh;
-        if (darkN < 0.5 * area || brightN < 0.015 * area) return Double.MAX_VALUE;
+        if (darkN < 0.5 * area || brightN < 0.015 * area || !hasArrow(px, w, b)) return Double.MAX_VALUE;
         int estimated = Math.max(1, Math.min(8, (int) Math.round(aspect / .95)));
         double shapeError = Math.abs(Math.log(aspect / (.95 * estimated)));
         double hintError = lanes > 0 ? Math.min(.3, Math.abs(lanes-estimated) * .05) : 0;
         // Original metre-label proximity wins over a stale lane-count hint.
         return shapeError + hintError + (anchored ? 0 : 2);
+    }
+
+    /** Require an actual filled arrowhead and its centred narrower shaft.
+     * Dark plaques containing 30 / 188m are not lane guidance, wherever they sit.
+     * Inspect connected glyphs in four directions, preserving original pixels.
+     */
+    private static boolean hasArrow(int[] px, int stride, Box b) {
+        int w = b.x1-b.x0+1, h = b.yLast-b.y0+1;
+        boolean[] ink = new boolean[w*h], seen = new boolean[w*h];
+        int[] queue = new int[w*h];
+        for (int y=1; y<h-1; y++) for (int x=1; x<w-1; x++)
+            ink[y*w+x] = bright(px[(b.y0+y)*stride+b.x0+x]);
+        for (int seed=0; seed<ink.length; seed++) {
+            if (!ink[seed] || seen[seed]) continue;
+            int read=0, count=1, x0=seed%w, x1=x0, y0=seed/w, y1=y0;
+            queue[0]=seed; seen[seed]=true;
+            while (read<count) {
+                int i=queue[read++], x=i%w, y=i/w;
+                x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);
+                for (int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++) {
+                    int nx=x+dx, ny=y+dy;
+                    if(nx<0||nx>=w||ny<0||ny>=h)continue;
+                    int ni=ny*w+nx;
+                    if(ink[ni]&&!seen[ni]){seen[ni]=true;queue[count++]=ni;}
+                }
+            }
+            int gw=x1-x0+1, gh=y1-y0+1;
+            if(count<12||gw<4||gh<4||Math.max(gw,gh)<8)continue;
+            for(int direction=0;direction<4;direction++) {
+                int length=direction<2?gh:gw, cross=direction<2?gw:gh;
+                int[] lo=new int[length], hi=new int[length], amount=new int[length];
+                java.util.Arrays.fill(lo,cross);java.util.Arrays.fill(hi,-1);
+                for(int k=0;k<count;k++) {
+                    int x=queue[k]%w-x0, y=queue[k]/w-y0;
+                    int u=direction==0?y:direction==1?gh-1-y:direction==2?x:gw-1-x;
+                    int v=direction<2?x:y;
+                    lo[u]=Math.min(lo[u],v);hi[u]=Math.max(hi[u],v);amount[u]++;
+                }
+                int tip=hi[0]-lo[0]+1;
+                if(tip>Math.max(3,cross*.30))continue;
+                for(int base=2;base<=Math.min(length-3,(int)(length*.55));base++) {
+                    int span=hi[base]-lo[base]+1;
+                    if(span<5||span<cross*.25||span<tip+3)continue;
+                    float center=(lo[base]+hi[base])/2f;
+                    if(Math.abs((lo[0]+hi[0])/2f-center)>Math.max(1f,span*.15))continue;
+                    if(lo[0]-lo[base]<1||hi[base]-hi[0]<1)continue;
+                    boolean solid=true;
+                    int previous=tip, growth=0;
+                    for(int u=0;u<=base;u++) {
+                        int width=hi[u]-lo[u]+1;
+                        if(width<1||amount[u]<width*.75||width+1<previous){solid=false;break;}
+                        if(width>previous)growth++;
+                        previous=width;
+                    }
+                    if(!solid||growth<2)continue;
+                    int shaft=Math.max(2,Math.min(4,length/5));
+                    if(base+shaft>=length)continue;
+                    boolean narrow=true;
+                    for(int u=base+1;u<=base+shaft;u++) {
+                        int width=hi[u]-lo[u]+1;
+                        if(width<1||width>span*.65||Math.abs((lo[u]+hi[u])/2f-center)>Math.max(1f,span*.2)) {
+                            narrow=false;break;
+                        }
+                    }
+                    if(narrow)return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */
