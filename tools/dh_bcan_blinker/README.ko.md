@@ -98,7 +98,7 @@
 ## 9. 노트북 없이 펌웨어 업데이트 (폰 브라우저)
 2026-11-15 펌웨어부터 됩니다(이 펌웨어는 한 번 노트북으로 올려야 함).
 1. 폰에서 GitHub g_blinker의 `tools/dh_bcan_blinker/bin/dh_bcan_blinker.ino.bin`을 내려받습니다
-   (Raw/다운로드). 현재 파일: 버전 2026-11-22b, sha256 앞자리 `6f42f29459b8a6c0` (TJA1055용은 `dh_bcan_blinker_tja1055.ino.bin`, `f0149328d93de9e0`). 창문: python selfdrive/debug/dh_window.py 기록: http://<보드 IP>/log
+   (Raw/다운로드). 현재 파일: 버전 2026-11-22c, sha256 앞자리 `b3b4b73521c3fa06` (TJA1055용은 `dh_bcan_blinker_tja1055.ino.bin`, `03c6c6d5d15df25f`). 창문: python selfdrive/debug/dh_window.py 기록: http://<보드 IP>/log
 2. **P단**, 폰과 보드가 같은 핫스팟에 연결된 상태에서 브라우저로 `http://보드IP/update`
    (보드 IP는 `/data/bcan_blinker.log`의 `ESP32 link 2 (192.168.x.x ...)`, 또는 시리얼 연결 메시지).
 3. 아이디 `dh`, 비밀번호 `dhblinker` → 파일 선택 → **올리기**. 10~30초 뒤 "완료"가 뜨고 보드가 다시 시작합니다.

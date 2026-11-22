@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-22b" FW_VARIANT
+#define FW_VERSION "2026-11-22c" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -260,7 +260,11 @@ int readCmd() {
   return -1;
 }
 
+#define BUS_ERRORS_ABORT 4
+static uint8_t busErrs = 0;   // bus errors in the current transmit (reset when sending starts)
+
 bool startCan(bool tx) {
+  busErrs = 0;
   if (installed) {
     twai_stop();
     twai_driver_uninstall();
@@ -1267,12 +1271,22 @@ void loop() {
 
   for (int i = 0; installed && i < 32 && twai_receive(&gRx, 0) == ESP_OK; i++) onFrame(now);
 
+  // 2026-11-22c: one bus error (an error frame another node caused, a disturbance) made the tap
+  // abort and EON showed "bus error" for 60 s, often after 22b. The controller retransmits by
+  // itself; only error-passive / bus-off, or BUS_ERRORS_ABORT errors in one tap, abort now.
   uint32_t alerts;
-  if (installed && twai_read_alerts(&alerts, 0) == ESP_OK && txMode &&
-      (alerts & (TWAI_ALERT_BUS_ERROR | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_OFF | TWAI_ALERT_TX_FAILED))) {
-    out("! bus problem while transmitting: abort\n");
-    if (win != WIN_IDLE) endWin("abort");
-    else endTap("abort");
+  if (installed && twai_read_alerts(&alerts, 0) == ESP_OK && txMode) {
+    bool fatal = alerts & (TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_OFF);
+    if (!fatal && (alerts & (TWAI_ALERT_BUS_ERROR | TWAI_ALERT_TX_FAILED))) {
+      busErrs++;
+      outf("! bus error %u during transmit (alerts 0x%lx), retrying\n", (unsigned)busErrs, (unsigned long)alerts);
+      fatal = busErrs >= BUS_ERRORS_ABORT;
+    }
+    if (fatal) {
+      outf("! bus problem while transmitting (alerts 0x%lx, %u errors): abort\n", (unsigned long)alerts, (unsigned)busErrs);
+      if (win != WIN_IDLE) endWin("abort");
+      else endTap("abort");
+    }
   }
   winTick(millis());
 
