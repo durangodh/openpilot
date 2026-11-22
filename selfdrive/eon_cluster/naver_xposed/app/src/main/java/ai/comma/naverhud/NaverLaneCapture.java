@@ -54,7 +54,8 @@ final class NaverLaneCapture {
     private int lanes;
     private String label = "";
     private boolean running, live, busy, loggedFound, loggedMiss, loggedError;
-    private Rect box;            // 창 좌표(원래 해상도)
+    private Rect box;            // 창 좌표(원래 해상도): 상자 + 네이버 거리 글자
+    private volatile Rect boxPart;   // box 안에서 차로 상자 부분(crop 좌표)
     private int boxLanes;
     private long searchedAt, capturedAt = -1;
     private int misses;
@@ -133,22 +134,33 @@ final class NaverLaneCapture {
                 final Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
                 busy = true;
                 PixelCopy.request(window, small, result -> {
-                    Rect found = null;
+                    Rect found = null, part = null;
                     if (result == PixelCopy.SUCCESS) {
                         int[] px = new int[sw * sh];
                         small.getPixels(px, 0, sw, 0, 0, sw, sh);
                         int[] r = LaneBoxFinder.find(px, sw, sh, n, anchors);
                         if (dump) dumpCapture(small, r, anchors, n);
+                        int[] lbl = LaneBoxFinder.label(r, anchors);
+                        int[] boxOnly = r;
+                        if (r != null && lbl != null) {
+                            // Naver's own distance text goes along with the box (original pixels).
+                            r = new int[]{Math.min(r[0], lbl[0]), Math.min(r[1], lbl[1]), Math.max(r[2], lbl[2]), Math.max(r[3], lbl[3])};
+                        }
                         if (r != null) {
                             found = new Rect(Math.max(0, r[0] * 2 - 4), Math.max(0, r[1] * 2 - 3),
                                     Math.min(sw * 2, r[2] * 2 + 6), Math.min(sh * 2, r[3] * 2 + 5));
+                            // the box inside the crop, for the stillBox check (the label is not dark)
+                            part = new Rect(Math.max(0, boxOnly[0] * 2 - found.left), Math.max(0, boxOnly[1] * 2 - found.top),
+                                    Math.min(found.width(), boxOnly[2] * 2 + 2 - found.left),
+                                    Math.min(found.height(), boxOnly[3] * 2 + 2 - found.top));
                         }
                     }
                     if (!dump || result != PixelCopy.SUCCESS) small.recycle();
-                    final Rect f = found;
+                    final Rect f = found, fp = part;
                     final int res = result;
                     main.post(() -> {
                         busy = false;
+                        boxPart = fp;
                         onSearched(f, n, res, sw * 2, sh * 2);
                     });
                 }, worker);
@@ -224,7 +236,14 @@ final class NaverLaneCapture {
             if (result == PixelCopy.SUCCESS) {
                 int[] px = new int[crop.getWidth() * crop.getHeight()];
                 crop.getPixels(px, 0, crop.getWidth(), 0, 0, crop.getWidth(), crop.getHeight());
-                ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
+                Rect bp = boxPart;
+                if (bp != null && bp.width() >= 8 && bp.height() >= 8 && bp.right <= crop.getWidth() && bp.bottom <= crop.getHeight()) {
+                    int[] sub = new int[bp.width() * bp.height()];
+                    crop.getPixels(sub, 0, bp.width(), bp.left, bp.top, bp.width(), bp.height());
+                    ok = LaneBoxFinder.stillBox(sub, bp.width(), bp.height());
+                } else {
+                    ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
+                }
             }
             final boolean good = ok;
             main.post(() -> {
@@ -264,10 +283,7 @@ final class NaverLaneCapture {
         }
 
         void setLabel(String s) {
-            if (!s.equals(label)) {
-                label = s;
-                relayout();
-            }
+            // Only Naver's own pixels: the distance comes with the crop when Naver's label is found.
         }
 
         void setImage(Bitmap b) {

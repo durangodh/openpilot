@@ -252,7 +252,7 @@ final class NaverBridge {
                     }
 
                     @Override public void onLost() {
-                        drawOwnLaneStrip(lastLaneItem);   // live() 가 false 라 직접 그린 띠
+                        laneImage.onUpdate(laneStrip, false);   // 원본이 없으면 비운다(직접 그리지 않음)
                     }
                 });
             }
@@ -261,14 +261,9 @@ final class NaverBridge {
                 laneImage.onUpdate(laneStrip, false);
                 return;
             }
-            if (screenLane.live()) return;   // 원본 상자 그림을 이미 보내는 중
-            int w = laneStrip.widthPx(), h = laneStrip.heightPx();
-            laneStrip.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
-                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
-            laneStrip.layout(0, 0, w, h);
-            laneImage.padLeft = 0;
-            laneImage.padTop = 0;
-            laneImage.onUpdate(laneStrip, true);
+            // Only Naver's own pixels (2026-11-22 request): no drawn substitute. Until the capture has
+            // the box, the HUD lane slot stays empty.
+            if (!screenLane.live()) laneImage.onUpdate(laneStrip, false);
         } catch (Throwable error) {
             offscreenLaneFailed = true;
             NaverHudLog.ex("own lane strip", error);

@@ -179,15 +179,20 @@ final class LaneBoxFinder {
     }
 
     private static double anchorBonus(Box b, java.util.List<int[]> anchors) {
-        if (anchors == null || anchors.isEmpty()) return 0.0;
-        int bh = b.yLast - b.y0 + 1;
+        return label(new int[]{b.x0, b.y0, b.x1, b.yLast}, anchors) != null ? -1.0 : 0.0;
+    }
+
+    /** The distance label belonging to box {l, t, r, b}: right next to it or just above, or null. */
+    static int[] label(int[] box, java.util.List<int[]> anchors) {
+        if (box == null || anchors == null) return null;
+        int bh = box[3] - box[1] + 1;
         for (int[] a : anchors) {
             int cy = (a[1] + a[3]) / 2;
-            boolean right = a[0] >= b.x1 - 2 && a[0] - b.x1 <= bh && cy >= b.y0 - bh / 3 && cy <= b.yLast + bh / 3;
-            boolean above = a[3] <= b.y0 + 2 && b.y0 - a[3] <= bh && a[0] <= b.x1 && a[2] >= b.x0;
-            if (right || above) return -1.0;
+            boolean right = a[0] >= box[2] - 2 && a[0] - box[2] <= bh && cy >= box[1] - bh / 3 && cy <= box[3] + bh / 3;
+            boolean above = a[3] <= box[1] + 2 && box[1] - a[3] <= bh && a[0] <= box[2] && a[2] >= box[0];
+            if (right || above) return a;
         }
-        return 0.0;
+        return null;
     }
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */
