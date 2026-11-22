@@ -66,6 +66,7 @@ public class NavigationRenderCheck {
   void drawJunction(Canvas c,Paint p,float y){c.events.add("junction");}
   void drawNaviEta(Canvas c,Paint p,JSONObject s){c.etaCalls++;}
   void drawMapSourceBadge(Canvas c,Paint p,JSONObject s){c.sourceBadges++;c.events.add("source");}
+  void drawSignalLabObserver(Canvas c,Paint p,JSONObject s){}
   void drawNativeOverlay(Canvas c,Paint p,Bitmap b,float x,float y,float w,float h,Paint.Align a){
     if(b!=null&&!b.isRecycled()){c.nativeOverlays++;c.events.add("asset");}
   }
@@ -485,7 +486,8 @@ def main():
     assert "pixels > 8_000_000L" in replace_asset
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
-    for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
+    for start, end in (("    private void drawMap(", "    private void drawSignalLabObserver("),
+                       ("    private int beginGuideElement(", "    private void drawMapSourceBadge("),
                        ("    private static boolean cameraWarningOn(", "    private void drawSpeedRing("),
                        ("    private float drawTbtBanner(", "    private void drawTbtNext("),
                        ("    private void drawTbtNext(", "    // 회전 방향 종류.")):
