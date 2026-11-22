@@ -131,6 +131,10 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <path d="M128 184 L122 200 L128 197 L134 200 Z" fill="white"/></svg>
 <p id="navigationStatus" role="status"></p><p id="navigationGuidance"></p>
 </details>
+<div class="card"><h3>메인폰 신호등 AI 연결</h3>
+<p id="signalLabCode">연결 코드 확인 중</p><button id="signalLabRefresh">코드 새로고침</button>
+<a id="signalLabMonitor" hidden target="_blank" rel="noopener">수신 결과 보기</a>
+<p class="hint">메인폰 앱에 이온 IP:7799와 4자리 코드를 입력합니다. HUD에는 인식 후보만 표시합니다.</p></div>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
@@ -459,6 +463,21 @@ async function loadRecording() {
   catch (_) { recording = null; recordingStatus.textContent = '녹화 설정을 불러오지 못했습니다.'; }
   renderRecording();
 }
+
+async function loadSignalLab() {
+  const target = document.querySelector('#signalLabCode');
+  const monitor = document.querySelector('#signalLabMonitor');
+  try {
+    const state = await read('/api/signal-lab.json');
+    target.textContent = state.code ? '연결 코드: ' + state.code + ' · 주소: ' + location.hostname + ':' + state.port
+      : '서비스 시작 대기 · EON 업데이트 후 재시작하세요.';
+    monitor.hidden = !state.code;
+    if (state.code) monitor.href = 'http://' + location.hostname + ':' + state.port + '/#' + state.code;
+  } catch (_) { target.textContent = '연결 코드를 확인할 수 없습니다.'; monitor.hidden = true; }
+}
+document.querySelector('#signalLabRefresh').onclick = loadSignalLab;
+loadSignalLab();
+
 async function loadStatus() {
   const target = document.querySelector('#driveStatus');
   try {
@@ -1441,6 +1460,9 @@ class Handler(BaseHTTPRequestHandler):
     elif trace_http.is_trace_path(path):
       self.close_connection = True
       trace_http.serve(self.connection, path, allow_delete=False)
+    elif path == "/api/signal-lab.json":
+      from selfdrive.eon_cluster.signal_lab.server import pairing_info
+      self.send_json(pairing_info())
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":

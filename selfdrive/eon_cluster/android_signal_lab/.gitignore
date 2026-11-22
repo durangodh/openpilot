@@ -1,0 +1,6 @@
+/.deps/
+/build/
+/assets/korean-signal.tflite
+/signing/trial.p12
+/EonSignalLab-Korea-latest.apk
+/EonSignalLab-Korea-latest.apk.sha256

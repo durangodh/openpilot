@@ -24,6 +24,7 @@ from selfdrive.eon_cluster.bcan_blinker_core import hud_status as blinker_status
 from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 from selfdrive.eon_cluster import voice_system
+from selfdrive.eon_cluster.signal_lab.observer import read_observer
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1165,6 +1166,7 @@ def _packet(sm, noo_enabled, path_offset=0.0, path_style=(True, 100)):
   # never drag the perceived road sideways on the HUD.
   return {
     "v": 6,
+    "aiSignalObserver": read_observer(),
     "t": int(time.time() * 1000),
     # 주행 패널은 메시지가 "살아 있는지(alive)"로만 판단한다. valid 플래그는
     # 정상 주행 중에도 다른 서비스 지연(commIssue 등)으로 자주 False 가 되어
