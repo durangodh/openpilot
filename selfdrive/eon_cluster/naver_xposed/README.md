@@ -158,3 +158,9 @@ disappears or guidance stops.
 `map_main`, so named overlay sockets (this one and `traffic_signal`) never
 reached their overlay files. Overlay socket names are now checked first for
 every source. Not yet verified in the car.
+
+## Intermittent original lane capture (2026-11-22)
+
+The Compose window remains the source of arrow and distance pixels. Lane metadata is only a hint: a temporarily empty lane list or a changed count no longer stops capture, clears the lane asset, or discards an in-flight window copy. Activity changes and leaving driving mode still clear both assets. Signal-state changes invalidate only the signal result.
+
+The pixel finder accepts visible strip geometry even when the metadata count lags. Nearby original metre-label accessibility bounds take priority; unanchored boxes at the outer 15% of either map edge (including the school-zone speed plaque in the reported scene) are excluded. This is a layout heuristic and can miss unusual edge layouts without accessible distance labels. The crop still uses original pixels, with the existing distance margins when text bounds are unavailable; no arrow or number is reconstructed. Tests cover synthetic photo-shaped layouts and the production lifecycle update. Actual device behavior remains to be verified.

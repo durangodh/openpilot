@@ -9,6 +9,7 @@ on:
       - "selfdrive/eon_cluster/android_common/**"
       - "selfdrive/eon_cluster/tests/MusicSessionStateCheck.java"
       - "selfdrive/eon_cluster/tests/NaverScreenGuidanceCheck.java"
+      - "selfdrive/eon_cluster/tests/test_naver_capture_session.py"
       - ".github/workflows/build-naver-hud-module.yml"
 
 concurrency:
@@ -44,6 +45,7 @@ jobs:
           java -cp "$RUNNER_TEMP/naver-music-check" ai.comma.hudcommon.MusicSessionStateCheck
           javac -d "$RUNNER_TEMP/naver-guidance-check" app/src/main/java/ai/comma/naverhud/LaneBoxFinder.java app/src/main/java/ai/comma/naverhud/ScreenGuidanceFinder.java ../tests/NaverScreenGuidanceCheck.java
           java -cp "$RUNNER_TEMP/naver-guidance-check" ai.comma.naverhud.NaverScreenGuidanceCheck
+          python3 ../tests/test_naver_capture_session.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-capture-session"
           gradle :app:assembleRelease --stacktrace
       - name: Sign and verify release APK
         env:

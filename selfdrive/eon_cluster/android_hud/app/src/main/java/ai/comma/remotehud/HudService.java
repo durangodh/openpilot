@@ -7888,9 +7888,9 @@ public final class HudService extends Service {
                 float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
                 // 네비모드는 도착정보 바 높이의 1.5배(2026-10-14 요청: 50% 크게).
                 float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
-                // Naver 6.12's lane strip is drawn by our module at the phone box's full height and
-                // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
-                if (navApp == 2) laneH *= 0.52f;   // 0.65 was still 20 % too big (2026-11-22)
+                // The original Naver crop now includes its own distance label. The former
+                // 52% reduction made both arrows and digits too small compared with the phone.
+                if (navApp == 2) laneH = naviLayout ? 65f : ETA_H;
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;

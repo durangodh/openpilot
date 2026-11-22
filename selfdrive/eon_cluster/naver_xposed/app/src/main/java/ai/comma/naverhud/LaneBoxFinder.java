@@ -30,10 +30,14 @@ final class LaneBoxFinder {
 
     /** {left, top, right, bottom}(포함) 또는 못 찾으면 null. */
     static int[] find(int[] px, int w, int h, int lanes) {
-        if (lanes <= 0 || w <= 0 || h <= 0) return null;
+        return find(px, w, h, lanes, java.util.Collections.emptyList());
+    }
+
+    static int[] find(int[] px, int w, int h, int lanes, java.util.List<int[]> labels) {
+        if (w <= 0 || h <= 0 || px == null || px.length != w * h) return null;
         boolean[] d = new boolean[w * h];
         for (int i = 0; i < d.length; i++) d[i] = dark(px[i]);
-        int minRun = Math.max(20, lanes * 12);
+        int minRun = 20; // Lane count is advisory and may lag a Compose frame.
         java.util.ArrayList<Box> open = new java.util.ArrayList<>();
         int[] best = null;
         double bestScore = Double.MAX_VALUE;
@@ -97,7 +101,7 @@ final class LaneBoxFinder {
                 }
                 if (++b.miss > 1 || y >= h) {
                     open.remove(k);
-                    double score = score(b, px, d, w, lanes);
+                    double score = score(b, px, d, w, h, lanes, labels);
                     if (score < bestScore) {
                         bestScore = score;
                         best = new int[]{b.x0, b.y0, b.x1, b.yLast};
@@ -118,11 +122,26 @@ final class LaneBoxFinder {
     }
 
     /** 낮을수록 좋다. 조건에 안 맞으면 MAX_VALUE. */
-    private static double score(Box b, int[] px, boolean[] d, int w, int lanes) {
+    private static double score(Box b, int[] px, boolean[] d, int w, int h, int lanes, java.util.List<int[]> labels) {
         int bw = b.x1 - b.x0 + 1, bh = b.yLast - b.y0 + 1;
-        if (bh < 14 || b.full < 3 || bw > 0.95 * w) return Double.MAX_VALUE;
+        if (bh < 14 || bh > h * .28 || b.full < 3 || bw > 0.95 * w) return Double.MAX_VALUE;
         double aspect = bw / (double) bh;
-        if (aspect < 0.55 * lanes || aspect > 1.7 * lanes) return Double.MAX_VALUE;
+        if (aspect < .55 || aspect > 8 * 1.7) return Double.MAX_VALUE;
+        double cx = (b.x0 + b.x1) / (2.0 * w);
+        // Naver's speed/school-zone plaque is at the map edge, unlike its lane strip.
+        // A distance anchor below can override this for an atypical original layout.
+        boolean anchored = false;
+        for (int[] label : labels) {
+            int lw = label[2]-label[0]+1, lh = label[3]-label[1]+1;
+            if (lw < 1 || lw > bh * 4 || lh < 1 || lh > bh * 1.6) continue;
+            int dx = Math.max(0, Math.max(b.x0-label[2], label[0]-b.x1));
+            int dy = Math.max(0, Math.max(b.y0-label[3], label[1]-b.yLast));
+            // Original distance is beside or above the arrow box, not inside it.
+            boolean beside = label[0] > b.x1 && label[1] <= b.yLast && label[3] >= b.y0;
+            boolean above = label[3] < b.y0 && label[0] <= b.x1 && label[2] >= b.x0;
+            if ((beside || above) && Math.hypot(dx, dy) < bh * 1.6) anchored = true;
+        }
+        if (!anchored && (cx < .15 || cx > .85)) return Double.MAX_VALUE;
         int darkN = 0, brightN = 0;
         for (int y = b.y0; y <= b.yLast; y++) {
             int row = y * w;
@@ -133,7 +152,11 @@ final class LaneBoxFinder {
         }
         double area = bw * (double) bh;
         if (darkN < 0.5 * area || brightN < 0.015 * area) return Double.MAX_VALUE;
-        return Math.abs(Math.log(aspect / (0.95 * lanes)));
+        int estimated = Math.max(1, Math.min(8, (int) Math.round(aspect / .95)));
+        double shapeError = Math.abs(Math.log(aspect / (.95 * estimated)));
+        double hintError = lanes > 0 ? Math.min(.3, Math.abs(lanes-estimated) * .05) : 0;
+        // Original metre-label proximity wins over a stale lane-count hint.
+        return shapeError + hintError + (anchored ? 0 : 2);
     }
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */

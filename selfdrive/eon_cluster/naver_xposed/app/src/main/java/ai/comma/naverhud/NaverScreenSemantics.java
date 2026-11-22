@@ -81,6 +81,15 @@ final class NaverScreenSemantics {
         return bounds;
     }
 
+    static List<int[]> distances(List<Entry> entries, int w, int h) {
+        List<int[]> out = new ArrayList<>();
+        for (Entry e : entries) {
+            if (e.text.matches("(?s).*\\d(?:[\\d., ]*)\\s*(?:km|m|킬로미터|미터)(?:\\b|\\s|$).*")
+                    && compact(e.bounds, w, h)) out.add(e.bounds);
+        }
+        return out;
+    }
+
     static int[] distance(List<Entry> entries, int[] lane, int w, int h) {
         if (lane == null) return null;
         int bh = lane[3] - lane[1] + 1;

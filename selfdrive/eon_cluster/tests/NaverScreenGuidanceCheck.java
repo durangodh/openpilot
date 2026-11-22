@@ -61,6 +61,32 @@ public final class NaverScreenGuidanceCheck {
         disk(px, 115, 75, 6, 0xffff3030);
         check(ScreenGuidanceFinder.signal(px, W, H) == null, "reject unbounded night-map background");
         check(ScreenGuidanceFinder.signal(image(0xffdddddd), W, H) == null, "missing signal stays absent");
+        // Photo-shaped regression: two-arrow strip plus right-edge school-zone 30 plaque.
+        // The metadata may briefly say zero/one/eight although the same two arrows remain visible.
+        px = image(0xffdddddd);
+        rect(px, 140, 230, 219, 264, 0xff303033);
+        for (int x : new int[]{161, 196}) {
+            rect(px, x-2, 242, x+2, 258, 0xffffffff);
+            for (int dy=0; dy<9; dy++) rect(px, x-dy/2, 234+dy, x+dy/2, 234+dy, 0xffffffff);
+        }
+        rect(px, 360, 65, 394, 124, 0xff303033);
+        rect(px, 367, 94, 373, 113, 0xffffffff);
+        rect(px, 381, 94, 387, 113, 0xffffffff);
+        for (int hint : new int[]{0, 1, 2, 8}) {
+            r = LaneBoxFinder.find(px, W, H, hint);
+            check(r != null && r[0] >= 130 && r[2] <= 230 && r[1] >= 220,
+                    "capture visible arrows despite transient lane-count hint " + hint);
+        }
+        int[] signOnly = image(0xffdddddd);
+        rect(signOnly, 360, 65, 394, 124, 0xff303033);
+        rect(signOnly, 367, 94, 387, 113, 0xffffffff);
+        check(LaneBoxFinder.find(signOnly,W,H,1) == null, "edge speed plaque is not a lane strip");
+        check(LaneBoxFinder.find(image(0xffdddddd),W,H,0) == null, "empty metadata cannot fabricate arrows");
+        // Two plausible centre strips: use the original nearby metre-label bounds.
+        rect(px, 80, 100, 149, 134, 0xff303033);
+        rect(px, 105, 108, 111, 126, 0xffffffff);
+        r = LaneBoxFinder.find(px,W,H,2,java.util.Collections.singletonList(new int[]{225,234,280,258}));
+        check(r != null && r[1] >= 220, "original distance anchor selects its adjacent arrow box");
         System.out.println("Naver screen guidance checks passed: " + checks);
     }
 }

@@ -35,7 +35,7 @@ final class NaverLaneCapture {
     private Activity activity;
     private int lanes;
     private boolean signal, running, busy, loggedLane, loggedSignal, loggedError;
-    private long generation, requestAt;
+    private long generation, signalGeneration, requestAt;
 
     NaverLaneCapture(Context context, Listener listener) {
         this.listener = listener;
@@ -46,24 +46,25 @@ final class NaverLaneCapture {
         worker = new Handler(thread.getLooper());
     }
 
-    /** Main thread; signal capture remains active without lane guidance. */
-    void update(Activity a, int n, boolean showSignal) {
-        if (activity != a || lanes != n || signal != showSignal) {
+    /** The rendered window is authoritative; lane metadata is only a size hint. */
+    void update(Activity a, int n, boolean showSignal, boolean driving) {
+        boolean enabled = a != null && driving;
+        if (activity != a || running != enabled || signal != showSignal) signalGeneration++;
+        // Null/changing lane metadata must not stop captures or invalidate a good copy.
+        // Only an owner/drive-session change can make lane pixels obsolete.
+        if (activity != a || running != enabled) {
             generation++;
-            if (activity != a || lanes != n) listener.onLost();
-            if (activity != a || signal != showSignal) listener.onSignalLost();
+            listener.onLost(); listener.onSignalLost();
+            laneView.clearImage(); signalView.clearImage();
+        } else if (signal != showSignal) {
+            listener.onSignalLost(); signalView.clearImage();
         }
         activity = a;
         lanes = n;
         signal = showSignal;
-        if (a == null || (n <= 0 && !showSignal)) {
+        if (!enabled) {
             running = false;
-            generation++;
             main.removeCallbacks(tickTask);
-            listener.onLost();
-            listener.onSignalLost();
-            laneView.clearImage();
-            signalView.clearImage();
         } else if (!running) {
             running = true;
             main.post(tickTask);
@@ -95,6 +96,7 @@ final class NaverLaneCapture {
         final long token = generation;
         final int count = lanes;
         final boolean wantSignal = signal;
+        final long signalToken = signalGeneration;
         Bitmap frame = null;
         try {
             List<NaverScreenSemantics.Entry> entries = NaverScreenSemantics.read(decor);
@@ -112,12 +114,19 @@ final class NaverLaneCapture {
                         small = Bitmap.createScaledBitmap(source, sw, sh, true);
                         int[] px = new int[sw * sh];
                         small.getPixels(px, 0, sw, 0, 0, sw, sh);
-                        int[] box = count <= 0 ? null : LaneBoxFinder.find(px, sw, sh, count);
+                        // Metadata can be empty while Compose still shows the original strip.
+                        // Read all distance anchors so a speed plaque cannot win by aspect alone.
+                        java.util.List<int[]> labels = NaverScreenSemantics.distances(entries, dw, dh);
+                        java.util.List<int[]> smallLabels = new java.util.ArrayList<>();
+                        for (int[] d : labels) smallLabels.add(scale(d, sw / (float) dw, sh / (float) dh));
+                        int[] box = LaneBoxFinder.find(px, sw, sh, count, smallLabels);
                         int[] fullBox = scale(box, w / (float) sw, h / (float) sh);
                         int[] phoneBox = scale(fullBox, dw / (float) w, dh / (float) h);
                         int[] distance = NaverScreenSemantics.distance(entries, phoneBox, dw, dh);
                         int[] label = scale(distance, w / (float) dw, h / (float) dh);
-                        lane = crop(source, ScreenGuidanceFinder.laneWithDistance(fullBox, label, w, h, count));
+                        int visibleCount = fullBox == null ? 0 : Math.max(1, Math.round(
+                                (fullBox[2]-fullBox[0]+1) / (float) (fullBox[3]-fullBox[1]+1)));
+                        lane = crop(source, ScreenGuidanceFinder.laneWithDistance(fullBox, label, w, h, visibleCount));
                         if (wantSignal) {
                             int[] semantic = NaverScreenSemantics.signal(entries, dw, dh);
                             int[] housing = scale(ScreenGuidanceFinder.signal(px, sw, sh), w / (float) sw, h / (float) sh);
@@ -171,7 +180,8 @@ final class NaverLaneCapture {
                             NaverHudLog.line("lane + distance: original screen crop " + laneCrop.getWidth() + "x" + laneCrop.getHeight());
                         }
                     }
-                    if (signalCrop == null) {
+                    if (signalCrop == null || !signal || !wantSignal || signalToken != signalGeneration) {
+                        if (signalCrop != null) signalCrop.recycle();
                         listener.onSignalLost(); signalView.clearImage();
                     } else {
                         signalView.setImage(signalCrop);
