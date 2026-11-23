@@ -21,7 +21,7 @@ from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
 from selfdrive.eon_cluster.bcan_blinker_core import hud_status as blinker_status
-from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_request
+from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_is_call, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 from selfdrive.eon_cluster import voice_system
 
@@ -1406,6 +1406,7 @@ def main():
       voice = voice_request()
       if voice is not None:
         packet["voiceReq"], packet["voiceMode"] = voice
+        packet["voiceCall"] = voice_is_call()
       # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 끊겨도

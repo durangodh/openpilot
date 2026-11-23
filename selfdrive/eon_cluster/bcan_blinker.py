@@ -134,8 +134,9 @@ def main():
           vseq = previous.get("seq", 0) if isinstance(previous, dict) else 0
           vseq = (vseq + 1) % 1000000 if isinstance(vseq, int) else 1
           try:
-            # "call": the HUD beeps and always opens a fresh listening screen (2026-11-23 request)
-            atomic_json(VOICE_FILE, {"seq": vseq, "ts": time.monotonic(), "mode": "call"})
+            # call: the HUD beeps and always opens a fresh listening screen (2026-11-23 request).
+            # mode stays "ai" so an older HUD app still opens the assistant.
+            atomic_json(VOICE_FILE, {"seq": vseq, "ts": time.monotonic(), "mode": "ai", "call": True})
             _wake_remote_hud()
             dlog.write(f"call button: AI voice ({cl})")
           except OSError as e:

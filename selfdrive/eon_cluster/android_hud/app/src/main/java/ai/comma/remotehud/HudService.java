@@ -1194,7 +1194,8 @@ public final class HudService extends Service {
                         lastEonRxElapsed = receivedAt;
                         VoiceAssistant assistant = voice;
                         if (assistant != null) {
-                            assistant.onTelemetry(decoded.optInt("voiceReq", -1), decoded.optString("voiceMode", "ai"));
+                            assistant.onTelemetry(decoded.optInt("voiceReq", -1),
+                                    decoded.optBoolean("voiceCall", false) ? "call" : decoded.optString("voiceMode", "ai"));
                         }
                         lastEonAddress = packet.getAddress().getHostAddress();
                         byte[] ack = "HUD1".getBytes("US-ASCII");

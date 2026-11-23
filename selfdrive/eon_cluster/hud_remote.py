@@ -183,10 +183,16 @@ def voice_request(voice_file=VOICE_FILE, clock=time.monotonic):
     return None
   if not fresh(payload.get("ts"), 0.0, clock(), VOICE_MAX_AGE_S):
     return None
-  mode = payload.get("mode", "ai")
-  if mode not in ("ai", "call"):
+  if payload.get("mode", "ai") != "ai":
     return None
-  return payload["seq"], mode
+  return payload["seq"], "ai"
+
+
+def voice_is_call(voice_file=VOICE_FILE):
+  """True when the latest voice request came from the steering wheel call button. Sent as a
+  separate packet flag so HUD apps that only know mode 'ai' still open the assistant."""
+  payload = read_json(voice_file)
+  return isinstance(payload, dict) and payload.get("call") is True
 
 
 class RemoteButtonSource:
