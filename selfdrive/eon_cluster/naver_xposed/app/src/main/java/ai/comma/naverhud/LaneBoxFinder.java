@@ -197,18 +197,27 @@ final class LaneBoxFinder {
 
     /** 이미 찾은 상자를 다시 떠 온 그림이 아직 상자인지: 위 띠가 어둡고 전체가 반 이상 어둡다. */
     static boolean stillBox(int[] px, int w, int h) {
+        // 2026-11-23: the old check read a band near the top, where the arrow heads are; with
+        // straight arrows it failed every other refresh and the HUD strip came and went. Now only
+        // where Naver never draws arrows: a band under the stems (89-94 % of the height) and two
+        // thin columns just inside the left and right edges, plus "mostly dark" overall.
         if (w < 8 || h < 8) return false;
-        int top = 0, topN = 0, all = 0;
+        int ring = 0, ringN = 0, all = 0;
+        int y0 = (int) (0.89 * h), y1 = Math.max(y0 + 1, (int) (0.94 * h));
+        int xl0 = (int) (0.03 * w), xl1 = Math.max(xl0 + 1, (int) (0.06 * w));
+        int xr0 = (int) (0.94 * w), xr1 = Math.max(xr0 + 1, (int) (0.97 * w));
         for (int y = 0; y < h; y++) {
-            for (int x = w / 8; x < w - w / 8; x++) {
+            for (int x = 0; x < w; x++) {
                 boolean dk = dark(px[y * w + x]);
                 if (dk) all++;
-                if (y >= h / 10 && y < h / 10 + 3) {
-                    topN++;
-                    if (dk) top++;
+                boolean bottom = y >= y0 && y < y1 && x >= 0.1 * w && x < 0.9 * w;
+                boolean side = y >= 0.2 * h && y < 0.8 * h && ((x >= xl0 && x < xl1) || (x >= xr0 && x < xr1));
+                if (bottom || side) {
+                    ringN++;
+                    if (dk) ring++;
                 }
             }
         }
-        return top >= 0.7 * topN && all >= 0.45 * (h * (w - 2 * (w / 8)));
+        return ringN > 0 && ring >= 0.7 * ringN && all >= 0.40 * (w * h);
     }
 }

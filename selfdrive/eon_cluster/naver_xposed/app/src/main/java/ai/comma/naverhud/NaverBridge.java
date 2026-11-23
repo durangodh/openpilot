@@ -258,7 +258,8 @@ final class NaverBridge {
             }
             screenLane.update(map.latestActivity(), n, meters);
             if (n == 0) {
-                laneImage.onUpdate(laneStrip, false);
+                // the capture ends itself after a short grace (and hides via onLost)
+                if (!screenLane.live()) laneImage.onUpdate(laneStrip, false);
                 return;
             }
             // Only Naver's own pixels (2026-11-22 request): no drawn substitute. Until the capture has

@@ -43,6 +43,8 @@ final class NaverLaneCapture {
     // map label passing behind) no longer drops the box; the last good crop stays up to STALE_MS.
     private static final long STALE_MS = 3000;
     private int cropMisses;
+    private static final long ZERO_GRACE_MS = 2000;
+    private long zeroSince;
     // Real screens to tune the finder with (2026-11-22): the half-size window copy with the found
     // box (green) and Naver's distance labels (yellow), once a minute while lanes are shown.
     private static final long DUMP_EVERY_MS = 60_000;
@@ -82,16 +84,17 @@ final class NaverLaneCapture {
 
     /** 메인 스레드: 차로 항목이 바뀔 때. n=0 이면 멈춘다. */
     void update(Activity activity, int n, double meters) {
-        this.activity = activity;
-        this.lanes = n;
-        label = meters < 0 ? "" : meters >= 1000 ? String.format(Locale.US, "%.1fkm", meters / 1000.0)
-                : String.format(Locale.US, "%dm", Math.max(0, Math.round(meters / 10.0) * 10));
-        view.setLabel(label);
+        if (activity != null) this.activity = activity;
+        // A lane item that drops to no lanes for a moment (between Naver's updates) does not end
+        // the capture: it keeps its last lane count and stops only after ZERO_GRACE_MS of none
+        // (the crop check still drops the box if Naver's own box really went away).
         if (n <= 0 || activity == null) {
-            running = false;
-            live = false;
+            if (running && zeroSince == 0) zeroSince = SystemClock.elapsedRealtime();
+            if (!running) live = false;
             return;
         }
+        zeroSince = 0;
+        this.lanes = n;
         if (!running) {
             running = true;
             capturedAt = SystemClock.elapsedRealtime();   // 첫 그림까지 STALE_MS 기다린다
@@ -107,6 +110,15 @@ final class NaverLaneCapture {
     private void tick() {
         if (!running) return;
         long now = SystemClock.elapsedRealtime();
+        if (zeroSince != 0 && now - zeroSince > ZERO_GRACE_MS) {
+            running = false;
+            zeroSince = 0;
+            if (live) {
+                live = false;
+                listener.onLost();
+            }
+            return;
+        }
         if (live && now - capturedAt > STALE_MS) {
             live = false;
             listener.onLost();
