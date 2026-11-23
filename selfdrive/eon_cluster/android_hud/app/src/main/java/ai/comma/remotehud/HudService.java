@@ -6809,7 +6809,7 @@ public final class HudService extends Service {
     private static final float NAVER_MARKER_X = 0.63f;
     /** Naver lane strip nudge right / up from its slot (px, 2026-11-23). */
     private static final float NAVER_LANE_DX = 30f;
-    private static final float NAVER_LANE_DY = 20f;
+    private static final float NAVER_LANE_DY = 40f;
     /** 패널 아래끝(HEIGHT)에 딱 붙인다. */
     private static final float ETA_TOP = HEIGHT - ETA_H;
 
@@ -7901,7 +7901,9 @@ public final class HudService extends Service {
                 float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
                 // Naver 6.12's lane strip is drawn by our module at the phone box's full height and
                 // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
-                if (navApp == 2) laneH *= 0.52f;   // 0.65 was still 20 % too big (2026-11-22)
+                // 0.52 suited the drawn strip; the original crop (box + its distance) came out too small
+                // (2026-11-23).
+                if (navApp == 2) laneH *= 0.75f;
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
