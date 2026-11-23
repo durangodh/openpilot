@@ -110,6 +110,7 @@ final class NaverHudMap {
     private final Map<Object, Object> mirrors = new WeakHashMap<>();   // 안내 경로선 → HUD 경로선
     private final Map<Object, Map<String, Object>> copied = new WeakHashMap<>();
     private final Set<String> layersOn = new HashSet<>();
+    private long lastMarkerCopy;
 
     NaverHudMap() {
         HandlerThread thread = new HandlerThread("naver-hud-map-image");
@@ -438,6 +439,9 @@ final class NaverHudMap {
             sources = new ArrayList<>(attached.keySet());
         }
         Set<Object> live = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        long nowMs = SystemClock.elapsedRealtime();
+        boolean markerTick = nowMs - lastMarkerCopy >= 1000;
+        if (markerTick) lastMarkerCopy = nowMs;
         for (Object src : sources) {
             if (overlayMapField.get(src) != guided) continue;
             live.add(src);
@@ -447,6 +451,9 @@ final class NaverHudMap {
                 mirrors.put(src, dst);
             }
             boolean marker = isMarker(src);
+            if (marker && !markerTick && overlayMapField.get(dst) == hudMap) {
+                continue;   // already mirrored; markers are refreshed once a second (S20 heat)
+            }
             if (marker) {
                 for (String p : MARKER_PROPS) copyProp(src, dst, p, 1f, src);
                 for (String p : MARKER_SCALED) copyProp(src, dst, p, ratio, src);

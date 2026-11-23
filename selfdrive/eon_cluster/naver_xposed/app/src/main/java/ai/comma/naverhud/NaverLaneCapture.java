@@ -46,6 +46,8 @@ final class NaverLaneCapture {
     // Real screens to tune the finder with (2026-11-22): the half-size window copy with the found
     // box (green) and Naver's distance labels (yellow), once a minute while lanes are shown.
     private static final long DUMP_EVERY_MS = 60_000;
+    // Off once the capture worked on the car (2026-11-23): writing a PNG each minute was only for tuning.
+    private static final boolean DUMP_ENABLED = false;
     private long dumpedAt = -DUMP_EVERY_MS;
     private final java.io.File dumpDir;
 
@@ -120,7 +122,9 @@ final class NaverLaneCapture {
         if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0 || !decor.isAttachedToWindow()) return;
         try {
             final int n = lanes;
-            if (box == null || boxLanes != n || now - searchedAt > SEARCH_EVERY_MS) {
+            // Search only without a box or when the lane count changed (2026-11-23, S20 heat): a moved
+            // or vanished box fails the crop check twice and is searched again then.
+            if (box == null || boxLanes != n) {
                 searchedAt = now;
                 final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
                 // Naver's own distance label bounds, scaled to the half-size copy.
@@ -132,7 +136,7 @@ final class NaverLaneCapture {
                 } catch (Throwable ignored) {
                     // pixels alone
                 }
-                final boolean dump = now - dumpedAt > DUMP_EVERY_MS;
+                final boolean dump = DUMP_ENABLED && now - dumpedAt > DUMP_EVERY_MS;
                 if (dump) dumpedAt = now;
                 final Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
                 busy = true;
