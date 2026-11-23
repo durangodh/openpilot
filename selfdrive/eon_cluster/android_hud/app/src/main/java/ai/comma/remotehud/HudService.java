@@ -6807,9 +6807,6 @@ public final class HudService extends Service {
     private static final float KAKAO_MARKER_X = 0.78f;
     private static final float TMAP_MARKER_X = 0.5f;
     private static final float NAVER_MARKER_X = 0.63f;
-    /** Naver lane strip nudge right / up from its slot (px, 2026-11-23). */
-    private static final float NAVER_LANE_DX = 30f;
-    private static final float NAVER_LANE_DY = 40f;
     /** 패널 아래끝(HEIGHT)에 딱 붙인다. */
     private static final float ETA_TOP = HEIGHT - ETA_H;
 
@@ -7918,8 +7915,9 @@ public final class HudService extends Service {
                 }
                 if (navApp == 2) {
                     // Naver: a little right and up (2026-11-23 request).
-                    cx = Math.min(mapRight() - halfW, cx + NAVER_LANE_DX);
-                    laneBottom -= NAVER_LANE_DY;
+                    // literals: the navigation render check compiles this block without class constants
+                    cx = Math.min(mapRight() - halfW, cx + 30f);
+                    laneBottom -= 40f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
                 // 보정(아래 위젯 +258px)까지 받아 화면 밖으로 밀려 안 보였다. 네비모드는 그대로 둔다.
