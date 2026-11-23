@@ -1426,6 +1426,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       case 3: reason_text = "VIS"; reason_color = CT_BLUE_A(210); break;
       case 4: reason_text = "GO";  reason_color = CT_GREEN_A(210); break;
       case 5: reason_text = "E2E"; reason_color = CT_ORANGE_A(210); break;
+      case 6: reason_text = "FCW"; reason_color = CT_RED_A(230); break;
       default: break;
     }
     ctRect(p, reason_box, reason_color, 15, 2);

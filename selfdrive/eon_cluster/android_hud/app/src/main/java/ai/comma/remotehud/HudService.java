@@ -5702,6 +5702,7 @@ public final class HudService extends Service {
             case 3: reasonText = "VIS"; reasonColor = Color.argb(210, 0, 0, 255); break;
             case 4: reasonText = "GO"; reasonColor = Color.argb(210, 0, 203, 0); break;
             case 5: reasonText = "E2E"; reasonColor = Color.argb(210, 255, 175, 3); break;
+            case 6: reasonText = "FCW"; reasonColor = Color.argb(230, 255, 0, 110); break;
             default: break;
         }
         eonBoxRect(c, p, 246f, 400f, 114f, 70f, reasonColor, 2f, white);
