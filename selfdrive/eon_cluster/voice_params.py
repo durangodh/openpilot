@@ -113,7 +113,7 @@ def washer_request(path=None, clock=time.time):
     os.replace(tmp, path)
   except OSError as e:
     return {"ok": False, "error": "워셔 명령 전달 실패: %s" % e}
-  return {"ok": True, "cmd": "WW", "note": "워셔액 분사(0.7초) 후 와이퍼가 닦음"}
+  return {"ok": True, "cmd": "WW", "note": "워셔액 분사(2초) 후 와이퍼가 닦음"}
 
 
 class VoiceParams:

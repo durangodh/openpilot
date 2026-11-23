@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-23b" FW_VARIANT
+#define FW_VERSION "2026-11-23c" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -201,7 +201,7 @@ static bool cancelTap = false;
 // held; the BCM sprays and wipes. EON command "WW" holds it for WASH_MS through the tap machine.
 #define WASH_BYTE 1
 #define WASH_BIT 0x80
-#define WASH_MS 700
+#define WASH_MS 2000   // 0.7 s only wiped; a 2.4 s pull (2026-11-23 scan) ran the pump (0x107 b5 80/40) after ~0.9 s
 static bool washTap = false;
 static char holdSide = 0;
 static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;

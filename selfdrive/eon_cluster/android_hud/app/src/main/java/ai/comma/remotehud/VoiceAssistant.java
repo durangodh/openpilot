@@ -740,7 +740,7 @@ public final class VoiceAssistant {
                                         .put("enum", new JSONArray().put("down").put("up").put("stop"))))
                         .put("required", new JSONArray().put("window").put("action"))));
         t.put(new JSONObject().put("name", "car_washer")
-                .put("description", "앞 유리 워셔액을 한 번 뿌리고 와이퍼로 닦는다(B-CAN, 워셔 레버를 0.7초 당긴 것과 같음). "
+                .put("description", "앞 유리 워셔액을 한 번 뿌리고 와이퍼로 닦는다(B-CAN, 워셔 레버를 2초 당긴 것과 같음). "
                         + "'워셔액 뿌려', '유리 닦아' 등에 쓴다. 더 필요하면 다시 호출.")
                 .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
         t.put(new JSONObject().put("name", "open_nav_voice")
