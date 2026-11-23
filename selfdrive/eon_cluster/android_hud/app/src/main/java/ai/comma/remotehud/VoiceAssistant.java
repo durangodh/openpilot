@@ -716,6 +716,10 @@ public final class VoiceAssistant {
                                 .put("action", new JSONObject().put("type", "string")
                                         .put("enum", new JSONArray().put("down").put("up").put("stop"))))
                         .put("required", new JSONArray().put("window").put("action"))));
+        t.put(new JSONObject().put("name", "car_washer")
+                .put("description", "앞 유리 워셔액을 한 번 뿌리고 와이퍼로 닦는다(B-CAN, 워셔 레버를 0.7초 당긴 것과 같음). "
+                        + "'워셔액 뿌려', '유리 닦아' 등에 쓴다. 더 필요하면 다시 호출.")
+                .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
         t.put(new JSONObject().put("name", "open_nav_voice")
                 .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
                         + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
@@ -806,6 +810,7 @@ public final class VoiceAssistant {
         if ("vehicle_status".equals(name)) return "차량 상태 확인 중";
         if ("cruise_speed".equals(name)) return "설정속도 맞추는 중";
         if ("car_window".equals(name)) return "창문 움직이는 중";
+        if ("car_washer".equals(name)) return "워셔액 뿌리는 중";
         return name;
     }
 
@@ -857,6 +862,8 @@ public final class VoiceAssistant {
         } else if ("car_window".equals(name)) {
             reply = askEon(new JSONObject().put("op", "window")
                     .put("window", input.optString("window")).put("action", input.optString("action")));
+        } else if ("car_washer".equals(name)) {
+            reply = askEon(new JSONObject().put("op", "washer"));
         } else if ("open_nav_voice".equals(name)) {
             String error = openNavVoice();
             reply = error == null

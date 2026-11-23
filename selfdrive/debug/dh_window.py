@@ -4,6 +4,7 @@
     python selfdrive/debug/dh_window.py 2 down     # 조수석 앞 끝까지 내림
     python selfdrive/debug/dh_window.py 2 up       # 조수석 앞 1.5초 올림 (반복해서 더 올림)
     python selfdrive/debug/dh_window.py all stop   # 모두 멈춤
+    python selfdrive/debug/dh_window.py wash       # 워셔액 한 번 (펌웨어 2026-11-23b 이상)
     창문: 2 조수석 앞, 3 운전석 뒤, 4 조수석 뒤, all 모두 (1 운전석 앞은 B-CAN 으로 안 움직임, 2026-11-22 실차)
     결과: grep window /data/bcan_blinker.log | tail
 """
@@ -19,10 +20,13 @@ DIRS = {"down": "D", "d": "D", "up": "U", "u": "U", "stop": "S", "s": "S"}
 
 
 def main():
-  if len(sys.argv) != 3 or sys.argv[1].lower() not in WINDOWS or sys.argv[2].lower() not in DIRS:
+  if len(sys.argv) == 2 and sys.argv[1].lower() in ("wash", "washer", "w"):
+    cmd = "WW"
+  elif len(sys.argv) != 3 or sys.argv[1].lower() not in WINDOWS or sys.argv[2].lower() not in DIRS:
     print(__doc__)
     return 1
-  cmd = "W" + WINDOWS[sys.argv[1].lower()] + DIRS[sys.argv[2].lower()]
+  else:
+    cmd = "W" + WINDOWS[sys.argv[1].lower()] + DIRS[sys.argv[2].lower()]
   tmp = WINDOW_FILE + ".tmp"
   with open(tmp, "w") as f:
     json.dump({"cmd": cmd, "ts": time.time(), "id": f"{time.time():.3f}"}, f)

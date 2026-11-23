@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-23a" FW_VARIANT
+#define FW_VERSION "2026-11-23b" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -197,6 +197,12 @@ static char ownSide = 0;          // side of our last successful one-touch (0: n
 static uint32_t ownEndMs = 0, driverLeverMs = 0;
 static bool driverAbort = false;  // the driver moved the lever during our tap: stop it
 static bool cancelTap = false;
+// Washer (2026-11-23 scan): pulling the stalk sets 0x138 byte 1 bit 0x80 (0x46 -> 0xC6) while
+// held; the BCM sprays and wipes. EON command "WW" holds it for WASH_MS through the tap machine.
+#define WASH_BYTE 1
+#define WASH_BIT 0x80
+#define WASH_MS 700
+static bool washTap = false;
 static char holdSide = 0;
 static uint32_t holdStartMs = 0, holdDeadlineMs = 0, holdRetryMs = 0;
 static char holdEnd[16] = "";   // why the last hold ended (status "hend")
@@ -319,12 +325,15 @@ void sendLever(uint8_t bits) {
   gTx.data_length_code = 8;
   memcpy(gTx.data, stock, 8);
   gTx.data[0] = (stock[0] & ~LEVER_MASK) | bits;
+  if (washTap) gTx.data[WASH_BYTE] |= WASH_BIT;
   if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
   tapFrames++;
 }
 
 void endTap(const char *res) {
   bool done = !strcmp(res, "ok");
+  bool wash = washTap;
+  washTap = false;
   if (done && tap == TAP_SENDING) sendLever(0);  // the switch's own release: neutral copy
   delay(5);  // let the last frame leave (an 8-byte frame takes ~1.1 ms at 100 kbit/s)
   startCan(false);
@@ -339,7 +348,9 @@ void endTap(const char *res) {
     holdFails++;
     holdRetryMs = now + 500;  // a failed hold re-tap waits before the next try
   }
-  if (done && !cancelTap) {
+  if (wash) {
+    // not a blinker: no one-touch / hold bookkeeping
+  } else if (done && !cancelTap) {
     ownSide = tapSide;
     ownEndMs = now;
   } else if (done && cancelTap) {
@@ -347,11 +358,11 @@ void endTap(const char *res) {
   }
   // A failed tap (bus error) keeps the previous one: its flashes are still running and the other
   // button must still be able to end them (2026-11-17 log: cancel answered "nothing" after one).
-  if (cancelTap && done) {
+  if (cancelTap && done && !wash) {
     cancelEndMs = now;
     cancelVerifyMs = now + CANCEL_VERIFY_MS;
   }
-  outf("=== %s end (%s): %lu frames, tx fail %lu ===\n", cancelTap ? "cancel" : "tap", res,
+  outf("=== %s end (%s): %lu frames, tx fail %lu ===\n", wash ? "washer" : cancelTap ? "cancel" : "tap", res,
        (unsigned long)tapFrames, (unsigned long)txFail);
   cancelTap = false;
   finish(res, now);
@@ -371,6 +382,30 @@ const char *startTap(char side, uint32_t now) {
   cmdMs = now;
   outf("\n=== %s %s: waiting for the next stock 0x138 ===\n", side == 'L' ? "LEFT" : "RIGHT",
        cancelTap ? "cancel tap" : "tap");
+  return "";
+}
+
+// Washer spray: like a tap, but the washer bit instead of the turn bits (byte 0 kept neutral).
+const char *requestWash(uint32_t now) {
+  if (tap != TAP_IDLE || win != WIN_IDLE || holdSide) return "busy";
+  if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
+  if (!stockFresh(now)) return "nobcan";
+  if (stock[0] & LEVER_MASK) return "lever";
+  if (stock[WASH_BYTE] & WASH_BIT) return "switch";   // the driver is already pulling it
+  cancelTap = false;
+  washTap = true;
+  tapSide = 'W';
+  tapBits = 0;
+  tapFrames = 0;
+  txFail = 0;
+  if (!startCan(true)) {
+    washTap = false;
+    startCan(false);
+    return "notx";
+  }
+  tap = TAP_WAIT_STOCK;
+  cmdMs = now;
+  out("\n=== WASHER: waiting for the next stock 0x138 ===\n");
   return "";
 }
 
@@ -820,6 +855,8 @@ void onFrame(uint32_t now) {  // frame in gRx
       tap = TAP_SENDING;
       tapStart = lastSend = now;
       sendLever(tapBits);
+    } else if (tap == TAP_SENDING && washTap) {
+      if (!(m.data[WASH_BYTE] & WASH_BIT)) sendLever(0);  // released washer from the switch: answer
     } else if (tap == TAP_SENDING && (m.data[0] & LEVER_MASK) == 0) {
       sendLever(tapBits);  // the switch just sent neutral during our tap: answer it at once
     }
@@ -869,7 +906,7 @@ void pollUdp(uint32_t now) {
     if (seq == lastSeq) return;
     lastSeq = seq;
     outf("%9lu  EON window %s seq %d\n", (unsigned long)now, cmd, seq);
-    const char *why = requestWin(cmd, now);
+    const char *why = cmd[1] == 'W' ? requestWash(now) : requestWin(cmd, now);
     if (*why) {
       outf("%9lu  window refused: %s\n", (unsigned long)now, why);
       finish(why, now);
@@ -1188,8 +1225,8 @@ void wifiTick(uint32_t now) {
 void serialLine(char *line, uint32_t now) {
   while (*line == ' ') line++;
   if (!*line) return;
-  if (line[0] == 'W') {   // window test: W1D / W2U / WAS ...
-    const char *why = requestWin(line, now);
+  if (line[0] == 'W') {   // window test: W1D / W2U / WAS ... ; WW washer
+    const char *why = line[1] == 'W' ? requestWash(now) : requestWin(line, now);
     outf("window %s: %s\n", line, *why ? why : "started");
     return;
   }
@@ -1310,7 +1347,7 @@ void loop() {
   }
   if (tap == TAP_WAIT_STOCK && now - cmdMs > WAIT_STOCK_MS) endTap("nobcan");
   if (tap == TAP_SENDING) {
-    if (now - tapStart >= (cancelTap ? CANCEL_TAP_MS : TAP_MS)) {
+    if (now - tapStart >= (washTap ? WASH_MS : cancelTap ? CANCEL_TAP_MS : TAP_MS)) {
       endTap("ok");
     } else if (now - lastSend >= RESEND_MS) {
       lastSend = now;

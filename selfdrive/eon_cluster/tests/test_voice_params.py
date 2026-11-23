@@ -132,3 +132,15 @@ class VoiceRequestTest(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+def test_washer_request_writes_ww(tmp_path):
+  import json
+  from selfdrive.eon_cluster.voice_params import washer_request
+  from selfdrive.eon_cluster.bcan_blinker_core import WindowRequestSource
+  path = str(tmp_path / "cmd.json")
+  out = washer_request(path=path, clock=lambda: 100.0)
+  assert out["ok"] and out["cmd"] == "WW"
+  assert json.load(open(path))["cmd"] == "WW"
+  from selfdrive.eon_cluster.bcan_blinker_core import command_packet
+  assert command_packet(5, "WW") == b"DHBL1 5 WW" or command_packet(5, "WW").endswith(b"5 WW")

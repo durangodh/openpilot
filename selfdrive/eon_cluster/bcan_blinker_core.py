@@ -230,7 +230,7 @@ class BlinkRequestSource:
 
 
 WINDOW_FILE = "/dev/shm/dh_window_cmd.json"
-WINDOW_COMMANDS = {f"W{w}{d}" for w in "1234A" for d in "DUS"}
+WINDOW_COMMANDS = {f"W{w}{d}" for w in "1234A" for d in "DUS"} | {"WW"}   # WW: washer spray
 
 
 class WindowRequestSource:

@@ -101,6 +101,21 @@ def window_request(window, action, path=None, clock=time.time):
   return {"ok": True, "cmd": cmd, "note": note}
 
 
+def washer_request(path=None, clock=time.time):
+  """AI car_washer -> ESP32 'WW': the washer stalk pulled for 0.7 s (spray + wipe), B-CAN 0x138."""
+  from selfdrive.eon_cluster.bcan_blinker_core import WINDOW_FILE
+  path = path or WINDOW_FILE
+  now = clock()
+  try:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+      json.dump({"cmd": "WW", "ts": now, "id": f"voice-{now:.3f}"}, f)
+    os.replace(tmp, path)
+  except OSError as e:
+    return {"ok": False, "error": "워셔 명령 전달 실패: %s" % e}
+  return {"ok": True, "cmd": "WW", "note": "워셔액 분사(0.7초) 후 와이퍼가 닦음"}
+
+
 class VoiceParams:
   def __init__(self, params, definitions=None):
     self.params = params
@@ -252,6 +267,8 @@ class VoiceParams:
       out = self.set(req.get("name"), req.get("value"), moving)
     elif op == "press":
       out = self.press(req.get("cmd"), press)
+    elif op == "washer":
+      out = washer_request()
     elif op == "window":
       out = window_request(req.get("window"), req.get("action"))
     elif op in ("system_check", "system", "system_status"):
