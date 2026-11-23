@@ -1682,6 +1682,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
+      "FcwBlended", "FCW → E2E BRAKE ASSIST",
+      "켜짐(OPTECH/dragonpilot DEC 방식): 앞차와 충돌이 예측되면(MPC FCW) ACC 대신 E2E(blended)로 바꿔 제동을 더 빨리 겁니다. 0.5초 유지 후 ACC로 돌아갑니다. 정차 중에는 동작하지 않습니다. 화면 배지 FCW. / 꺼짐: 기존과 같습니다.",
+      "../assets/img_experimental_white.svg"));
+
+  list->addItem(new ParamControl(
       "MixRadarInfo", "RADAR / VISION ACCEL BLEND",
       "켜짐(apilot-c2 방식): 비전 모델의 앞차 가속도가 레이더보다 크면 비전 값을 사용합니다. / 꺼짐: 레이더 가속도만 사용합니다. 앞차 첫 인식 때 제동이 툭 들어가면 끄세요.",
       "../assets/offroad/icon_road.png"));

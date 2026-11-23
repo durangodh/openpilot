@@ -343,3 +343,41 @@ class ConditionalE2EController:
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / (2.0 * E2E_STOP_MIN_DECEL))
 
     return self.select_mode(experimental_mode, traffic_stop_mode)
+
+
+# ── FCW → blended guard (from dragonpilot/OPTECH DynamicEndtoEndController) ──
+# When the MPC itself predicts a collision with the lead (crash_cnt > 0 in most
+# of the last frames), plan in blended mode: its acceleration-change and jerk
+# costs are far lower than ACC's (40 vs 200, 1 vs 5), so braking builds up
+# faster. Blended is then held a short while so the mode does not flicker.
+E2E_REASON_FCW = 6
+FCW_BLEND_WINDOW = 5         # frames (20 Hz), as DEC
+FCW_BLEND_PROB = 0.6         # share of the window with a predicted crash
+FCW_BLEND_HOLD_TIME = 0.5    # s, DEC SET_MODE_TIMEOUT 10 frames
+
+
+class FcwBlendedGuard:
+  def __init__(self, dt):
+    self.hold_frames = max(1, round(FCW_BLEND_HOLD_TIME / dt))
+    self.reset()
+
+  def reset(self):
+    self.history = deque(maxlen=FCW_BLEND_WINDOW)
+    self.hold = 0
+    self.active = False
+
+  def update(self, enabled, crash_cnt, standstill):
+    """True while ACC should be overridden by blended because a crash is predicted."""
+    if not enabled or standstill:
+      self.reset()
+      return False
+    self.history.append(1.0 if crash_cnt > 0 else 0.0)
+    if fmean(self.history) >= FCW_BLEND_PROB:
+      self.hold = self.hold_frames
+      self.active = True
+    elif self.hold > 0:
+      self.hold -= 1
+      self.active = True
+    else:
+      self.active = False
+    return self.active

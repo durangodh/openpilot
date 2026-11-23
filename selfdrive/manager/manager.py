@@ -90,6 +90,7 @@ def manager_init() -> None:
     ("ExperimentalMode", "0"),
     ("TrafficStopMode", "2"),
     ("MixRadarInfo", "0"),
+    ("FcwBlended", "0"),
     ("PathOffset", "0"),
     ("UseLaneLineSpeed", "0"),
     ("PathCostApply", "100"),

@@ -24,7 +24,8 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.turn_accel import get_future_curvature, limit_accel_in_future_turns
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.e2e_stop_log import E2EStopLog
-from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
+from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF, E2E_REASON_FCW,
+                                                    FcwBlendedGuard,
                                                     E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
 
@@ -50,6 +51,9 @@ class LongitudinalPlanner:
     self.experimental_mode_enabled = False
     self.traffic_stop_mode = 2
     self.conditional_e2e = ConditionalE2EController(DT_MDL)
+    # OPTECH/dragonpilot DEC: blended while the MPC predicts a crash with the lead (FcwBlended).
+    self.fcw_blended_guard = FcwBlendedGuard(DT_MDL)
+    self.fcw_blended_enabled = False
     # Day-time signal stop tuning: logs automatic and missed stops (/data/e2e_stop.log).
     self.e2e_stop_log = E2EStopLog(DT_MDL)
     # Navigation C-ITS signal (Naver/Kakao) assists traffic-stop detection.
@@ -98,6 +102,7 @@ class LongitudinalPlanner:
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode')
+    self.fcw_blended_enabled = self.params.get_bool('FcwBlended')
     # manager.py writes the TrafficStopMode default, so it is always set here.
     try:
       self.traffic_stop_mode = int(self.params.get('TrafficStopMode', encoding='utf8'))
@@ -220,6 +225,11 @@ class LongitudinalPlanner:
     self.mpc.traffic_stop_distance = adjust_stop_distance_for_decel(
       self.e2e_stop_distance, car_state.vEgo, stop_decel_factor,
       self.traffic_stop_distance_adjust)
+    # crash_cnt is from the previous MPC solve (20 Hz), as in DEC.
+    if self.fcw_blended_guard.update(self.fcw_blended_enabled and active and self.auto_e2e_enabled,
+                                     self.mpc.crash_cnt, car_state.standstill) and mode == 'acc':
+      mode = 'blended'
+      self.conditional_e2e.reason = E2E_REASON_FCW
     return mode
 
   def parse_model(self, model_msg, model_error):
