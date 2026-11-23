@@ -149,8 +149,10 @@ public final class VoiceAssistant {
      */
     synchronized void onCallButton() {
         try {
+            // Media stream: it reaches the car speakers like the assistant's voice (the notification
+            // stream was silent in the car, 2026-11-23).
             android.media.ToneGenerator tone = new android.media.ToneGenerator(
-                    android.media.AudioManager.STREAM_NOTIFICATION, 90);
+                    android.media.AudioManager.STREAM_MUSIC, 100);
             tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 150);
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(tone::release, 400L);
         } catch (Throwable ignored) {
