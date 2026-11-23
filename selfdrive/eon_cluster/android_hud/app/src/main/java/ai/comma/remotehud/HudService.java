@@ -3887,6 +3887,12 @@ public final class HudService extends Service {
         if (eonStale()) {
             return;
         }
+        // The voice card sits in the same place: while the assistant is up it wins (2026-11-23:
+        // a "window open" popup hid the listening card).
+        VoiceAssistant assistant = voice;
+        if (assistant != null && assistant.isActive()) {
+            return;
+        }
         int naviSave = beginNaviBox(c);
         int popupSave = beginWarningBox(c);
         drawOemWarningPopupBody(c, p, s);
