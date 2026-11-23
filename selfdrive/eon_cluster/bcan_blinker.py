@@ -344,7 +344,9 @@ def main():
       next_status_write = now + STATUS_WRITE_S
       payload = {"wall": time.time(), "link": link, "rssi": status["rssi"] if status and link != LINK_NONE else 0}
       if esp_ip:
-        payload["ip"] = esp_ip   # EON Web links the board's update page with it
+        payload["ip"] = esp_ip
+      if status and link != LINK_NONE and status.get("hl") is not None and status["hl"] >= 0:
+        payload["hl"] = status["hl"]   # B-CAN exterior lamps for the HUD (2 low beam, 1 tail, 0 off)
       if event is not None:
         payload["event"] = {k: v for k, v in event.items() if k != "pending"}
       try:

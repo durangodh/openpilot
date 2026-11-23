@@ -4,6 +4,7 @@ Keeps the existing low-overhead remote_hud transport and exposes the S9 HUD
 Params to the Android renderer for live tuning.
 """
 
+import json
 import math
 import time
 
@@ -140,6 +141,19 @@ def _v_ego(sm):
     return 0.0
 
 
+def _apply_bcan_lamps(packet, path="/dev/shm/dh_bcan_blinker.json", now=time.time):
+  """HUD low-beam icon from the B-CAN lamp state the ESP32 reads (2026-11-23): the C-CAN gateway
+  bits followed only AUTO, not the stalk. Kept from carState when the board's state is stale."""
+  try:
+    with open(path) as f:
+      st = json.load(f)
+    hl = st.get("hl")
+    if isinstance(hl, int) and hl >= 0 and 0.0 <= now() - float(st.get("wall", 0.0)) <= 3.0:
+      packet["lowBeam"] = hl == 2
+  except (OSError, ValueError, TypeError, AttributeError):
+    pass
+
+
 def _packet(sm, *args, **kwargs):
   # base._packet 의 인자가 늘어나도(noo_enabled → +path_offset 등) 그대로
   # 흘려보낸다. 고정 인자로 받으면 base 쪽 시그니처가 바뀔 때마다
@@ -163,6 +177,7 @@ def _packet(sm, *args, **kwargs):
   # EON 박스 자리: 1 HUD 정보(기존), 2 주행요약, 3 학습(오토튠). 경고 팝업은 어느 쪽이든 그 위에 덮는다.
   packet["hudInfoBox"] = _bounded_int("EonClusterHudInfoBox", 1, 1, 3)
   packet["learn"] = _learn_lines()
+  _apply_bcan_lamps(packet)
   _update_trip(sm)
   packet["trip"] = _trip_report.snapshot()
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)

@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-22c" FW_VARIANT
+#define FW_VERSION "2026-11-23a" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -209,6 +209,12 @@ static uint16_t holdFails = 0;  // hold re-taps that did not finish (status "hf"
 
 static uint32_t lampOnMs = 0;
 static bool lampSeen = false;
+// Exterior lamps (2026-11-23 scan): 0x168 byte 3 bit 0x08 = low beam on, 0x80 = tail lamps on,
+// whatever the stalk (OFF 00 / AUTO 89 in the dark / tail 81 / headlamp 89). The C-CAN gateway
+// bits only followed AUTO, so the HUD lamp icon missed the stalk. Status "hl": 2 low beam, 1 tail
+// only, 0 off, -1 not seen for 2 s.
+static int8_t headLamp = -1;
+static uint32_t headLampMs = 0;
 static uint32_t lampLeftMs = 0, lampRightMs = 0;  // 0x168 lamp bits per side (0x80 left, 0x20 right)
 // Cancel that waits instead of refusing and checks that our side really stopped (2026-11-18: a hold
 // stopped by the other button kept flashing 2-3 times: the one cancel flick did not always take).
@@ -290,10 +296,11 @@ void sendStatus(uint32_t now) {
   if (!wifiUp) return;
   char buf[320];
   snprintf(buf, sizeof(buf), "{\"t\":\"dhbl\",\"v\":1,\"rssi\":%d,\"bcan\":%d,\"lamp\":%d,\"err\":%d,\"seq\":%d,\"res\":\"%s\","
-           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\",\"hf\":%u,\"cl\":%u}",
+           "\"hold\":%d,\"hend\":\"%s\",\"kc\":%u,\"rx\":%u,\"lc\":\"%s\",\"hf\":%u,\"cl\":%u,\"hl\":%d}",
            (int)WiFi.RSSI(), stockFresh(now) ? 1 : 0, lampRecent(now) ? 1 : 0, errRecent(now) ? 1 : 0,
            lastSeq < 0 ? 0 : lastSeq, lastRes, holdSide ? 1 : 0, holdEnd, (unsigned)keepCount,
-           (unsigned)rxCount, lastCmd, (unsigned)holdFails, (unsigned)callLong);
+           (unsigned)rxCount, lastCmd, (unsigned)holdFails, (unsigned)callLong,
+           (headLampMs && now - headLampMs <= 2000) ? (int)headLamp : -1);
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
@@ -825,6 +832,10 @@ void onFrame(uint32_t now) {  // frame in gRx
     if (v != last102) outf("%9lu  0x102 BCM turn state  %02X\n", (unsigned long)now, v);
     last102 = v;
   } else if (m.identifier == 0x168) {
+    int8_t hl = (m.data[3] & 0x08) ? 2 : (m.data[3] & 0x80) ? 1 : 0;
+    if (hl != headLamp) outf("%9lu  head lamp %d (0x168 b3 %02X)\n", (unsigned long)now, hl, m.data[3]);
+    headLamp = hl;
+    headLampMs = now;
     uint8_t v = m.data[6] & 0xA0;
     if (v & 0x80) lampLeftMs = now;
     if (v & 0x20) lampRightMs = now;
