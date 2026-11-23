@@ -39,7 +39,10 @@ final class NaverLaneCapture {
 
     private static final long TICK_MS = 500;
     private static final long SEARCH_EVERY_MS = 3000;
-    private static final long STALE_MS = 1500;
+    // 2026-11-23: the strip came and went. One missed search or one odd crop (an animation, a
+    // map label passing behind) no longer drops the box; the last good crop stays up to STALE_MS.
+    private static final long STALE_MS = 3000;
+    private int cropMisses;
     // Real screens to tune the finder with (2026-11-22): the half-size window copy with the found
     // box (green) and Naver's distance labels (yellow), once a minute while lanes are shown.
     private static final long DUMP_EVERY_MS = 60_000;
@@ -208,6 +211,12 @@ final class NaverLaneCapture {
     }
 
     private void onSearched(Rect found, int n, int result, int w, int h) {
+        if (found == null && box != null && boxLanes == n) {
+            // periodic re-search missed, but the known box still crops fine: keep it
+            Activity a = activity;
+            if (running && a != null && !a.isFinishing() && a.getWindow() != null) cropBox(a.getWindow(), box);
+            return;
+        }
         if (found == null) {
             box = null;
             misses++;
@@ -250,9 +259,13 @@ final class NaverLaneCapture {
                 busy = false;
                 if (!good) {
                     crop.recycle();
-                    box = null;      // 다음 틱에 다시 찾는다
+                    if (++cropMisses >= 2) {
+                        box = null;      // 두 번 연속 상자가 아니면 다음 틱에 다시 찾는다
+                        cropMisses = 0;
+                    }
                     return;
                 }
+                cropMisses = 0;
                 capturedAt = SystemClock.elapsedRealtime();
                 view.setImage(crop);
                 if (!live && running) {
