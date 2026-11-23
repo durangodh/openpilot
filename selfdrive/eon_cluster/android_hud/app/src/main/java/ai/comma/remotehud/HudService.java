@@ -3350,8 +3350,8 @@ public final class HudService extends Service {
      * (EGO_CAR_WIDTH)로 지도 마스크 위에 그린다. 바퀴 줄이 그 점에 닿게 하고 접지 그림자를
      * 깔아 지도 위에 붙어 보이게 한다.
      */
-    /** Naver map car: 1.2x the driving-screen car, bright white body (2026-11-12 preview 3). */
-    private static final float NAVER_MAP_CAR_SCALE = 1.2f;
+    /** Naver map car: 0.96x the driving-screen car (1.2x until 2026-11-23, then 20 % smaller), bright white body. */
+    private static final float NAVER_MAP_CAR_SCALE = 0.96f;
     private static final ColorMatrixColorFilter NAVER_MAP_CAR_WHITE = new ColorMatrixColorFilter(
             new float[] {
                     1.6f, 0f, 0f, 0f, 25f,
