@@ -121,6 +121,8 @@ public final class VoiceAssistant {
         if (previous == -2) return;   // 앱 시작 직전의 누름은 무시
         if ("ai".equals(mode)) {
             onButton();
+        } else if ("call".equals(mode)) {
+            onCallButton();
         }
     }
 
@@ -139,6 +141,27 @@ public final class VoiceAssistant {
             SystemClock.sleep(800L);
         }
         return NavVoiceService.clickVoice(navPackage(navApp));
+    }
+
+    /**
+     * Steering wheel call button (2026-11-23 request): one beep, then always a fresh listening
+     * screen. Whatever was running (listening, thinking, a proposal) is dropped, never toggled off.
+     */
+    synchronized void onCallButton() {
+        try {
+            android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_NOTIFICATION, 90);
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 150);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(tone::release, 400L);
+        } catch (Throwable ignored) {
+            // no beep, still listen
+        }
+        pending = null;
+        session++;
+        cancelRecognition();
+        lastPartial = "";
+        show(State.LISTENING, "준비 중", "잠시만요", LISTEN_TIMEOUT_MS);
+        new Thread(this::launchListener, "hud-voice-launch").start();
     }
 
     /** Remote button: confirm a pending proposal, cancel a running request, or start listening. */

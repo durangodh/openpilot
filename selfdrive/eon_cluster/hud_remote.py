@@ -183,9 +183,10 @@ def voice_request(voice_file=VOICE_FILE, clock=time.monotonic):
     return None
   if not fresh(payload.get("ts"), 0.0, clock(), VOICE_MAX_AGE_S):
     return None
-  if payload.get("mode", "ai") != "ai":
+  mode = payload.get("mode", "ai")
+  if mode not in ("ai", "call"):
     return None
-  return payload["seq"], "ai"
+  return payload["seq"], mode
 
 
 class RemoteButtonSource:
