@@ -131,10 +131,6 @@ input[data-recording]{accent-color:var(--accent);min-height:0;width:20px;height:
 <path d="M128 184 L122 200 L128 197 L134 200 Z" fill="white"/></svg>
 <p id="navigationStatus" role="status"></p><p id="navigationGuidance"></p>
 </details>
-<div class="card"><h3>ESP32 깜빡이 보드</h3>
-<p id="espInfo">보드 확인 중</p>
-<p><a id="espUpdate" hidden target="_blank" rel="noopener">펌웨어 업데이트 열기</a> &nbsp; <a id="espLog" hidden target="_blank" rel="noopener">보드 기록</a></p>
-<p class="hint">업데이트는 P단에서. 파일: GitHub g_blinker tools/dh_bcan_blinker/bin/dh_bcan_blinker.ino.bin</p></div>
 <div class="card"><h3>장치 상태</h3><pre id="driveStatus"></pre><button id="driveRefresh">상태 새로고침</button></div>
 <fieldset class="card"><legend>주행 기록</legend>
 <label class="record-option"><input type="checkbox" data-recording="routeLogging" disabled> 주행 로거 (rlog · qlog)</label>
@@ -901,18 +897,6 @@ document.querySelector('#webSettingsForm').addEventListener('submit', () => {
   document.cookie = startPageKey + '=' + initialPage + '; Path=/; Max-Age=31536000; SameSite=Strict';
 });
 openPage(initialPage);
-async function loadEsp() {
-  const info = document.querySelector('#espInfo'), up = document.querySelector('#espUpdate'), lg = document.querySelector('#espLog');
-  try {
-    const s = await read('/api/esp32.json');
-    if (s.ip) {
-      info.textContent = '보드 IP: ' + s.ip + (s.link === 2 ? ' (연결됨)' : ' (최근 연결)');
-      up.href = 'http://' + s.ip + '/update'; up.textContent = '펌웨어 업데이트 열기 (http://' + s.ip + '/update)';
-      lg.href = 'http://' + s.ip + '/log'; up.hidden = lg.hidden = false;
-    } else { info.textContent = '보드가 아직 연결되지 않았습니다.'; up.hidden = lg.hidden = true; }
-  } catch (_) { info.textContent = '보드 상태를 읽을 수 없습니다.'; }
-}
-loadEsp();
 </script></html>
 """.encode("utf-8")
 
@@ -1457,15 +1441,6 @@ class Handler(BaseHTTPRequestHandler):
     elif trace_http.is_trace_path(path):
       self.close_connection = True
       trace_http.serve(self.connection, path, allow_delete=False)
-    elif path == "/api/esp32.json":
-      try:
-        with open("/dev/shm/dh_bcan_blinker.json") as f:
-          st = json.load(f)
-      except (OSError, ValueError):
-        st = {}
-      st = st if isinstance(st, dict) else {}
-      ip = st.get("ip")
-      self.send_json({"ip": ip if isinstance(ip, str) and ip.count(".") == 3 else None, "link": st.get("link")})
     elif path == "/api/bt-remote":
       self.send_json(bt_remote_snapshot())
     elif path == "/api/git.json":
