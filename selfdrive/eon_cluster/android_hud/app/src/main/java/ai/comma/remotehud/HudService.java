@@ -7900,7 +7900,7 @@ public final class HudService extends Service {
                 // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
                 // 0.52 suited the drawn strip; the original crop (box + its distance) came out too small
                 // (2026-11-23).
-                if (navApp == 2) laneH *= 0.75f;
+                if (navApp == 2) laneH *= 0.675f;   // 0.75 then 10 % smaller (2026-11-23)
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
@@ -7916,7 +7916,7 @@ public final class HudService extends Service {
                 if (navApp == 2) {
                     // Naver: a little right and up (2026-11-23 request).
                     // literals: the navigation render check compiles this block without class constants
-                    cx = Math.min(mapRight() - halfW, cx + 30f);
+                    cx = Math.min(mapRight() - halfW, cx + 60f);
                     laneBottom -= 40f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
