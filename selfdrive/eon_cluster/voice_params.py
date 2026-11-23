@@ -102,7 +102,8 @@ def window_request(window, action, path=None, clock=time.time):
 
 
 def washer_request(path=None, clock=time.time):
-  """AI car_washer -> ESP32 'WW': the washer stalk pulled for 0.7 s (spray + wipe), B-CAN 0x138."""
+  """AI car_wiper -> ESP32 'WW': the washer stalk bit on B-CAN 0x138 for 0.7 s. The pump is wired
+  to the stalk itself, so this only makes the wipers wipe once (2026-11-23)."""
   from selfdrive.eon_cluster.bcan_blinker_core import WINDOW_FILE
   path = path or WINDOW_FILE
   now = clock()
@@ -112,8 +113,8 @@ def washer_request(path=None, clock=time.time):
       json.dump({"cmd": "WW", "ts": now, "id": f"voice-{now:.3f}"}, f)
     os.replace(tmp, path)
   except OSError as e:
-    return {"ok": False, "error": "워셔 명령 전달 실패: %s" % e}
-  return {"ok": True, "cmd": "WW", "note": "워셔액 분사(2초) 후 와이퍼가 닦음"}
+    return {"ok": False, "error": "와이퍼 명령 전달 실패: %s" % e}
+  return {"ok": True, "cmd": "WW", "note": "와이퍼 한 번 닦음(워셔액은 안 나옴)"}
 
 
 class VoiceParams:
