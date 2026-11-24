@@ -146,16 +146,10 @@ def test_washer_request_writes_ww(tmp_path):
   assert command_packet(5, "WW") == b"DHBL1 5 WW" or command_packet(5, "WW").endswith(b"5 WW")
 
 
-def test_fixed_window_and_wiper_phrases(monkeypatch):
+def test_fixed_wiper_phrase(monkeypatch):
   import selfdrive.eon_cluster.voice_params as v
   calls = []
-  monkeypatch.setattr(v, "window_request", lambda w, a, **k: calls.append((w, a)) or {"ok": True, "note": "n"})
   monkeypatch.setattr(v, "washer_request", lambda **k: calls.append(("wiper",)) or {"ok": True, "note": "n"})
-  cases = {"조수석 앞쪽 창문 열어": ("passenger", "down"), "조수석 창문 닫아줘": ("passenger", "up"),
-           "운전석 뒤쪽 창문 열어": ("rear_left", "down"), "조수석 뒤쪽 창문 닫아": ("rear_right", "up"),
-           "창문 전부 열어": ("all", "down"), "창문 전부 닫아": ("all", "up"), "창문 멈춰": ("all", "stop"),
-           "와이퍼 한 번": ("wiper",)}
-  for text, want in cases.items():
-    calls.clear()
-    assert v.car_command(text)["handled"] and calls == [want], text
+  assert v.car_command("와이퍼 한 번")["handled"] and calls == [("wiper",)]
+  assert v.car_command("창문 전부 열어") is None    # window commands removed (2026-11-24)
   assert v.car_command("최저 크루즈 속도 얼마야") is None

@@ -74,33 +74,6 @@ def _int(raw, default):
     return default
 
 
-WINDOW_IDS = {"driver": "1", "passenger": "2", "rear_left": "3", "rear_right": "4", "all": "A"}
-WINDOW_ACTIONS = {"down": "D", "up": "U", "stop": "S"}
-
-
-def window_request(window, action, path=None, clock=time.time):
-  """AI car_window -> the ESP32 window command file read by bcan_blinker (bcan_blinker_core)."""
-  if window not in WINDOW_IDS or action not in WINDOW_ACTIONS:
-    return {"ok": False, "error": "창문(driver/passenger/rear_left/rear_right/all)과 동작(down/up/stop)을 확인하세요."}
-  if window == "driver":
-    # 2026-11-22 car test: 0x122 only reports the driver's own switch; the driver door motor
-    # does not listen to it (ESP32 answered ok, the window did not move).
-    return {"ok": False, "error": "운전석 창문은 B-CAN 으로 움직일 수 없음. 조수석·뒷좌석만 가능(all 은 이 3개)."}
-  from selfdrive.eon_cluster.bcan_blinker_core import WINDOW_FILE
-  path = path or WINDOW_FILE
-  cmd = "W" + WINDOW_IDS[window] + WINDOW_ACTIONS[action]
-  now = clock()
-  try:
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-      json.dump({"cmd": cmd, "ts": now, "id": f"voice-{now:.3f}"}, f)
-    os.replace(tmp, path)
-  except OSError as e:
-    return {"ok": False, "error": "창문 명령 전달 실패: %s" % e}
-  note = {"down": "끝까지 내려가는 중", "up": "끝까지 닫는 중", "stop": "멈춤"}[action]
-  return {"ok": True, "cmd": cmd, "note": note}
-
-
 def washer_request(path=None, clock=time.time):
   """AI car_wiper -> ESP32 'WW': the washer stalk bit on B-CAN 0x138 for 0.7 s. The pump is wired
   to the stalk itself, so this only makes the wipers wipe once (2026-11-23)."""
@@ -119,41 +92,17 @@ def washer_request(path=None, clock=time.time):
 
 # Fixed spoken car commands (2026-11-24): handled on EON before the AI, so they work at once and
 # without an API key. Spaces are ignored; the action word may carry 줘/주세요.
-_WIN_TARGETS = (
-  (re.compile(r"조수석(앞쪽?|앞자리)?창문"), "passenger"),
-  (re.compile(r"(운전석뒤쪽?|운전석뒷|운전석뒷자리|뒷좌석왼쪽|왼쪽뒤|뒤왼쪽)창문?"), "rear_left"),
-  (re.compile(r"(조수석뒤쪽?|조수석뒷|조수석뒷자리|뒷좌석오른쪽|오른쪽뒤|뒤오른쪽)창문?"), "rear_right"),
-  (re.compile(r"(창문전부|창문전체|전체창문|모든창문|창문다|창문모두|전부창문)"), "all"),
-  (re.compile(r"운전석(앞쪽?)?창문"), "driver"),
-)
-_WIN_ACTIONS = (
-  (re.compile(r"(열어|내려|오픈)"), "down"),
-  (re.compile(r"(닫아|올려|클로즈)"), "up"),
-  (re.compile(r"(멈춰|정지|그만|스톱)"), "stop"),
-)
 _WIPER = re.compile(r"^(와이퍼(한번|한 번)?(닦아|작동|움직여|켜)?|유리닦아|앞유리닦아)(줘|주세요)?$")
-_WIN_TITLE = {"passenger": "조수석 앞 창문", "rear_left": "운전석 뒤 창문", "rear_right": "조수석 뒤 창문",
-              "all": "창문 전부(운전석 제외)", "driver": "운전석 창문"}
 
 
 def car_command(text):
-  """A fixed window / wiper phrase -> the direct reply, or None (not a car command)."""
+  """A fixed wiper phrase (window commands removed 2026-11-24) -> the direct reply, or None (not a car command)."""
   compact = re.sub(r"\s+", "", text)
   if _WIPER.match(compact):
     out = washer_request()
     return {"ok": out.get("ok", False), "handled": True, "error": out.get("error", ""),
             "setting": {"title": "와이퍼 한 번", "value": out.get("note", "")}}
-  if "창문" not in compact and not re.search(r"(운전석|조수석)(뒤|뒷)", compact):
-    return None
-  window = next((w for rx, w in _WIN_TARGETS if rx.search(compact)), None)
-  action = next((a for rx, a in _WIN_ACTIONS if rx.search(compact)), None)
-  if window is None and action == "stop":
-    window = "all"   # "창문 멈춰": stop whatever moves
-  if window is None or action is None:
-    return None
-  out = window_request(window, action)
-  return {"ok": out.get("ok", False), "handled": True, "error": out.get("error", ""),
-          "setting": {"title": _WIN_TITLE[window], "value": out.get("note", "")}}
+  return None
 
 
 class VoiceParams:
@@ -312,8 +261,6 @@ class VoiceParams:
       out = self.press(req.get("cmd"), press)
     elif op == "washer":
       out = washer_request()
-    elif op == "window":
-      out = window_request(req.get("window"), req.get("action"))
     elif op in ("system_check", "system", "system_status"):
       if system is None or system_state is None:
         out = {"ok": False, "error": "시스템 작업 경로 없음"}

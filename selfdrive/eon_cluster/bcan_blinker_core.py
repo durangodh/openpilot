@@ -230,13 +230,12 @@ class BlinkRequestSource:
 
 
 WINDOW_FILE = "/dev/shm/dh_window_cmd.json"
-WINDOW_COMMANDS = {f"W{w}{d}" for w in "1234A" for d in "DUS"} | {"WW"}   # WW: washer spray
+WINDOW_COMMANDS = {"WW"}   # WW: washer stalk (wipe once). Window commands removed 2026-11-24.
 
 
 class WindowRequestSource:
-  """Window commands for the ESP32 (selfdrive/debug/dh_window.py, remote, voice): each id once,
-  only fresh ones. 'W' + window (1 driver front, 2 passenger front, 3 rear left, 4 rear right,
-  A all) + 'D' down / 'U' up a little / 'S' stop."""
+  """ESP32 body commands from voice (now only 'WW', the washer stalk): each id once, only fresh
+  ones. The power window commands were removed on 2026-11-24."""
 
   def __init__(self, path=WINDOW_FILE, clock=time.time):
     self.path, self.clock = path, clock

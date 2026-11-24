@@ -213,33 +213,21 @@ def test_hold_mode_press_actions():
   assert command_packet(4, "KL") == b"DHBL1 4 KL"
 
 
-def test_window_requests(tmp_path):
+def test_body_requests(tmp_path):
   import json
   from selfdrive.eon_cluster.bcan_blinker_core import WindowRequestSource, command_packet
   t = [100.0]
-  path = str(tmp_path / "win.json")
+  path = str(tmp_path / "cmd.json")
   src = WindowRequestSource(path, clock=lambda: t[0])
   assert src.poll() is None
   with open(path, "w") as f:
-    json.dump({"cmd": "W2D", "ts": 99.5, "id": "a"}, f)
-  assert src.poll() == "W2D"
+    json.dump({"cmd": "WW", "ts": 99.5, "id": "a"}, f)
+  assert src.poll() == "WW"
   assert src.poll() is None                         # each id once
   with open(path, "w") as f:
-    json.dump({"cmd": "W9X", "ts": 100.0, "id": "b"}, f)
-  assert src.poll() is None                         # unknown command
+    json.dump({"cmd": "W2D", "ts": 100.0, "id": "b"}, f)
+  assert src.poll() is None                         # window commands are gone (2026-11-24)
   with open(path, "w") as f:
-    json.dump({"cmd": "WAS", "ts": 90.0, "id": "c"}, f)
+    json.dump({"cmd": "WW", "ts": 90.0, "id": "c"}, f)
   assert src.poll() is None                         # stale
-  assert command_packet(5, "W1U") == b"DHBL1 5 W1U"
-
-
-def test_voice_window_request(tmp_path):
-  import json
-  from selfdrive.eon_cluster.bcan_blinker_core import WindowRequestSource
-  from selfdrive.eon_cluster.voice_params import window_request
-  path = str(tmp_path / "win.json")
-  assert window_request("passenger", "down", path, clock=lambda: 50.0)["cmd"] == "W2D"
-  assert WindowRequestSource(path, clock=lambda: 50.5).poll() == "W2D"
-  assert window_request("all", "stop", path)["ok"]
-  assert not window_request("roof", "down", path)["ok"]
-  assert json.load(open(path))["cmd"] == "WAS"
+  assert command_packet(5, "WW") == b"DHBL1 5 WW"

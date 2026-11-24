@@ -325,7 +325,7 @@ def main():
       else:
         dlog.write(f"cancel NOT sent: link {link}")
 
-    # Power windows (selfdrive/debug/dh_window.py, remote, voice) go to the same ESP32.
+    # Voice body commands (washer 'WW') go to the same ESP32.
     window_cmd = window_requests.poll()
     if window_cmd is not None:
       if link == LINK_OK and esp_ip:

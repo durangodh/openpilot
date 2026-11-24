@@ -728,19 +728,6 @@ public final class VoiceAssistant {
                 .put("description", "차량 상태 진단: 켜진 경고등, 타이어 공기압(psi), 배터리 전압, 연료·주행가능거리, "
                         + "엔진오일·냉각수 온도, 열린 문·창문, 주차브레이크, 오파 경고, EON 온도. '차 상태 어때?' 등에 쓴다.")
                 .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
-        t.put(new JSONObject().put("name", "car_window")
-                .put("description", "차 창문(B-CAN). down 은 끝까지 내림, up 은 끝까지 닫음(원터치, 차의 끼임 방지 동작), "
-                        + "stop 은 움직이던 창문을 멈춤. '창문 조금 열어'는 down 뒤 stop 대신 up 을 쓰지 말고 down 만 쓰되 "
-                        + "운전자에게 원하는 만큼 내려가면 '멈춰'라고 말하라고 안내. 주행 중에도 된다.")
-                .put("input_schema", new JSONObject().put("type", "object")
-                        .put("properties", new JSONObject()
-                                .put("window", new JSONObject().put("type", "string")
-                                        .put("enum", new JSONArray().put("driver").put("passenger")
-                                                .put("rear_left").put("rear_right").put("all"))
-                                        .put("description", "driver 운전석, passenger 조수석, rear_left 운전석 뒤, rear_right 조수석 뒤"))
-                                .put("action", new JSONObject().put("type", "string")
-                                        .put("enum", new JSONArray().put("down").put("up").put("stop"))))
-                        .put("required", new JSONArray().put("window").put("action"))));
         t.put(new JSONObject().put("name", "car_wiper")
                 .put("description", "앞 유리 와이퍼를 한 번 닦는다(B-CAN). 워셔액은 나오지 않는다(이 차는 B-CAN 으로 "
                         + "워셔 펌프를 켤 수 없음). '와이퍼 한 번', '유리 닦아' 등에 쓴다. 워셔액을 달라고 하면 "
@@ -835,7 +822,6 @@ public final class VoiceAssistant {
         if ("system_command".equals(name)) return "실행 가능 여부 확인 중";
         if ("vehicle_status".equals(name)) return "차량 상태 확인 중";
         if ("cruise_speed".equals(name)) return "설정속도 맞추는 중";
-        if ("car_window".equals(name)) return "창문 움직이는 중";
         if ("car_wiper".equals(name)) return "와이퍼 닦는 중";
         return name;
     }
@@ -885,9 +871,6 @@ public final class VoiceAssistant {
             }
         } else if ("cruise_gap".equals(name)) {
             reply = cruiseGap(input.optInt("target", 0));
-        } else if ("car_window".equals(name)) {
-            reply = askEon(new JSONObject().put("op", "window")
-                    .put("window", input.optString("window")).put("action", input.optString("action")));
         } else if ("car_wiper".equals(name)) {
             reply = askEon(new JSONObject().put("op", "washer"));
         } else if ("open_nav_voice".equals(name)) {

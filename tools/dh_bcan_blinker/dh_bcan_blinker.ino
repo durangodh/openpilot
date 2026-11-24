@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24j" FW_VARIANT
+#define FW_VERSION "2026-11-24k" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -144,67 +144,6 @@ static bool stockValid = false;
 static uint32_t stockMs = 0;
 
 enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
-
-// ---------- power windows (W<n><D|U|S>, n 1-4 or A for all) ----------
-// The driver door's switch panel reports the window switches on B-CAN (2026-11-21 scans):
-//   0x122 byte1: driver front   down 0x40 up 0x20 auto 0x80
-//   0x120 byte0: passenger front down 0x20 up 0x10 auto 0x40
-//   0x120 byte4: rear left       down 0x40 up 0x20 auto 0x80 (0x10 / 0x08: status, kept)
-//   0x120 byte4: rear right      down 0x02 up 0x01 auto 0x04
-// Like the lever tap, a copy of the panel's own frame is sent right behind it with the switch
-// bits set. Down presses auto (the window goes all the way). Up (2026-11-24 request): the first
-// close command runs the manual stage for WIN_UP_MS (about half way); the same window(s) closed
-// again within WIN_UP_AGAIN_MS press the auto stage and close fully (the car's own one-touch pinch
-// protection applies). S taps the manual stage opposite to the last run, which stops an auto
-// run. Any switch the occupants press wins at once.
-#define WIN_ID_FRONT 0x122
-#define WIN_ID_PANEL 0x120
-#define WIN_DOWN_MS 300
-#define WIN_UP_MS 1500
-#define WIN_UP_AGAIN_MS 60000
-#define WIN_UP_REAR_MS 6000   // manual stage held long enough to move a rear window all the way (24h: 6 s)
-static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
-static char lastUpWhich = 0;    // window(s) of the last close command, and when
-static uint32_t lastUpMs = 0;
-#define WIN_STOP_MS 200
-#define WIN_WAIT_MS 600
-struct WinDef { uint16_t id; uint8_t byte, mask, down, up, autoBit; };
-static const WinDef WINS[4] = {
-  {WIN_ID_FRONT, 1, 0xE0, 0x40, 0x20, 0x80},
-  {WIN_ID_PANEL, 0, 0x70, 0x20, 0x10, 0x40},
-  {WIN_ID_PANEL, 4, 0xE0, 0x40, 0x20, 0x80},
-  {WIN_ID_PANEL, 4, 0x07, 0x02, 0x01, 0x04},
-};
-enum WinState { WIN_IDLE, WIN_WAIT, WIN_SENDING };
-static WinState win = WIN_IDLE;
-static uint8_t winSet[2][8];      // [0] 0x120, [1] 0x122: bits we press
-static uint8_t winSetMan[2][8];   // the same press without the auto bit: sent first, like the switch
-// 2026-11-24 scan of the driver panel's rear switches: the panel sends the manual stage first
-// (0x10 -> 0x50) and the auto stage right after (-> 0xD0). The rear doors ignored a press that
-// started at the auto stage; every press now starts with WIN_STAGE_MS of the manual stage.
-#define WIN_STAGE_MS 0   // 24e's manual-first stage (120 ms) is off again: the rear windows had moved
-                         // a few days before (22b timing) and stopped after the 24c/24e changes
-static uint32_t winStageMs = 0;   // this command's manual stage before auto (rear down: 150 ms)
-static uint8_t winMask[2][8];     // switch bits of the windows we drive
-static bool winUse[2];
-static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
-static uint32_t winPeriod[2] = {0, 0};   // measured panel frame period per slot (ms)
-#define WIN_CLEAR_MS 0
-static uint8_t winStock[2][8];
-static bool winStockValid[2] = {false, false};
-static uint32_t winStockMs[2] = {0, 0};
-static bool winAbortReq = false;
-// 24i: the 2026-11-24 scan of the driver's rear switch shows 0x120 byte6 alternating
-// (7F/7E, 7D/7E) frame by frame: a toggle the rear doors probably check. Our copies repeated the
-// panel's last value, which the passenger door accepts and the rear doors seem to drop. Our
-// 0x120 frames now carry the alternate value, as the panel's next frame would.
-static uint8_t b6Last = 0, b6Other = 0, b6Sent = 0;
-static bool b6Known = false;
-// Every 0x120 frame seen during a window command (ms, byte4, byte6), printed at its end.
-#define WIN_RX_LOG 48
-static uint16_t winRxMs[WIN_RX_LOG];
-static uint8_t winRxB4[WIN_RX_LOG], winRxB6[WIN_RX_LOG];
-static int winRxN = 0;
 
 // Steering wheel call button (0x13C byte0 0x40, 2026-11-22 scan). Every press counts once in
 // callLong (status "cl"); the EON turns each new count into the HUD AI voice assistant. The
@@ -416,7 +355,7 @@ const char *startTap(char side, uint32_t now) {
 
 // Washer spray: like a tap, but the washer bit instead of the turn bits (byte 0 kept neutral).
 const char *requestWash(uint32_t now) {
-  if (tap != TAP_IDLE || win != WIN_IDLE || holdSide) return "busy";
+  if (tap != TAP_IDLE || holdSide) return "busy";
   if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
@@ -439,7 +378,7 @@ const char *requestWash(uint32_t now) {
 }
 
 const char *requestTap(char side, uint32_t now) {
-  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
+  if (tap != TAP_IDLE) return "busy";
   if (lastTapEnd && now - lastTapEnd < COOLDOWN_MS) return "cooldown";
   if (!stockFresh(now)) return "nobcan";
   if (stock[0] & LEVER_MASK) return "lever";
@@ -481,7 +420,7 @@ const char *requestHold(char side, uint32_t now, uint32_t keepMs) {
 
 // Called from loop() while idle: tap our side again to keep the blinker going.
 void holdTick(uint32_t now) {
-  if (!holdSide || tap != TAP_IDLE || win != WIN_IDLE) return;
+  if (!holdSide || tap != TAP_IDLE) return;
   if (driverLeverMs && driverLeverMs > holdStartMs) return stopHold("driver lever", now);
   if (errSeen && errMs > holdStartMs && errMs != holdErrMs) {  // one bad tap is not the end
     holdErrMs = errMs;
@@ -550,7 +489,7 @@ bool ownSideLit(uint32_t now, uint32_t since) {
 
 // Called from loop() while idle: run a waiting cancel, and flick again if our side keeps flashing.
 void cancelTick(uint32_t now) {
-  if (tap != TAP_IDLE || win != WIN_IDLE) return;
+  if (tap != TAP_IDLE) return;
   if (cancelPending) {
     const char *why = cancelFlick(now);
     if (!*why) {
@@ -570,192 +509,6 @@ void cancelTick(uint32_t now) {
            (unsigned)cancelTries + 1);
       cancelPending = true;
       cancelSince = now;
-    }
-  }
-}
-
-int winSlot(uint16_t id) { return id == WIN_ID_FRONT ? 1 : 0; }
-
-void sendWin(int slot, bool pressed) {
-  gTx = twai_message_t{};
-  gTx.identifier = slot ? WIN_ID_FRONT : WIN_ID_PANEL;
-  gTx.extd = 0;
-  gTx.data_length_code = 8;
-  for (int i = 0; i < 8; i++) {
-    uint8_t keep = winStock[slot][i] & ~winMask[slot][i];
-    const uint8_t *set = millis() - winStartMs < winStageMs ? winSetMan[slot] : winSet[slot];
-    gTx.data[i] = keep | (pressed ? set[i] : 0);
-  }
-  // 24j: 24i's byte6 alternation is off again (the first test with it hit 8 bus errors; byte6
-  // looks like a status with short blips, not a toggle). Byte6 is the panel's own value again.
-  if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
-  tapFrames++;
-}
-
-void endWin(const char *res) {
-  bool done = !strcmp(res, "ok");
-  if (win == WIN_SENDING && done) {
-    for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, false);  // release, like the switch
-  }
-  delay(5);
-  startCan(false);
-  win = WIN_IDLE;
-  uint32_t now = millis();
-  lastTapEnd = now;
-  if (!done && strcmp(res, "switch") && strcmp(res, "nobcan")) {
-    errSeen = true;
-    errMs = now;
-  }
-  outf("=== window end (%s): %lu frames, tx fail %lu ===\n", res, (unsigned long)tapFrames, (unsigned long)txFail);
-  if (winRxN > 0) {
-    out("0x120 seen (ms b4 b6):");
-    for (int i = 0; i < winRxN; i++) outf(" %u:%02X/%02X", winRxMs[i], winRxB4[i], winRxB6[i]);
-    out("\n");
-  }
-  finish(res, now);
-}
-
-// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up: half, then fully when repeated) / 'S' (stop)
-const char *requestWin(const char *cmd, uint32_t now) {
-  char which = cmd[1], dir = cmd[2];
-  // Stop while our own press runs (the 4 s rear close): release it now, then tap as usual.
-  if (dir == 'S' && win != WIN_IDLE) endWin("ok");
-  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
-  if (dir != 'D' && dir != 'U' && dir != 'S') return "bad";
-  // 2026-11-24 (latest request): one close command closes fully (auto stage, the car's pinch
-  // protection applies); the half-then-full sequence is gone.
-  const bool upFull = dir == 'U';
-  memset(winSet, 0, sizeof(winSet));
-  memset(winSetMan, 0, sizeof(winSetMan));
-  bool rearUp = false, rearDown = false;
-  memset(winMask, 0, sizeof(winMask));
-  winUse[0] = winUse[1] = false;
-  for (int n = 0; n < 4; n++) {
-    if (which != 'A' && which != '1' + n) continue;
-    // "all" leaves the driver's window out: its motor ignores 0x122, and copying the driver door's
-    // own 0x122 frames only risked bus errors (2026-11-24: errors on closing).
-    if (which == 'A' && n == 0) continue;
-    const WinDef &w = WINS[n];
-    int slot = winSlot(w.id);
-    // Rear windows (3, 4) ignore an injected auto-up (2026-11-24: 'close all' left them down; the
-    // first-day manual up had closed them): they close with the manual stage held WIN_UP_REAR_MS.
-    // 24j: rear down is the driver switch's own sequence from the 2026-11-24 scan: manual stage
-    // (0x50) first, then manual + auto (0xD0), then release. 24h's manual-only 6 s hold did not
-    // move them. Rear up stays the manual stage held WIN_UP_REAR_MS.
-    bool rear = n >= 2;
-    if (dir == 'U' && rear) rearUp = true;
-    if (dir == 'D' && rear) rearDown = true;
-    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit)
-        : dir == 'U' ? ((upFull && !rear) ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
-    // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
-    if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
-    winSet[slot][w.byte] |= bits;
-    winSetMan[slot][w.byte] |= bits & (uint8_t)~w.autoBit;
-    winMask[slot][w.byte] |= w.mask;
-    winUse[slot] = true;
-  }
-  if (!winUse[0] && !winUse[1]) return "bad";
-  for (int k = 0; k < 2; k++) {
-    if (winUse[k] && !(winStockValid[k] && now - winStockMs[k] <= STOCK_FRESH_MS)) return "nobcan";
-    for (int i = 0; k < 2 && winUse[k] && i < 8; i++) {
-      if (winStock[k][i] & winMask[k][i]) return "switch";   // someone is pressing a window switch
-    }
-  }
-  winDurMs = dir == 'D' || (dir == 'U' && upFull) ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
-  if (rearUp) winDurMs = WIN_UP_REAR_MS;   // also when the front passenger closes with them
-  winStageMs = rearDown ? 150 : 0;
-  if (rearDown) winDurMs = 450;
-  if (dir != 'S') lastWinDir = dir;
-  if (dir == 'U') {
-    outf("%9lu  window %c close %s\n", (unsigned long)now, which, upFull ? "fully (second command)" : "half (manual 1.5 s)");
-    lastUpWhich = upFull ? 0 : which;   // a third command starts over with half
-    lastUpMs = now;
-  } else {
-    lastUpWhich = 0;
-  }
-  tapFrames = 0;
-  txFail = 0;
-  if (!startCan(true)) {
-    startCan(false);
-    return "notx";
-  }
-  win = WIN_WAIT;
-  winCmdMs = now;
-  winRxN = 0;
-  outf("\n=== WINDOW %s: waiting for the panel frame ===\n", cmd);
-  return "";
-}
-
-// A panel frame arrived (slot 0: 0x120, 1: 0x122): keep it, notice occupants, answer it.
-void winFrame(int slot, const twai_message_t &m, uint32_t now) {
-  uint32_t gap = now - winStockMs[slot];
-  if (winStockValid[slot] && gap > 5 && gap < 2000) {
-    winPeriod[slot] = winPeriod[slot] ? (winPeriod[slot] * 3 + gap) / 4 : gap;   // panel frame period
-  }
-  memcpy(winStock[slot], m.data, 8);
-  winStockValid[slot] = true;
-  winStockMs[slot] = now;
-  if (slot == 0) {
-    if (b6Known && m.data[6] != b6Last) b6Other = b6Last;
-    if (!b6Known) b6Other = m.data[6];
-    b6Last = m.data[6];
-    b6Known = true;
-    b6Sent = b6Last;   // our next frame carries the other value
-    if (win != WIN_IDLE && winRxN < WIN_RX_LOG) {
-      winRxMs[winRxN] = (uint16_t)(now - winCmdMs);
-      winRxB4[winRxN] = m.data[4];
-      winRxB6[winRxN] = m.data[6];
-      winRxN++;
-    }
-  }
-  if (win == WIN_IDLE || !winUse[slot]) return;
-  bool ours = true, other = false;
-  for (int i = 0; i < 8; i++) {
-    uint8_t sw = m.data[i] & winMask[slot][i];
-    if (sw && sw != winSet[slot][i]) other = true;
-    if (sw != winSet[slot][i]) ours = false;
-  }
-  if (other) {
-    winAbortReq = true;    // the occupants' switch wins
-    return;
-  }
-  if (win == WIN_WAIT) {
-    win = WIN_SENDING;
-    winStartMs = winLastSend = now;
-    for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
-  } else if (win == WIN_SENDING && !ours) {
-    sendWin(slot, true);   // the panel just sent released switches: answer at once
-  }
-}
-
-void winTick(uint32_t now) {
-  if (win == WIN_IDLE) return;
-  if (winAbortReq) {
-    winAbortReq = false;
-    out("! window switch pressed during our press: stop\n");
-    endWin("switch");
-    return;
-  }
-  if (win == WIN_WAIT && now - winCmdMs > WIN_WAIT_MS) {
-    endWin("nobcan");
-    return;
-  }
-  if (win == WIN_SENDING) {
-    if (now - winStartMs >= winDurMs) {
-      endWin("ok");
-    } else if (now - winLastSend >= RESEND_MS) {
-      // Keep clear of the panel's own next frame (same ID: starting together is a bus error). The
-      // answer right behind each panel frame never collides; the 40 ms repeats skip the last
-      // WIN_CLEAR_MS before the next panel frame is due.
-      bool clear = true;
-      for (int k = 0; k < 2; k++) {
-        // 24c's skip before the panel's next frame is off (WIN_CLEAR_MS 0): back to 22b timing
-        if (WIN_CLEAR_MS > 0 && winUse[k] && winPeriod[k] && now - winStockMs[k] + WIN_CLEAR_MS >= winPeriod[k]) clear = false;
-      }
-      if (clear) {
-        winLastSend = now;
-        for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
-      }
     }
   }
 }
@@ -925,10 +678,6 @@ void onFrame(uint32_t now) {  // frame in gRx
     }
     return;
   }
-  if (m.identifier == WIN_ID_PANEL || m.identifier == WIN_ID_FRONT) {
-    winFrame(winSlot(m.identifier), m, now);
-    return;
-  }
   if (m.identifier == LEVER_ID) {
     memcpy(stock, m.data, 8);
     stockValid = true;
@@ -1002,10 +751,11 @@ void pollUdp(uint32_t now) {
   if (cmd[0] == 'W') {
     if (seq == lastSeq) return;
     lastSeq = seq;
-    outf("%9lu  EON window %s seq %d\n", (unsigned long)now, cmd, seq);
-    const char *why = cmd[1] == 'W' ? requestWash(now) : requestWin(cmd, now);
+    outf("%9lu  EON %s seq %d\n", (unsigned long)now, cmd, seq);
+    // 2026-11-24: window commands removed (request); only WW (washer stalk, wipe once) is left.
+    const char *why = cmd[1] == 'W' ? requestWash(now) : "bad";
     if (*why) {
-      outf("%9lu  window refused: %s\n", (unsigned long)now, why);
+      outf("%9lu  %s refused: %s\n", (unsigned long)now, cmd, why);
       finish(why, now);
     } else {
       lastRes[0] = 0;
@@ -1244,7 +994,7 @@ void webUpdateUpload() {
   if (u.status == UPLOAD_FILE_START) {
     otaAuthed = gWeb.authenticate(OTA_USER, SETUP_AP_PASS);
     otaStarted = false;
-    if (!otaAuthed || tap != TAP_IDLE || win != WIN_IDLE) return;
+    if (!otaAuthed || tap != TAP_IDLE) return;
     outf("firmware update: %s\n", u.filename.c_str());
     otaStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
   } else if (u.status == UPLOAD_FILE_WRITE) {
@@ -1322,9 +1072,9 @@ void wifiTick(uint32_t now) {
 void serialLine(char *line, uint32_t now) {
   while (*line == ' ') line++;
   if (!*line) return;
-  if (line[0] == 'W') {   // window test: W1D / W2U / WAS ... ; WW washer
-    const char *why = line[1] == 'W' ? requestWash(now) : requestWin(line, now);
-    outf("window %s: %s\n", line, *why ? why : "started");
+  if (line[0] == 'W' && line[1] == 'W') {   // WW: washer stalk (wipe once)
+    const char *why = requestWash(now);
+    outf("washer: %s\n", *why ? why : "started");
     return;
   }
   if (line[0] == 'w') {
@@ -1425,16 +1175,13 @@ void loop() {
     if (!fatal && (alerts & (TWAI_ALERT_BUS_ERROR | TWAI_ALERT_TX_FAILED))) {
       busErrs++;
       outf("! bus error %u during transmit (alerts 0x%lx), retrying\n", (unsigned)busErrs, (unsigned long)alerts);
-      // a window press is not time critical: allow more retried errors before giving up
-      fatal = busErrs >= (win != WIN_IDLE ? BUS_ERRORS_ABORT * 2 : BUS_ERRORS_ABORT);
+      fatal = busErrs >= BUS_ERRORS_ABORT;
     }
     if (fatal) {
       outf("! bus problem while transmitting (alerts 0x%lx, %u errors): abort\n", (unsigned long)alerts, (unsigned)busErrs);
-      if (win != WIN_IDLE) endWin("abort");
-      else endTap("abort");
+      endTap("abort");
     }
   }
-  winTick(millis());
 
   if (driverAbort) {
     driverAbort = false;
@@ -1461,8 +1208,8 @@ void loop() {
 
   // Read EON first: a hold re-tap starts in holdTick() and would otherwise keep the board busy
   // loop after loop (2026-11-16 road log: 16 packets, then none for 30 s during a hold).
-  if (tap == TAP_IDLE && win == WIN_IDLE) wifiTick(now);  // nothing slow while we transmit
-  if (wifiUp && tap == TAP_IDLE && win == WIN_IDLE) pollUdp(now);
+  if (tap == TAP_IDLE) wifiTick(now);  // nothing slow while we transmit
+  if (wifiUp && tap == TAP_IDLE) pollUdp(now);
   holdTick(now);
   cancelTick(now);
   if (now - lastStatus >= STATUS_MS) sendStatus(now);
