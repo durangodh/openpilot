@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24a" FW_VARIANT
+#define FW_VERSION "2026-11-24b" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -152,14 +152,19 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 //   0x120 byte4: rear left       down 0x40 up 0x20 auto 0x80 (0x10 / 0x08: status, kept)
 //   0x120 byte4: rear right      down 0x02 up 0x01 auto 0x04
 // Like the lever tap, a copy of the panel's own frame is sent right behind it with the switch
-// bits set. Down and (2026-11-24 request: closing stopped half way) up both press the auto stage,
-// so the window goes all the way; the car's own one-touch-up pinch protection applies as with the
-// switch. S taps the manual opposite stage, which stops an auto run. Any switch the occupants
-// press wins at once.
+// bits set. Down presses auto (the window goes all the way). Up (2026-11-24 request): the first
+// close command runs the manual stage for WIN_UP_MS (about half way); the same window(s) closed
+// again within WIN_UP_AGAIN_MS press the auto stage and close fully (the car's own one-touch pinch
+// protection applies). S taps the manual stage opposite to the last run, which stops an auto
+// run. Any switch the occupants press wins at once.
 #define WIN_ID_FRONT 0x122
 #define WIN_ID_PANEL 0x120
 #define WIN_DOWN_MS 300
-static char lastWinDir = 'D';   // last auto run asked for, so S taps the opposite way
+#define WIN_UP_MS 1500
+#define WIN_UP_AGAIN_MS 60000
+static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
+static char lastUpWhich = 0;    // window(s) of the last close command, and when
+static uint32_t lastUpMs = 0;
 #define WIN_STOP_MS 200
 #define WIN_WAIT_MS 600
 struct WinDef { uint16_t id; uint8_t byte, mask, down, up, autoBit; };
@@ -581,11 +586,12 @@ void endWin(const char *res) {
   finish(res, now);
 }
 
-// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up, auto) / 'S' (stop)
+// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up: half, then fully when repeated) / 'S' (stop)
 const char *requestWin(const char *cmd, uint32_t now) {
   if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   char which = cmd[1], dir = cmd[2];
   if (dir != 'D' && dir != 'U' && dir != 'S') return "bad";
+  const bool upFull = dir == 'U' && lastUpWhich == which && now - lastUpMs < WIN_UP_AGAIN_MS;
   memset(winSet, 0, sizeof(winSet));
   memset(winMask, 0, sizeof(winMask));
   winUse[0] = winUse[1] = false;
@@ -593,7 +599,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
     if (which != 'A' && which != '1' + n) continue;
     const WinDef &w = WINS[n];
     int slot = winSlot(w.id);
-    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? (uint8_t)(w.up | w.autoBit) : 0;
+    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? (upFull ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
     // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
     if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
     winSet[slot][w.byte] |= bits;
@@ -607,8 +613,15 @@ const char *requestWin(const char *cmd, uint32_t now) {
       if (winStock[k][i] & winMask[k][i]) return "switch";   // someone is pressing a window switch
     }
   }
-  winDurMs = dir == 'D' || dir == 'U' ? WIN_DOWN_MS : WIN_STOP_MS;
+  winDurMs = dir == 'D' || (dir == 'U' && upFull) ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
   if (dir != 'S') lastWinDir = dir;
+  if (dir == 'U') {
+    outf("%9lu  window %c close %s\n", (unsigned long)now, which, upFull ? "fully (second command)" : "half (manual 1.5 s)");
+    lastUpWhich = upFull ? 0 : which;   // a third command starts over with half
+    lastUpMs = now;
+  } else {
+    lastUpWhich = 0;
+  }
   tapFrames = 0;
   txFail = 0;
   if (!startCan(true)) {

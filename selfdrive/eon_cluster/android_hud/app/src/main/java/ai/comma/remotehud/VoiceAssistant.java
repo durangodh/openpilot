@@ -729,7 +729,7 @@ public final class VoiceAssistant {
                         + "엔진오일·냉각수 온도, 열린 문·창문, 주차브레이크, 오파 경고, EON 온도. '차 상태 어때?' 등에 쓴다.")
                 .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
         t.put(new JSONObject().put("name", "car_window")
-                .put("description", "차 창문(B-CAN). down 은 끝까지 내림, up 은 끝까지 닫음(원터치, 차의 끼임 방지 동작), "
+                .put("description", "차 창문(B-CAN). down 은 끝까지 내림, up 은 닫음(첫 번째는 절반쯤, 같은 창문을 1분 안에 다시 up 하면 끝까지), "
                         + "stop 은 움직이던 창문을 멈춤. '창문 조금 열어'는 down 뒤 stop 대신 up 을 쓰지 말고 down 만 쓰되 "
                         + "운전자에게 원하는 만큼 내려가면 '멈춰'라고 말하라고 안내. 주행 중에도 된다.")
                 .put("input_schema", new JSONObject().put("type", "object")
