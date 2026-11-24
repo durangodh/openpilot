@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24d" FW_VARIANT
+#define FW_VERSION "2026-11-24e" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -159,7 +159,7 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 // run. Any switch the occupants press wins at once.
 #define WIN_ID_FRONT 0x122
 #define WIN_ID_PANEL 0x120
-#define WIN_DOWN_MS 300
+#define WIN_DOWN_MS 400   // 120 ms manual + auto, about like a firm press
 #define WIN_UP_MS 1500
 #define WIN_UP_AGAIN_MS 60000
 static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
@@ -177,6 +177,11 @@ static const WinDef WINS[4] = {
 enum WinState { WIN_IDLE, WIN_WAIT, WIN_SENDING };
 static WinState win = WIN_IDLE;
 static uint8_t winSet[2][8];      // [0] 0x120, [1] 0x122: bits we press
+static uint8_t winSetMan[2][8];   // the same press without the auto bit: sent first, like the switch
+// 2026-11-24 scan of the driver panel's rear switches: the panel sends the manual stage first
+// (0x10 -> 0x50) and the auto stage right after (-> 0xD0). The rear doors ignored a press that
+// started at the auto stage; every press now starts with WIN_STAGE_MS of the manual stage.
+#define WIN_STAGE_MS 120
 static uint8_t winMask[2][8];     // switch bits of the windows we drive
 static bool winUse[2];
 static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
@@ -564,7 +569,8 @@ void sendWin(int slot, bool pressed) {
   gTx.data_length_code = 8;
   for (int i = 0; i < 8; i++) {
     uint8_t keep = winStock[slot][i] & ~winMask[slot][i];
-    gTx.data[i] = keep | (pressed ? winSet[slot][i] : 0);
+    const uint8_t *set = millis() - winStartMs < WIN_STAGE_MS ? winSetMan[slot] : winSet[slot];
+    gTx.data[i] = keep | (pressed ? set[i] : 0);
   }
   if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
   tapFrames++;
@@ -597,6 +603,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
   // protection applies); the half-then-full sequence is gone.
   const bool upFull = dir == 'U';
   memset(winSet, 0, sizeof(winSet));
+  memset(winSetMan, 0, sizeof(winSetMan));
   memset(winMask, 0, sizeof(winMask));
   winUse[0] = winUse[1] = false;
   for (int n = 0; n < 4; n++) {
@@ -610,6 +617,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
     // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
     if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
     winSet[slot][w.byte] |= bits;
+    winSetMan[slot][w.byte] |= bits & (uint8_t)~w.autoBit;
     winMask[slot][w.byte] |= w.mask;
     winUse[slot] = true;
   }
