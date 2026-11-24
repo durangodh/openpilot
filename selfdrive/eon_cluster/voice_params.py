@@ -117,6 +117,45 @@ def washer_request(path=None, clock=time.time):
   return {"ok": True, "cmd": "WW", "note": "와이퍼 한 번 닦음(워셔액은 안 나옴)"}
 
 
+# Fixed spoken car commands (2026-11-24): handled on EON before the AI, so they work at once and
+# without an API key. Spaces are ignored; the action word may carry 줘/주세요.
+_WIN_TARGETS = (
+  (re.compile(r"조수석(앞쪽?|앞자리)?창문"), "passenger"),
+  (re.compile(r"(운전석뒤쪽?|운전석뒷|운전석뒷자리|뒷좌석왼쪽|왼쪽뒤|뒤왼쪽)창문?"), "rear_left"),
+  (re.compile(r"(조수석뒤쪽?|조수석뒷|조수석뒷자리|뒷좌석오른쪽|오른쪽뒤|뒤오른쪽)창문?"), "rear_right"),
+  (re.compile(r"(창문전부|창문전체|전체창문|모든창문|창문다|창문모두|전부창문)"), "all"),
+  (re.compile(r"운전석(앞쪽?)?창문"), "driver"),
+)
+_WIN_ACTIONS = (
+  (re.compile(r"(열어|내려|오픈)"), "down"),
+  (re.compile(r"(닫아|올려|클로즈)"), "up"),
+  (re.compile(r"(멈춰|정지|그만|스톱)"), "stop"),
+)
+_WIPER = re.compile(r"^(와이퍼(한번|한 번)?(닦아|작동|움직여|켜)?|유리닦아|앞유리닦아)(줘|주세요)?$")
+_WIN_TITLE = {"passenger": "조수석 앞 창문", "rear_left": "운전석 뒤 창문", "rear_right": "조수석 뒤 창문",
+              "all": "창문 전부(운전석 제외)", "driver": "운전석 창문"}
+
+
+def car_command(text):
+  """A fixed window / wiper phrase -> the direct reply, or None (not a car command)."""
+  compact = re.sub(r"\s+", "", text)
+  if _WIPER.match(compact):
+    out = washer_request()
+    return {"ok": out.get("ok", False), "handled": True, "error": out.get("error", ""),
+            "setting": {"title": "와이퍼 한 번", "value": out.get("note", "")}}
+  if "창문" not in compact and not re.search(r"(운전석|조수석)(뒤|뒷)", compact):
+    return None
+  window = next((w for rx, w in _WIN_TARGETS if rx.search(compact)), None)
+  action = next((a for rx, a in _WIN_ACTIONS if rx.search(compact)), None)
+  if window is None and action == "stop":
+    window = "all"   # "창문 멈춰": stop whatever moves
+  if window is None or action is None:
+    return None
+  out = window_request(window, action)
+  return {"ok": out.get("ok", False), "handled": True, "error": out.get("error", ""),
+          "setting": {"title": _WIN_TITLE[window], "value": out.get("note", "")}}
+
+
 class VoiceParams:
   def __init__(self, params, definitions=None):
     self.params = params
@@ -212,6 +251,9 @@ class VoiceParams:
     if not isinstance(text, str) or not 0 < len(text) <= 180:
       return {"ok": False, "handled": True, "error": "음성 문장을 확인하세요."}
     text = unicodedata.normalize("NFKC", text).strip().rstrip("?.!。 ")
+    car = car_command(text)
+    if car is not None:
+      return car
     write = DIRECT_WRITE.fullmatch(text)
     read = DIRECT_READ.fullmatch(text)
     search = DIRECT_SEARCH.fullmatch(text)
