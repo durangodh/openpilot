@@ -377,9 +377,11 @@ public final class HudService extends Service {
     private volatile java.net.ServerSocket localMapServer;
     private volatile long lastLocalMapElapsed = 0L;
     // 네이버 HUD 지도 모듈이 알려 주는 내 차 자리(지도 세로 천분율, 상대 방향 0.1도).
-    private volatile long naverCarElapsed = 0L;
-    private volatile int naverCarPlacement = -1;
-    private volatile int naverCarBearing = 0;
+    // 지도 위 내 차 자리, 네비 앱 번호별(1 티맵 CAR3, 2 네이버 CAR2). 앱마다 따로 둬서 뒤에서 도는
+    // 다른 네비 모듈의 -1 이 덮어쓰지 않게 한다.
+    private final long[] naverCarElapsedByApp = new long[4];
+    private final int[] naverCarPlacementByApp = {-1, -1, -1, -1};
+    private final int[] naverCarBearingByApp = new int[4];
     private int usbErrorStreak;
     private long lastUsbErrorElapsed;
     private boolean usbReceiverRegistered;
@@ -2107,7 +2109,11 @@ public final class HudService extends Service {
                     return;
                 }
                 if (tagEquals(tag, "CAR2")) {
-                    serveNaverCarPlacement(client, in);
+                    serveNaverCarPlacement(client, in, false);
+                    return;
+                }
+                if (tagEquals(tag, "CAR3")) {
+                    serveNaverCarPlacement(client, in, true);
                     return;
                 }
                 if (!tagEquals(tag, "MAPL")) throw new Exception("bad local map tag");
@@ -2202,25 +2208,29 @@ public final class HudService extends Service {
      * The Naver module reports where its camera keeps the car; the HUD then
      * draws the driving-screen car there and the module hides Naver's icon.
      */
-    private void serveNaverCarPlacement(Socket client, DataInputStream in) throws java.io.IOException {
+    private void serveNaverCarPlacement(Socket client, DataInputStream in, boolean withApp) throws java.io.IOException {
         client.setSoTimeout(2000);
         DataOutputStream out = new DataOutputStream(client.getOutputStream());
         byte[] tag = new byte[4];
+        int app = 2;
         try {
             do {
+                // CAR2 = 네이버(앱 번호 없음), CAR3 = 앱 번호 + 같은 내용(티맵, 2026-11-24).
+                if (withApp) app = in.readInt();
+                if (app < 1 || app > 2) throw new java.io.IOException("bad car marker app " + app);
                 int placement = in.readInt();
                 int bearing = in.readInt();
                 boolean draws = placement > 0 && placement < 1000
-                        && naviLayout && state.get().optInt("hudNavApp", 2) == 2;
-                naverCarPlacement = draws ? placement : -1;
-                naverCarBearing = Math.max(-1800, Math.min(1800, bearing));
-                naverCarElapsed = SystemClock.elapsedRealtime();
+                        && naviLayout && state.get().optInt("hudNavApp", 2) == app;
+                naverCarPlacementByApp[app] = draws ? placement : -1;
+                naverCarBearingByApp[app] = Math.max(-1800, Math.min(1800, bearing));
+                naverCarElapsedByApp[app] = SystemClock.elapsedRealtime();
                 out.writeInt(draws ? 0 : -1);
                 out.flush();
                 in.readFully(tag);
-            } while (running.get() && tagEquals(tag, "CAR2"));
+            } while (running.get() && tagEquals(tag, withApp ? "CAR3" : "CAR2"));
         } finally {
-            naverCarPlacement = -1;
+            naverCarPlacementByApp[app] = -1;
         }
     }
 
@@ -3327,9 +3337,9 @@ public final class HudService extends Service {
      * relative bearings within 45 degrees turn the car; anything larger counts as 0.
      * Turns are smoothed and start from 0.
      */
-    private float smoothedNaverCarBearing() {
+    private float smoothedNaverCarBearing(int app) {
         long now = SystemClock.elapsedRealtime();
-        float target = naverCarBearing / 10f;
+        float target = naverCarBearingByApp[app] / 10f;
         if (!(Math.abs(target) <= 45f)) target = 0f;
         if (carBearingFrameMs == 0L || now - carBearingFrameMs > 2000L) shownCarBearing = 0f;
         float dtSec = carBearingFrameMs == 0L ? 0f : Math.min(1f, (now - carBearingFrameMs) / 1000f);
@@ -3342,7 +3352,8 @@ public final class HudService extends Service {
     }
 
     private boolean naverMapOwnsEgo(JSONObject s) {
-        return naviLayout && s.optInt("hudNavApp", 0) == 2;
+        int app = s.optInt("hudNavApp", 0);
+        return naviLayout && (app == 1 || app == 2);
     }
 
     /**
@@ -3423,9 +3434,11 @@ public final class HudService extends Service {
     }
 
     private void drawNaverMapCar(Canvas c, Paint p, JSONObject s, Bitmap map) {
-        int placement = naverCarPlacement;
+        int app = s.optInt("hudNavApp", 0);
+        if (app != 1 && app != 2) return;
+        int placement = naverCarPlacementByApp[app];
         if (placement <= 0 || !naverMapOwnsEgo(s) || map == null || map.isRecycled()
-                || !localMapFresh() || SystemClock.elapsedRealtime() - naverCarElapsed > 800L
+                || !localMapFresh() || SystemClock.elapsedRealtime() - naverCarElapsedByApp[app] > 800L
                 || egoCar == null || egoCar.isRecycled()) {
             return;
         }
@@ -3441,7 +3454,7 @@ public final class HudService extends Service {
         float bottom = y + height * 0.12f;
         int save = c.save();
         c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
-        c.rotate(smoothedNaverCarBearing(), x, y);
+        c.rotate(smoothedNaverCarBearing(app), x, y);
         if (frameDark && s.optInt("hudHeadlights", 1) != 0) {
             drawMapHeadlights(c, p, x, bottom - height, width);
         }

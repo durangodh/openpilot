@@ -95,6 +95,9 @@ final class TmapMapRender {
     private boolean lastRouteTraffic = true;   // 폰 화면 지도에서 마지막으로 읽은 값
     private boolean background = true;
     private long lastLocationAt;
+    private volatile double carLat, carLon;   // 마지막 맵매칭 위치(HUD 내 차 자리 확인용)
+    private final TmapCarMarker carMarker = new TmapCarMarker();
+    private Boolean tmapIconVisible;
     private long lastEncodeAt;
     private volatile byte[] lastFrame;
     private volatile long lastFrameAt;
@@ -177,6 +180,7 @@ final class TmapMapRender {
         inv(engine, "setNaviMoveMode", 0);
         inv(engine, "setNaviViewMode", 3);
         routeTrafficVisible = null;
+        tmapIconVisible = null;
         syncRouteTraffic(mainEngine());
 
         provider = cl.loadClass("com.skt.tmap.navirenderer.location.ArrayLocationProvider").getConstructor().newInstance();
@@ -289,6 +293,11 @@ final class TmapMapRender {
         if (!(data instanceof Object[]) || ((Object[]) data).length == 0 || provider == null) return;
         Object[] points = (Object[]) data;
         Object first = points[0];
+        Object lastPoint = points[points.length - 1];
+        if (lastPoint != null) {
+            carLat = TmapBridge.doubleField(lastPoint, "latitude");
+            carLon = TmapBridge.doubleField(lastPoint, "longitude");
+        }
         double lat0 = TmapBridge.doubleField(first, "latitude"), lon0 = TmapBridge.doubleField(first, "longitude");
         if (lat0 == 0.0 && lon0 == 0.0) return;
         long now = System.currentTimeMillis();
@@ -344,6 +353,7 @@ final class TmapMapRender {
             syncRouteTraffic(mainEngine());
             syncNightMode();
             syncCamera();
+            syncCarMarker();
         } catch (Throwable error) {
             TmapHudLog.status("map render sync: " + error);
         }
@@ -443,6 +453,37 @@ final class TmapMapRender {
         if (from != null && to != null) {
             inv(to, "setFov", floatValue(inv(from, "getFov")));
             inv(to, "setDensityDpi", mapDpi());
+        }
+    }
+
+    /**
+     * 메인 스레드. HUD 가 네이버처럼 내 차(주행화면 차 그림·라이트·깜박이·브레이크등·BSD)를
+     * 지도 위에 그리도록, 카메라가 차를 따라가는 동안 차 자리(화면 중심점, 프레임 세로 천분율)를
+     * 알려 준다. HUD 가 그리겠다고 하면 티맵 위치 아이콘을 숨긴다. 차가 중심점에서 벗어나 있으면
+     * (지도를 손으로 옮김 등) -1 을 보내 티맵 아이콘으로 돌아간다.
+     */
+    private void syncCarMarker() {
+        int placement = -1;
+        if (engine != null && frames > 0 && renderW > 0 && renderH > 0 && (carLat != 0.0 || carLon != 0.0)) {
+            Object sc = inv(engine, "getScreenCenter");
+            Object car = inv(engine, "wgs84ToScreen", carLon, carLat);
+            if (sc instanceof Point && car instanceof Point) {
+                Point c = (Point) sc, p = (Point) car;
+                boolean centred = Math.abs(c.x - renderW / 2f) <= renderW * 0.03f;
+                boolean onPivot = Math.abs(p.x - c.x) <= renderW * 0.15f && Math.abs(p.y - c.y) <= renderH * 0.15f;
+                if (centred && onPivot && c.y > 0 && c.y < renderH) placement = Math.round(1000f * c.y / renderH);
+            }
+        }
+        boolean hudDraws = carMarker.hudDraws(placement, 0);
+        boolean iconVisible = !hudDraws;
+        if (engine != null && (tmapIconVisible == null || tmapIconVisible != iconVisible)) {
+            Object component = inv(inv(engine, "getLocationManager"), "getLocationComponent");
+            if (component != null) {
+                inv(component, "setIconVisible", iconVisible);
+                tmapIconVisible = iconVisible;
+                TmapHudLog.line("map render: " + (iconVisible ? "TMAP car icon" : "HUD draws own car")
+                        + " placement=" + placement);
+            }
         }
     }
 
