@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24m" FW_VARIANT
+#define FW_VERSION "2026-11-24n" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -97,6 +97,14 @@
 // driver (2026-11-19 log: a hold ended "driver lever" 2 s after a bus error).
 #define LEVER_IGNORE_MS 400
 #define RESEND_MS 40
+// 24n: the 40 ms repeats stay clear of the switch's own next 0x138. The switch sends every ~0.2 s
+// and our repeats start right behind one of its frames, so the repeat at +200 ms (cancel tap 0.3 s,
+// washer 0.7 s) was due together with the stock frame: two frames with the same ID starting together
+// are a bus error, and both sides repeat in step ("bus error 1..8" in a row). The repeat inside
+// STOCK_GUARD_MS before the expected stock frame is skipped; the answer right behind that frame
+// replaces it. (Same idea as panda's "one frame behind each stock frame" in ajouatom carrot-wip.)
+#define STOCK_GUARD_MS 30
+static uint32_t stockPeriod = 200;   // measured period of the stock 0x138 (ms)
 #define COOLDOWN_MS 3500  // from the end of a tap; EON repeats a long lane change every 4.5 s
 #define STOCK_FRESH_MS 500
 #define WAIT_STOCK_MS 600
@@ -693,6 +701,9 @@ void onFrame(uint32_t now) {  // frame in gRx
   }
   if (m.identifier == LEVER_ID) {
     memcpy(stock, m.data, 8);
+    if (stockValid && now - stockMs >= 100 && now - stockMs <= 400) {
+      stockPeriod = (stockPeriod * 3 + (now - stockMs)) / 4;
+    }
     stockValid = true;
     stockMs = now;
     // The driver's lever. Bits of our own tap's side right after it ended are its tail; any other
@@ -715,8 +726,12 @@ void onFrame(uint32_t now) {  // frame in gRx
       tapStart = lastSend = now;
       sendLever(tapBits);
     } else if (tap == TAP_SENDING && washTap) {
-      if (!(m.data[WASH_BYTE] & WASH_BIT)) sendLever(0);  // released washer from the switch: answer
+      if (!(m.data[WASH_BYTE] & WASH_BIT)) {
+        lastSend = now;
+        sendLever(0);  // released washer from the switch: answer
+      }
     } else if (tap == TAP_SENDING && (m.data[0] & LEVER_MASK) == 0) {
+      lastSend = now;
       sendLever(tapBits);  // the switch just sent neutral during our tap: answer it at once
     }
   } else if (m.identifier == 0x102) {
@@ -1212,7 +1227,7 @@ void loop() {
   if (tap == TAP_SENDING) {
     if (now - tapStart >= (washTap ? WASH_MS : cancelTap ? CANCEL_TAP_MS : TAP_MS)) {
       endTap("ok");
-    } else if (now - lastSend >= RESEND_MS) {
+    } else if (now - lastSend >= RESEND_MS && now - stockMs + STOCK_GUARD_MS < stockPeriod) {
       lastSend = now;
       sendLever(tapBits);
     }
