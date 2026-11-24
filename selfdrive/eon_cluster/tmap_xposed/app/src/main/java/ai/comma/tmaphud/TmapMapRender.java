@@ -91,7 +91,8 @@ final class TmapMapRender {
     private ImageReader reader;
     private HandlerThread imageThread;
     private boolean themesReady;
-    private Boolean routeTrafficVisible;
+    private Boolean routeTrafficVisible;   // 지금 HUD 엔진에 넣은 값(null: 새 엔진, 아직 안 넣음)
+    private boolean lastRouteTraffic = true;   // 폰 화면 지도에서 마지막으로 읽은 값
     private boolean background = true;
     private long lastLocationAt;
     private long lastEncodeAt;
@@ -175,6 +176,7 @@ final class TmapMapRender {
         initializeObjectThemes(ctx);
         inv(engine, "setNaviMoveMode", 0);
         inv(engine, "setNaviViewMode", 3);
+        routeTrafficVisible = null;
         syncRouteTraffic(mainEngine());
 
         provider = cl.loadClass("com.skt.tmap.navirenderer.location.ArrayLocationProvider").getConstructor().newInstance();
@@ -446,10 +448,16 @@ final class TmapMapRender {
 
     private void syncRouteTraffic(Object source) {
         if (engine == null) return;
-        boolean visible = source != null && Boolean.TRUE.equals(inv(source, "getShowTrafficInfoOnRouteLine"));
+        // 2026-11-24: 폰 화면 지도를 못 찾으면(티맵 백그라운드·화면 꺼짐) false 로 꺼 버려 HUD 경로선이
+        // 단색이었다. 화면 지도 값이 있을 때만 따르고, 없으면 지난 값, 처음이면 티맵 기본값(켜짐).
+        Object value = source == null ? null : inv(source, "getShowTrafficInfoOnRouteLine");
+        if (value instanceof Boolean) lastRouteTraffic = (Boolean) value;
+        boolean visible = lastRouteTraffic;
         if (routeTrafficVisible == null || routeTrafficVisible != visible) {
             inv(engine, "setShowTrafficInfoOnRouteLine", visible);
             routeTrafficVisible = visible;
+            TmapHudLog.line("map render: route traffic colours " + (visible ? "on" : "off")
+                    + (value instanceof Boolean ? "" : " (phone map not found)"));
         }
     }
 
