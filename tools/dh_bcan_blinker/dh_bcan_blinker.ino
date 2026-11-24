@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24h" FW_VARIANT
+#define FW_VERSION "2026-11-24i" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -193,6 +193,17 @@ static uint8_t winStock[2][8];
 static bool winStockValid[2] = {false, false};
 static uint32_t winStockMs[2] = {0, 0};
 static bool winAbortReq = false;
+// 24i: the 2026-11-24 scan of the driver's rear switch shows 0x120 byte6 alternating
+// (7F/7E, 7D/7E) frame by frame: a toggle the rear doors probably check. Our copies repeated the
+// panel's last value, which the passenger door accepts and the rear doors seem to drop. Our
+// 0x120 frames now carry the alternate value, as the panel's next frame would.
+static uint8_t b6Last = 0, b6Other = 0, b6Sent = 0;
+static bool b6Known = false;
+// Every 0x120 frame seen during a window command (ms, byte4, byte6), printed at its end.
+#define WIN_RX_LOG 48
+static uint16_t winRxMs[WIN_RX_LOG];
+static uint8_t winRxB4[WIN_RX_LOG], winRxB6[WIN_RX_LOG];
+static int winRxN = 0;
 
 // Steering wheel call button (0x13C byte0 0x40, 2026-11-22 scan). Every press counts once in
 // callLong (status "cl"); the EON turns each new count into the HUD AI voice assistant. The
@@ -574,6 +585,10 @@ void sendWin(int slot, bool pressed) {
     const uint8_t *set = millis() - winStartMs < WIN_STAGE_MS ? winSetMan[slot] : winSet[slot];
     gTx.data[i] = keep | (pressed ? set[i] : 0);
   }
+  if (slot == 0 && b6Known) {
+    b6Sent = b6Sent == b6Last ? b6Other : b6Last;   // alternate like the panel
+    gTx.data[6] = b6Sent;
+  }
   if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
   tapFrames++;
 }
@@ -593,6 +608,11 @@ void endWin(const char *res) {
     errMs = now;
   }
   outf("=== window end (%s): %lu frames, tx fail %lu ===\n", res, (unsigned long)tapFrames, (unsigned long)txFail);
+  if (winRxN > 0) {
+    out("0x120 seen (ms b4 b6):");
+    for (int i = 0; i < winRxN; i++) outf(" %u:%02X/%02X", winRxMs[i], winRxB4[i], winRxB6[i]);
+    out("\n");
+  }
   finish(res, now);
 }
 
@@ -658,6 +678,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
   }
   win = WIN_WAIT;
   winCmdMs = now;
+  winRxN = 0;
   outf("\n=== WINDOW %s: waiting for the panel frame ===\n", cmd);
   return "";
 }
@@ -671,6 +692,19 @@ void winFrame(int slot, const twai_message_t &m, uint32_t now) {
   memcpy(winStock[slot], m.data, 8);
   winStockValid[slot] = true;
   winStockMs[slot] = now;
+  if (slot == 0) {
+    if (b6Known && m.data[6] != b6Last) b6Other = b6Last;
+    if (!b6Known) b6Other = m.data[6];
+    b6Last = m.data[6];
+    b6Known = true;
+    b6Sent = b6Last;   // our next frame carries the other value
+    if (win != WIN_IDLE && winRxN < WIN_RX_LOG) {
+      winRxMs[winRxN] = (uint16_t)(now - winCmdMs);
+      winRxB4[winRxN] = m.data[4];
+      winRxB6[winRxN] = m.data[6];
+      winRxN++;
+    }
+  }
   if (win == WIN_IDLE || !winUse[slot]) return;
   bool ours = true, other = false;
   for (int i = 0; i < 8; i++) {
