@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24c" FW_VARIANT
+#define FW_VERSION "2026-11-24d" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -593,7 +593,9 @@ const char *requestWin(const char *cmd, uint32_t now) {
   if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   char which = cmd[1], dir = cmd[2];
   if (dir != 'D' && dir != 'U' && dir != 'S') return "bad";
-  const bool upFull = dir == 'U' && lastUpWhich == which && now - lastUpMs < WIN_UP_AGAIN_MS;
+  // 2026-11-24 (latest request): one close command closes fully (auto stage, the car's pinch
+  // protection applies); the half-then-full sequence is gone.
+  const bool upFull = dir == 'U';
   memset(winSet, 0, sizeof(winSet));
   memset(winMask, 0, sizeof(winMask));
   winUse[0] = winUse[1] = false;

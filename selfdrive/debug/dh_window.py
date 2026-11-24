@@ -2,7 +2,7 @@
 """DH 창문 (ESP32 B-CAN, 펌웨어 2026-11-21 이상). bcan_blinker 가 실행 중이어야 한다.
 
     python selfdrive/debug/dh_window.py 2 down     # 조수석 앞 끝까지 내림
-    python selfdrive/debug/dh_window.py 2 up       # 조수석 앞 닫기: 첫 번째는 절반, 1분 안에 다시 하면 끝까지
+    python selfdrive/debug/dh_window.py 2 up       # 조수석 앞 끝까지 닫음 (펌웨어 2026-11-24d 이상)
     python selfdrive/debug/dh_window.py all stop   # 모두 멈춤
     python selfdrive/debug/dh_window.py wash       # 와이퍼 한 번 (워셔액은 안 나옴, 펌웨어 2026-11-23b 이상)
     창문: 2 조수석 앞, 3 운전석 뒤, 4 조수석 뒤, all 모두 (1 운전석 앞은 B-CAN 으로 안 움직임, 2026-11-22 실차)
