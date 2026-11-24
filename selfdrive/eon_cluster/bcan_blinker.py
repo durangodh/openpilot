@@ -129,7 +129,9 @@ def main():
       # remote's voice button. The first count after (re)connecting is only remembered.
       cl = parsed.get("cl")
       if cl is not None:
-        if call_long_seen is not None and cl != call_long_seen and enabled:
+        # Only a count that went up is a press. After a firmware update or a power cycle the ESP32
+        # counts from 0 again: that drop opened the assistant by itself (2026-11-24).
+        if call_long_seen is not None and cl > call_long_seen and enabled:
           from selfdrive.eon_cluster.hud_remote import VOICE_FILE, _wake_remote_hud, atomic_json, read_json
           previous = read_json(VOICE_FILE)
           vseq = previous.get("seq", 0) if isinstance(previous, dict) else 0
