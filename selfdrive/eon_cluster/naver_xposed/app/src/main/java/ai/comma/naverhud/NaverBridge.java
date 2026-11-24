@@ -209,6 +209,7 @@ final class NaverBridge {
     private NaverLaneStrip laneStrip;
     // 6.12: 화면의 원본 차로 상자를 잘라 온다(NaverLaneCapture). 못 찾으면 위 laneStrip 으로 그린다.
     private NaverLaneCapture screenLane;
+    private final NaverLaneCompose laneCompose = new NaverLaneCompose();
 
     private boolean laneViewClassExists(Object item) {
         if (item == null) return offscreenLane != null;
@@ -243,15 +244,34 @@ final class NaverBridge {
             }
             double meters = item == null ? -1 : laneDistance(item);
             laneStrip.set(n, dirs, active, meters);
+            // 6.12 best path (2026-11-24): Naver's own lane composable drawn off screen, like
+            // Android Auto does and like the 6.11 off-screen view. Screen capture only if it fails.
+            if (!laneCompose.failed()) {
+                android.app.Activity act = map.latestActivity();
+                if (act != null && laneCompose.update(act, n > 0 ? item : null)) {
+                    if (screenLane != null) screenLane.update(act, 0, -1);   // let the capture end
+                    android.view.View v = laneCompose.view();
+                    if (v != null) {
+                        laneImage.padLeft = 0;
+                        laneImage.padTop = 0;
+                        laneImage.onUpdate(v, n > 0);
+                        final boolean shown = n > 0;
+                        mainHandler.postDelayed(() -> laneCompose.verify(shown), 1500);
+                        return;
+                    }
+                }
+            }
             if (screenLane == null) {
                 screenLane = new NaverLaneCapture(laneStrip.getContext(), new NaverLaneCapture.Listener() {
                     @Override public void onCaptured(android.view.View view) {
+                        if (!laneCompose.failed()) return;   // Naver's own composable is in use
                         laneImage.padLeft = 0;
                         laneImage.padTop = 0;
                         laneImage.onUpdate(view, true);
                     }
 
                     @Override public void onLost() {
+                        if (!laneCompose.failed()) return;
                         laneImage.onUpdate(laneStrip, false);   // 원본이 없으면 비운다(직접 그리지 않음)
                     }
                 });
