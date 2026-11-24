@@ -43,6 +43,7 @@ final class NaverLaneCapture {
     // map label passing behind) no longer drops the box; the last good crop stays up to STALE_MS.
     private static final long STALE_MS = 3000;
     private int cropMisses;
+    private int winW, winH;
     // 2026-11-24: the strip still shows about half the time; where it is lost was never measured.
     // Counters written to naver_hud.log every 30 s while lanes are shown ("lane capture stats").
     private int stSearch, stFound, stNotFound, stCopyFail, stCropOk, stCropBad, stLostStale, stLostZero, stNoWindow;
@@ -212,6 +213,8 @@ final class NaverLaneCapture {
                     });
                 }, worker);
             } else {
+                winW = decor.getWidth();
+                winH = decor.getHeight();
                 cropBox(window, box);
             }
         } catch (Throwable error) {
@@ -284,29 +287,70 @@ final class NaverLaneCapture {
         if (running && a != null && !a.isFinishing() && a.getWindow() != null) cropBox(a.getWindow(), found);
     }
 
+    /**
+     * Copies the known crop plus a margin around it and looks for the lane box again inside that
+     * small area at full resolution (2026-11-24): Naver slides the box sideways and up/down with the
+     * distance text and the lane count, and a crop fixed to the old place kept failing the check.
+     * Found: the crop follows the box (the distance label keeps its offset). Not found there: the
+     * old place is checked as before.
+     */
     private void cropBox(Window window, final Rect r) {
-        final Bitmap crop = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888);
+        final int lanesNow = lanes;
+        final Rect bp0 = boxPart;
+        int mx = Math.max(16, r.width() / 3), my = Math.max(12, r.height() / 2);
+        int W = winW > 0 ? winW : r.right + mx, H = winH > 0 ? winH : r.bottom + my;
+        final Rect area = new Rect(Math.max(0, r.left - mx), Math.max(0, r.top - my),
+                Math.min(W, r.right + mx), Math.min(H, r.bottom + my));
+        final Bitmap wide = Bitmap.createBitmap(area.width(), area.height(), Bitmap.Config.ARGB_8888);
         busy = true;
-        PixelCopy.request(window, r, crop, result -> {
+        PixelCopy.request(window, area, wide, result -> {
             boolean ok = false;
+            Rect moved = null;
+            Bitmap crop = null;
             if (result == PixelCopy.SUCCESS) {
-                int[] px = new int[crop.getWidth() * crop.getHeight()];
-                crop.getPixels(px, 0, crop.getWidth(), 0, 0, crop.getWidth(), crop.getHeight());
-                Rect bp = boxPart;
-                if (bp != null && bp.width() >= 8 && bp.height() >= 8 && bp.right <= crop.getWidth() && bp.bottom <= crop.getHeight()) {
-                    int[] sub = new int[bp.width() * bp.height()];
-                    crop.getPixels(sub, 0, bp.width(), bp.left, bp.top, bp.width(), bp.height());
-                    ok = LaneBoxFinder.stillBox(sub, bp.width(), bp.height());
-                } else {
-                    ok = LaneBoxFinder.stillBox(px, crop.getWidth(), crop.getHeight());
+                int aw = wide.getWidth(), ah = wide.getHeight();
+                int[] px = new int[aw * ah];
+                wide.getPixels(px, 0, aw, 0, 0, aw, ah);
+                int[] f = lanesNow > 0 ? LaneBoxFinder.find(px, aw, ah, lanesNow) : null;
+                Rect target = new Rect(r);   // window coordinates of what we cut
+                if (f != null && bp0 != null) {
+                    // keep the label's offset: the crop's box part moves to the box just found
+                    int left = area.left + f[0] - bp0.left, top = area.top + f[1] - bp0.top;
+                    target = new Rect(left, top, left + r.width(), top + r.height());
+                    ok = true;
+                } else if (f != null) {
+                    target = new Rect(area.left + f[0] - 2, area.top + f[1] - 2, area.left + f[2] + 3, area.top + f[3] + 3);
+                    ok = true;
+                } else if (bp0 != null) {
+                    int bl = r.left - area.left + bp0.left, bt = r.top - area.top + bp0.top;
+                    if (bl >= 0 && bt >= 0 && bl + bp0.width() <= aw && bt + bp0.height() <= ah && bp0.width() >= 8 && bp0.height() >= 8) {
+                        int[] sub = new int[bp0.width() * bp0.height()];
+                        wide.getPixels(sub, 0, bp0.width(), bl, bt, bp0.width(), bp0.height());
+                        ok = LaneBoxFinder.stillBox(sub, bp0.width(), bp0.height());
+                    }
+                }
+                if (ok) {
+                    Rect in = new Rect(target.left - area.left, target.top - area.top,
+                            target.right - area.left, target.bottom - area.top);
+                    if (in.intersect(0, 0, aw, ah) && in.width() >= 8 && in.height() >= 8) {
+                        crop = Bitmap.createBitmap(wide, in.left, in.top, in.width(), in.height());
+                        moved = new Rect(in.left + area.left, in.top + area.top, in.right + area.left, in.bottom + area.top);
+                    } else {
+                        ok = false;
+                    }
                 }
             }
+            wide.recycle();
             final boolean good = ok;
+            final Bitmap cropF = crop;
+            final Rect movedF = moved;
             main.post(() -> {
                 busy = false;
-                if (!good) {
+                if (good && movedF != null) box = movedF;   // follow the box
+                final Bitmap crop2 = cropF;
+                if (!good || crop2 == null) {
                     stCropBad++;
-                    crop.recycle();
+                    if (crop2 != null) crop2.recycle();
                     if (++cropMisses >= 2) {
                         box = null;      // 두 번 연속 상자가 아니면 다음 틱에 다시 찾는다
                         cropMisses = 0;
@@ -316,7 +360,7 @@ final class NaverLaneCapture {
                 cropMisses = 0;
                 stCropOk++;
                 capturedAt = SystemClock.elapsedRealtime();
-                view.setImage(crop);
+                view.setImage(crop2);
                 if (!live && running) {
                     live = true;
                     listener.onCaptured(view);
