@@ -7892,10 +7892,10 @@ public final class HudService extends Service {
                 boolean naverLabelAbove = false;
                 float[] naverBox = {1f, 1f};
                 if (navApp == 2) {
-                    // 2026-11-25: one box height for every lane count, the phone's own proportion. The
-                    // 5-lane strip of that day's photos (box about 32 px, by mistake) matched the phone
-                    // next to it; strips of up to 4 lanes were 0.641 (56 px) and looked huge.
-                    laneH *= 0.368f;
+                    // One box height for every lane count: 0.641 (56 px), the size tuned on 2026-11-23
+                    // (0.75, -10 %, -5 %). 0.368 (32 px, the phone's proportion by photo) was far too
+                    // small on the HUD (2026-11-25).
+                    laneH *= 0.641f;
                     // The image is the lane box plus its distance: beside the box up to 4 lanes, above it
                     // from 5. naverLaneBox says which part is the box, so the box itself always gets the
                     // same height. (2026-11-25, r663: a wrong guess here made every strip 2.4x too big.)
@@ -7917,11 +7917,10 @@ public final class HudService extends Service {
                 }
                 if (navApp == 2) {
                     // Naver (2026-11-25): the box, not box + distance, is centred under the car as on the
-                    // phone (the +40 of 11-23 made up for the distance beside it), and the box top stays
-                    // where it was tuned then (40 up at the old 56 px height; the box is 32 px now).
+                    // phone (the +40 of 11-23 made up for the distance beside it); 40 up as tuned then.
                     // literals: the navigation render check compiles this block without class constants
                     cx = Math.min(mapRight() - halfW, cx + (0.5f - naverBox[1] / 2f) * w);
-                    laneBottom -= 64f;
+                    laneBottom -= 40f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
                 // 보정(아래 위젯 +258px)까지 받아 화면 밖으로 밀려 안 보였다. 네비모드는 그대로 둔다.
