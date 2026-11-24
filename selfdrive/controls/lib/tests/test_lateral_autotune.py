@@ -85,6 +85,21 @@ def test_delay_is_reported():
   assert abs(tuner.status()["delay"] - 0.35) < 0.03
 
 
+def test_delay_measures_every_window_and_carries_over():
+  tuner = LateralAutoTune(2.75, 0.10)
+  hist = []
+  for k in range(int(60 / DT)):
+    desired = 1.0 * math.sin(2 * math.pi * 0.2 * k * DT)
+    hist.append(desired)
+    actual = hist[-36] if len(hist) > 35 else 0.0
+    tuner.update(True, 25.0, False, False, False, desired, actual, 0.0, 0.0, 0.0, 0.0, 0.3)
+  assert tuner.delay_windows == 6                      # one per 10 s, not one per 30 s evaluation
+  st = tuner.status()
+  again = LateralAutoTune(2.75, 0.10, delay_estimate=st["delay"], delay_windows=st["delay_windows"])
+  assert again.delay_windows == 6 and abs(again.status()["delay"] - 0.35) < 0.03
+  assert LateralAutoTune(2.75, 0.10, delay_estimate=None, delay_windows=7).delay_windows == 0
+
+
 def test_restores_saved_values_within_bounds():
   assert LateralAutoTune(2.75, 0.10, 2.6, 0.12).factor == 2.6
   assert LateralAutoTune(2.75, 0.10, 9.0, 9.0).factor == 2.75 * FACTOR_BOUNDS[1]

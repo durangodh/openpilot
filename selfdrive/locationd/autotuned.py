@@ -32,9 +32,11 @@ def load(params, base_factor, base_friction, sad):
     saved = {}
   # Learned values belong to one car tune; a different base starts over.
   if saved.get("base_factor") != round(base_factor, 4) or saved.get("base_friction") != round(base_friction, 4):
-    return LateralAutoTune(base_factor, base_friction, sad=saved.get("sad") or sad)
+    return LateralAutoTune(base_factor, base_friction, sad=saved.get("sad") or sad,
+                           delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"))
   return LateralAutoTune(base_factor, base_friction, saved.get("factor"), saved.get("friction"),
-                         saved.get("sad") or sad, bool(saved.get("factor_learned")))
+                         saved.get("sad") or sad, bool(saved.get("factor_learned")),
+                         delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"))
 
 
 def save(params, tuner):

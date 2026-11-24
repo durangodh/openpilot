@@ -50,7 +50,7 @@ LAG_DEADBAND = 0.04          # s
 FRICTION_STEP = 0.03         # x current per evaluation
 FRICTION_BOUNDS = (0.6, 1.5)  # x the car's tune
 
-# delay (report only)
+# delay
 DELAY_WINDOW_S = 10.0
 DELAY_SEARCH = (0.0, 0.8)    # s
 DELAY_MIN_STD = 0.15         # m/s^2 of desired lateral accel in the window (0.3: no window in 20 min, 2026-11-20)
@@ -63,7 +63,8 @@ HISTORY_S = 1.0
 
 
 class LateralAutoTune:
-  def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None, factor_learned=False):
+  def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None, factor_learned=False,
+               delay_estimate=None, delay_windows=0):
     self.base_factor = float(base_factor)
     self.base_friction = float(base_friction)
     self.factor = float(factor) if factor else self.base_factor
@@ -78,8 +79,13 @@ class LateralAutoTune:
     self.lag_n = 0
     self.delay_desired = deque(maxlen=int(DELAY_WINDOW_S / DT))
     self.delay_actual = deque(maxlen=int(DELAY_WINDOW_S / DT))
+    # Carried over from the last drive (2026-11-24): the count started at 0 on every start, and ten
+    # measurements never came together in one drive ("0/10" for days).
     self.delay_estimate = None
     self.delay_windows = 0
+    if isinstance(delay_estimate, (int, float)) and DELAY_SEARCH[0] <= delay_estimate <= DELAY_SEARCH[1]:
+      self.delay_estimate = float(delay_estimate)
+      self.delay_windows = max(0, int(delay_windows or 0))
     self.sad = None if sad is None else float(np.clip(sad, *SAD_BOUNDS))
     self.last_lag = None
     self.t = 0.0
@@ -104,6 +110,8 @@ class LateralAutoTune:
       self._friction_sample(desired, actual, steer_delay)
       self.delay_desired.append(desired)
       self.delay_actual.append(actual)
+      if len(self.delay_desired) == self.delay_desired.maxlen:
+        self._delay_window()
     if self.t >= self.next_eval:
       self.next_eval = self.t + EVAL_S
       return self._evaluate()
@@ -162,6 +170,16 @@ class LateralAutoTune:
         best, best_lag = c, n * DT
     return best_lag if best > 0.6 else None
 
+  def _delay_window(self):
+    """Every full DELAY_WINDOW_S of clean driving is measured, then the next window starts empty.
+    (Until 2026-11-24 only the last 10 s before each 30 s evaluation were looked at.)"""
+    delay = self._delay()
+    self.delay_desired.clear()
+    self.delay_actual.clear()
+    if delay is not None:
+      self.delay_estimate = delay if self.delay_estimate is None else 0.8 * self.delay_estimate + 0.2 * delay
+      self.delay_windows += 1
+
   def _evaluate(self):
     changed = False
     if len(self.left) >= SIDE_MIN and len(self.right) >= SIDE_MIN:
@@ -192,10 +210,6 @@ class LateralAutoTune:
         changed = True
       self.lag_num = self.lag_den = 0.0
       self.lag_n = 0
-    delay = self._delay()
-    if delay is not None:
-      self.delay_estimate = delay if self.delay_estimate is None else 0.8 * self.delay_estimate + 0.2 * delay
-      self.delay_windows += 1
     if self.delay_estimate is not None and self.delay_windows >= DELAY_MIN_WINDOWS:
       target = float(np.clip(self.delay_estimate - DELAY_PLAN_LEAD, *SAD_BOUNDS))
       if self.sad is None:
