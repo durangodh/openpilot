@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24f" FW_VARIANT
+#define FW_VERSION "2026-11-24g" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -162,6 +162,7 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 #define WIN_DOWN_MS 300
 #define WIN_UP_MS 1500
 #define WIN_UP_AGAIN_MS 60000
+#define WIN_UP_REAR_MS 4000   // manual up held long enough to close a rear window fully
 static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
 static char lastUpWhich = 0;    // window(s) of the last close command, and when
 static uint32_t lastUpMs = 0;
@@ -597,14 +598,17 @@ void endWin(const char *res) {
 
 // cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up: half, then fully when repeated) / 'S' (stop)
 const char *requestWin(const char *cmd, uint32_t now) {
-  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   char which = cmd[1], dir = cmd[2];
+  // Stop while our own press runs (the 4 s rear close): release it now, then tap as usual.
+  if (dir == 'S' && win != WIN_IDLE) endWin("ok");
+  if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   if (dir != 'D' && dir != 'U' && dir != 'S') return "bad";
   // 2026-11-24 (latest request): one close command closes fully (auto stage, the car's pinch
   // protection applies); the half-then-full sequence is gone.
   const bool upFull = dir == 'U';
   memset(winSet, 0, sizeof(winSet));
   memset(winSetMan, 0, sizeof(winSetMan));
+  bool rearUp = false;
   memset(winMask, 0, sizeof(winMask));
   winUse[0] = winUse[1] = false;
   for (int n = 0; n < 4; n++) {
@@ -614,7 +618,12 @@ const char *requestWin(const char *cmd, uint32_t now) {
     if (which == 'A' && n == 0) continue;
     const WinDef &w = WINS[n];
     int slot = winSlot(w.id);
-    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? (upFull ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
+    // Rear windows (3, 4) ignore an injected auto-up (2026-11-24: 'close all' left them down; the
+    // first-day manual up had closed them): they close with the manual stage held WIN_UP_REAR_MS.
+    bool rear = n >= 2;
+    if (dir == 'U' && rear) rearUp = true;
+    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit)
+        : dir == 'U' ? ((upFull && !rear) ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
     // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
     if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
     winSet[slot][w.byte] |= bits;
@@ -630,6 +639,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
     }
   }
   winDurMs = dir == 'D' || (dir == 'U' && upFull) ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
+  if (rearUp) winDurMs = WIN_UP_REAR_MS;   // also when the front passenger closes with them
   if (dir != 'S') lastWinDir = dir;
   if (dir == 'U') {
     outf("%9lu  window %c close %s\n", (unsigned long)now, which, upFull ? "fully (second command)" : "half (manual 1.5 s)");
