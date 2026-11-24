@@ -24,8 +24,9 @@ import java.lang.reflect.Method;
 final class TmapAutoSafeDrive {
     static final String MAIN_ACTIVITY = "com.skt.tmap.activity.TmapNewMainActivity";
     private static final String STARTER = "com.skt.tmap.util.i";
-    // 2026-11-24 요청: 기다림 없이 바로 진입(전에는 3초 뒤). 화면이 포커스를 받는 데 걸리는 시간만 둔다.
-    private static final long DELAY_MS = 200;
+    // 2026-11-24: 바로 진입(0.2초)은 티맵 준비 전이라 안 떴다. 5초까지는 기다려도 된다고 해서
+    // 전에 잘 되던 3초로 되돌린다. 그래도 안 뜨면 verify 가 다시 부른다.
+    private static final long DELAY_MS = 3000;
     private static final long RETRY_MS = 300;
     private static final int MAX_TRIES = 70;     // 팝업이 닫히길 최대 약 20초 기다린다
     private static final String OFF_FILE =
