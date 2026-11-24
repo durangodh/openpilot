@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24g" FW_VARIANT
+#define FW_VERSION "2026-11-24h" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -162,7 +162,7 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 #define WIN_DOWN_MS 300
 #define WIN_UP_MS 1500
 #define WIN_UP_AGAIN_MS 60000
-#define WIN_UP_REAR_MS 4000   // manual up held long enough to close a rear window fully
+#define WIN_UP_REAR_MS 6000   // manual stage held long enough to move a rear window all the way (24h: 6 s)
 static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
 static char lastUpWhich = 0;    // window(s) of the last close command, and when
 static uint32_t lastUpMs = 0;
@@ -620,9 +620,11 @@ const char *requestWin(const char *cmd, uint32_t now) {
     int slot = winSlot(w.id);
     // Rear windows (3, 4) ignore an injected auto-up (2026-11-24: 'close all' left them down; the
     // first-day manual up had closed them): they close with the manual stage held WIN_UP_REAR_MS.
+    // 24h: the rear doors also ignored the injected auto-down ('rear window does not open'):
+    // they open the same way, manual down held WIN_UP_REAR_MS.
     bool rear = n >= 2;
-    if (dir == 'U' && rear) rearUp = true;
-    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit)
+    if ((dir == 'U' || dir == 'D') && rear) rearUp = true;
+    uint8_t bits = dir == 'D' ? (rear ? w.down : (uint8_t)(w.down | w.autoBit))
         : dir == 'U' ? ((upFull && !rear) ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
     // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
     if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
