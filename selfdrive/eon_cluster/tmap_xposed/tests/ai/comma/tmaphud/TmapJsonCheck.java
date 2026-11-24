@@ -90,6 +90,16 @@ public final class TmapJsonCheck {
         check(points == 201, "ceil(600/256)=3 step + last point: " + points);
         emit("route", TmapJson.route(4200, 600, 900, 120, 5100, TmapJson.polyline(lats, lons, 3)));
         check(TmapJson.route(0, 0, 0, 0, 0, null) == null, "no route data");
+        // 교통정보 바: 0~3000 원활, 3000~4000 서행, 4000~5000 정체 (전체 5000m).
+        String bar = TmapJson.congestionBar(5000, new int[]{3000, 4000, 5000}, new int[]{3000, 1000, 1000},
+                new char[]{'1', '2', '3'}, 3);
+        check(bar != null && bar.length() == 100 && bar.startsWith("111") && bar.charAt(70) == '2'
+                && bar.endsWith("333"), "congestion bar: " + bar);
+        check(TmapJson.congestionBar(5000, new int[]{5000}, new int[]{5000}, new char[]{'0'}, 1) == null,
+                "no traffic info, no bar");
+        String withBar = TmapJson.route(4200, 600, 900, 120, 5100, null, bar, 16.0);
+        check(withBar.contains("\"congestion\":\"111") && withBar.contains("\"congestion_progress\":16"),
+                "route carries congestion: " + withBar);
         emit("navigation_status", TmapJson.status(true, false, true));
         check(TmapJson.status(true, true, true).contains("\"mode\":\"off_route\""), "off route mode");
 

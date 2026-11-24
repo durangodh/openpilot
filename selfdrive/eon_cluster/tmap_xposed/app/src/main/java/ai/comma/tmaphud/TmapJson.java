@@ -269,13 +269,60 @@ final class TmapJson {
     /** Route.from(RGData) + 경로 좌표. 모두 없으면 null. */
     static String route(int remainDistanceM, int remainTimeSec, int movedDistanceM, int movedTimeSec,
                         int totalDistanceM, String polylineJson) {
+        return route(remainDistanceM, remainTimeSec, movedDistanceM, movedTimeSec, totalDistanceM,
+                polylineJson, null, -1);
+    }
+
+    /**
+     * congestion: 교통정보 바 "0123"(출발 → 목적지, 같은 거리 칸, 0 정보없음·1 원활·2 서행·3 정체),
+     * congestionProgress: 차 위치 0~100(아래끝 0). 네이버와 같은 키라 HUD 가 그대로 그린다.
+     */
+    static String route(int remainDistanceM, int remainTimeSec, int movedDistanceM, int movedTimeSec,
+                        int totalDistanceM, String polylineJson, String congestion, double congestionProgress) {
         Obj o = new Obj().num("remain_distance_m", positive(remainDistanceM))
                 .num("remain_time_sec", positive(remainTimeSec))
                 .num("moved_distance_m", positive(movedDistanceM))
                 .num("moved_time_sec", positive(movedTimeSec))
                 .num("total_distance_m", positive(totalDistanceM))
                 .raw("polyline", polylineJson);
+        if (congestion != null && !congestion.isEmpty() && !o.isEmpty()) {
+            o.str("congestion", congestion);
+            if (congestionProgress >= 0) o.dbl("congestion_progress", Math.max(0d, Math.min(100d, congestionProgress)));
+        }
         return o.isEmpty() ? null : o.build();
+    }
+
+    static final int CONGESTION_CELLS = 100;
+
+    /**
+     * 티맵 교통정보 바(ObservableRouteProgressData.trafficInfo)를 거리 비례 칸으로. 구간 i 는
+     * 출발점에서 [ends[i] - lens[i], ends[i]] m 이고 levels[i] 는 '0'~'3'. 구간이 없는 칸은 '0'.
+     */
+    static String congestionBar(int totalM, int[] ends, int[] lens, char[] levels, int n) {
+        if (totalM <= 0 || n <= 0) return null;
+        StringBuilder out = new StringBuilder(CONGESTION_CELLS);
+        boolean any = false;
+        for (int k = 0; k < CONGESTION_CELLS; k++) {
+            double at = (k + 0.5) * totalM / CONGESTION_CELLS;
+            char level = '0';
+            for (int i = 0; i < n; i++) {
+                if (at >= ends[i] - lens[i] && at < ends[i]) {
+                    level = levels[i];
+                    break;
+                }
+            }
+            if (level != '0') any = true;
+            out.append(level);
+        }
+        return any ? out.toString() : null;
+    }
+
+    /** TrafficStatus 이름 → 바 숫자. */
+    static char congestionLevel(String trafficName) {
+        if ("Good".equals(trafficName)) return '1';
+        if ("Delay".equals(trafficName)) return '2';
+        if ("Tieup".equals(trafficName)) return '3';
+        return '0';
     }
 
     /** CarrotUtilj.getV2JsonSnapshot 의 navigation_status. */

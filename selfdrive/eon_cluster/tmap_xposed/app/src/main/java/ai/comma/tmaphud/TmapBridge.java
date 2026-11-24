@@ -229,9 +229,13 @@ final class TmapBridge {
 
         Object routeResult = call(nav, "getRouteResult");
         refreshPolyline(nav, routeResult);
-        String route = TmapJson.route(intField(rg, "nTotalDist"), intField(rg, "nTotalTime"),
+        int remainM = intField(rg, "nTotalDist");
+        refreshCongestion(nav);
+        double progress = congestionTotal > 0 && remainM >= 0 && remainM <= congestionTotal
+                ? 100.0 * (congestionTotal - remainM) / congestionTotal : -1;
+        String route = TmapJson.route(remainM, intField(rg, "nTotalTime"),
                 intField(rg, "nAccDist"), intField(rg, "nAccTime"),
-                intField(rg, "roadLengthAllRoute"), polyline);
+                intField(rg, "roadLengthAllRoute"), polyline, congestion, progress);
         send("route", route);
 
         // getV2JsonSnapshot: 이탈은 구간단속 정보의 off_route 로만 판단한다.
@@ -541,6 +545,55 @@ final class TmapBridge {
     private Field pointX, pointY;
 
     /** 경로가 바뀔 때만 다시 읽는다(패치판 postOpaKrvrtx/ensureRoutePolyline). */
+    private Object congestionSource;
+    private String congestion;
+    private int congestionTotal;
+    private boolean loggedCongestion;
+
+    /**
+     * 티맵 앱 세로 교통정보 바와 같은 데이터: NavigationManager.getObservableRouteProgressData()
+     * (경로를 받을 때마다 새 객체). SectionInfo.accumulatedDistance 는 출발점에서 구간 끝까지,
+     * totalDistance 는 재탐색 전에 달린 거리까지 합친 전체 거리(앱과 같은 기준).
+     */
+    private void refreshCongestion(Object nav) {
+        Object data = call(call(nav, "getObservableRouteProgressData"), "getValue");
+        if (data == null) {
+            congestionSource = null;
+            congestion = null;
+            congestionTotal = 0;
+            return;
+        }
+        if (data == congestionSource) return;
+        congestionSource = data;
+        congestion = null;
+        congestionTotal = 0;
+        try {
+            int total = number(call(data, "getTotalDistance"));
+            Object list = call(data, "getTrafficInfo");
+            if (!(list instanceof java.util.List) || total <= 0) return;
+            java.util.List<?> sections = (java.util.List<?>) list;
+            int n = sections.size();
+            int[] ends = new int[n], lens = new int[n];
+            char[] levels = new char[n];
+            for (int i = 0; i < n; i++) {
+                Object sec = sections.get(i);
+                ends[i] = number(call(sec, "getAccumulatedDistance"));
+                lens[i] = number(call(sec, "getDistance"));
+                Object traffic = call(sec, "getTraffic");
+                levels[i] = TmapJson.congestionLevel(traffic instanceof Enum ? ((Enum<?>) traffic).name() : "");
+            }
+            congestion = TmapJson.congestionBar(total, ends, lens, levels, n);
+            congestionTotal = total;
+            if (!loggedCongestion) {
+                loggedCongestion = true;
+                TmapHudLog.line("congestion sections=" + n + " total=" + total + " bar=" + congestion);
+            }
+        } catch (Throwable error) {
+            congestion = null;
+            TmapHudLog.ex("congestion", error);
+        }
+    }
+
     private void refreshPolyline(Object nav, Object routeResult) {
         if (routeResult == null) {
             polylineRoute = null;
