@@ -8,6 +8,7 @@
 ## 확인 기준 버전
 
 - 티맵 **11.8.3.4061** (versionCode 4003, `TmapHudModule.VERIFIED_VERSION`)
+- 티맵 **11.8.4.4075** (2026-11-24 APK 비교: RGData 동일, 후킹·리플렉션 이름 모두 동일, `VERIFIED_VERSIONS`)
 - 분석한 XAPK(apkcombo) SHA-256
   `850f5ac03058dbfec32e7e0013e6b6ad5044b9339a7086bb1bc42240e36a2358`
 - base/split APK 서명 인증서 SHA-256(v2·v3 동일)

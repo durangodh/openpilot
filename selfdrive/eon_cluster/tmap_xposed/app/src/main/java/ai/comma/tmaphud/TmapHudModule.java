@@ -32,6 +32,14 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
     static final String TMAP_PKG = "com.skt.tmap.ku";
     /** 정적 분석·후킹 이름을 확인한 버전(versionCode 4003). */
     static final String VERIFIED_VERSION = "11.8.3.4061";
+    /**
+     * 11.8.4.4075 (2026-11-24, APK compared with 11.8.3.4061): RGData identical; every hooked or
+     * reflected name the same (NavigationManager.getInstance/setLastRGData(RGData),
+     * TrafficSignalInfoRepository.onSignalInfoChanged(TrafficSignalStateInfo), util.i.h(Activity) =
+     * AppUtil.StartSafeDrive, the VSM map API).
+     */
+    static final java.util.Set<String> VERIFIED_VERSIONS = new java.util.HashSet<>(
+            java.util.Arrays.asList(VERIFIED_VERSION, "11.8.4.4075"));
 
     private static final String NAV_MANAGER =
             "com.skt.tmap.engine.navigation.NavigationManager";
@@ -162,7 +170,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
     private static void checkVersion(Context ctx) {
         try {
             android.content.pm.PackageInfo info = ctx.getPackageManager().getPackageInfo(TMAP_PKG, 0);
-            boolean verified = VERIFIED_VERSION.equals(info.versionName);
+            boolean verified = VERIFIED_VERSIONS.contains(info.versionName);
             behaviorHooksAllowed = verified;
             mapRenderAllowed = verified || (info.versionName != null
                     && info.versionName.startsWith(RENDER_VERSION_PREFIX));
