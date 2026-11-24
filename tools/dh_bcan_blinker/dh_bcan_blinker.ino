@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24k" FW_VARIANT
+#define FW_VERSION "2026-11-24m" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -265,6 +265,14 @@ bool stockFresh(uint32_t now) { return stockValid && now - stockMs <= STOCK_FRES
 bool lampRecent(uint32_t now) { return lampSeen && now - lampOnMs < LAMP_QUIET_MS; }
 bool errRecent(uint32_t now) { return errSeen && now - errMs < ERR_HOLD_MS; }
 
+// 24m: the status also goes straight to the EON (unicast, which Wi-Fi acknowledges and repeats).
+// Broadcasts get lost on the phone hotspot, more so while the EON's Bluetooth remote is connected:
+// the call button, which only travels in this status, then did nothing. The EON says hello
+// ("DHBLP") every 2 s so its address is known before any command.
+static IPAddress eonIp;
+static uint32_t eonIpMs = 0;
+#define EON_IP_FRESH_MS 30000
+
 void sendStatus(uint32_t now) {
   lastStatus = now;
   if (!wifiUp) return;
@@ -278,6 +286,11 @@ void sendStatus(uint32_t now) {
   gUdp.beginPacket(WiFi.broadcastIP(), STATUS_PORT);
   gUdp.write((const uint8_t *)buf, strlen(buf));
   gUdp.endPacket();
+  if (eonIpMs && now - eonIpMs <= EON_IP_FRESH_MS) {
+    gUdp.beginPacket(eonIp, STATUS_PORT);
+    gUdp.write((const uint8_t *)buf, strlen(buf));
+    gUdp.endPacket();
+  }
 }
 
 void finish(const char *res, uint32_t now) {
@@ -738,6 +751,11 @@ void pollUdp(uint32_t now) {
   int len = gUdp.read((uint8_t *)buf, sizeof(buf) - 1);
   if (len <= 0) return;
   buf[len] = 0;
+  if (!strncmp(buf, "DHBL", 4)) {
+    eonIp = gUdp.remoteIP();
+    eonIpMs = now ? now : 1;
+  }
+  if (!strncmp(buf, "DHBLP", 5)) return;   // hello only
   rxCount++;
   int k = 0;
   for (int i = 0; i < len && k < (int)sizeof(lastCmd) - 1; i++) {

@@ -78,6 +78,7 @@ def main():
   enabled = False
   next_param_check = 0.0
   next_status_write = 0.0
+  next_hello = 0.0
   status = None
   status_mono = None
   esp_ip = None
@@ -153,6 +154,16 @@ def main():
         event["ok"] = parsed["res"] == "ok"
         event["why"] = RESULT_TEXT.get(parsed["res"], parsed["res"])
         dlog.write(f"ESP32 answer seq {parsed['seq']}: {parsed['res']} (lamp {parsed['lamp']}, bcan {parsed['bcan']}, err {parsed['err']})")
+
+    # Hello to the ESP32 every 2 s (firmware 2026-11-24m): it then sends its status straight to
+    # us as well. Its broadcasts get lost on the phone hotspot (worse while the Bluetooth remote
+    # is connected), and the call button only travels in that status. Older firmware ignores it.
+    if esp_ip and now >= next_hello:
+      next_hello = now + 2.0
+      try:
+        tx.sendto(b"DHBLP", (esp_ip, COMMAND_PORT))
+      except OSError:
+        pass
 
     if not enabled:
       planner = LaneTapPlanner()
