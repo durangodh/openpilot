@@ -17,16 +17,17 @@ import java.lang.reflect.Method;
  *
  * 앱 동작을 바꾸므로 확인한 버전(behaviorHooksAllowed)에서만, 앱 실행 때 한 번과 목적지
  * 경로 안내가 끝나거나 지워져 메인 화면으로 돌아올 때마다 한 번,
- * 메인 화면이 뜬 뒤 3초가 지나도 그 화면이 앞에 있고 팝업이 없을 때(창 포커스 있음),
- * 그리고 이미 안내 중이 아닐 때만 시작한다. 끄려면
+ * 메인 화면이 앞에 있고 팝업이 없으면(창 포커스 있음) 바로, 목적지 경로 안내 중이 아닐 때만
+ * 시작한다. 끄려면
  * /sdcard/Android/data/com.skt.tmap.ku/files/tmap_hud_no_safedrive 파일을 만든다.
  */
 final class TmapAutoSafeDrive {
     static final String MAIN_ACTIVITY = "com.skt.tmap.activity.TmapNewMainActivity";
     private static final String STARTER = "com.skt.tmap.util.i";
-    private static final long DELAY_MS = 3000;
-    private static final long RETRY_MS = 2000;
-    private static final int MAX_TRIES = 10;     // 팝업이 닫히길 최대 약 20초 기다린다
+    // 2026-11-24 요청: 기다림 없이 바로 진입(전에는 3초 뒤). 화면이 포커스를 받는 데 걸리는 시간만 둔다.
+    private static final long DELAY_MS = 200;
+    private static final long RETRY_MS = 300;
+    private static final int MAX_TRIES = 70;     // 팝업이 닫히길 최대 약 20초 기다린다
     private static final String OFF_FILE =
             "/sdcard/Android/data/com.skt.tmap.ku/files/tmap_hud_no_safedrive";
 
@@ -75,9 +76,9 @@ final class TmapAutoSafeDrive {
                 }
                 return;
             }
-            if (bridge.guidanceLive()) {
-                // 방금 지운 안내의 마지막 데이터가 3초쯤 남는다. 잠시 뒤 다시 보고, 계속 안내 중이면
-                // (메인 화면만 잠깐 연 것) 시작하지 않는다.
+            if (bridge.routeGuiding()) {
+                // 목적지 경로가 아직 살아 있다(메인 화면만 잠깐 연 것일 수 있다). 경로가 지워지면 바로
+                // 시작하고, 계속 안내 중이면 시작하지 않는다.
                 if (++tries < MAX_TRIES) {
                     main.postDelayed(() -> maybeStart(activity), RETRY_MS);
                     return;

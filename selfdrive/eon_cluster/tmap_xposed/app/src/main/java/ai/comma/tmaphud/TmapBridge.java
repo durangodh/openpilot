@@ -68,6 +68,12 @@ final class TmapBridge {
         return was;
     }
 
+    /** 목적지 경로 안내가 지금 살아 있는지(경로 있음 + 안내 데이터가 최근에 들어옴). */
+    boolean routeGuiding() {
+        Object nav = manager;
+        return guidanceLive() && nav != null && call(nav, "getRouteResult") != null;
+    }
+
     /** 안내(경로 안내 또는 안심주행) 데이터가 최근에 들어왔는지. */
     boolean guidanceLive() {
         return rgData != null && SystemClock.elapsedRealtime() - rgAt <= RG_STALE_MS;
