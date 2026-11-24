@@ -7889,23 +7889,26 @@ public final class HudService extends Service {
                 // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
                 // 0.52 suited the drawn strip; the original crop (box + its distance) came out too small
                 // (2026-11-23).
+                boolean naverLabelAbove = false;
                 if (navApp == 2) {
                     laneH *= 0.641f;   // 0.75, -10 %, -5 % (2026-11-23)
                     // 5+ lanes: Naver puts the distance above the box, so the image is taller and
                     // the box came out small (2026-11-24). Size by the dark box rows at the bottom.
-                    int lw = laneShown.getWidth(), lh = laneShown.getHeight(), boxRows = 0, gapRows = 0;
-                    int lx = Math.max(1, Math.min(lw - 1, Math.round(lw * 0.06f)));
-                    for (int yy = lh - 1; yy >= 0 && gapRows <= 6; yy--) {
-                        int px = laneShown.getPixel(lx, yy);
-                        boolean dk = (px >>> 24) > 200 && ((px >> 16) & 255) < 90
-                                && ((px >> 8) & 255) < 90 && (px & 255) < 90;
-                        if (dk) {
-                            boxRows = lh - yy;
-                            gapRows = 0;
-                        } else if (boxRows > 0) {
-                            gapRows++;
+                    // 2026-11-25: the first version looked for dark pixels in one column at 6 % of the
+                    // width; with 5 lanes the first arrow runs through that column (and the box is partly
+                    // transparent), so nothing was found and the box stayed small. Now: rows the image
+                    // covers almost edge to edge are the box, the distance label above covers only a part.
+                    int lw = laneShown.getWidth(), lh = laneShown.getHeight(), boxRows = 0;
+                    for (int yy = lh - 1; yy >= 0; yy--) {
+                        int covered = 0;
+                        for (int k = 0; k < 16; k++) {
+                            int xx = Math.min(lw - 1, (int) ((k + 0.5f) * lw / 16f));
+                            if ((laneShown.getPixel(xx, yy) >>> 24) > 60) covered++;
                         }
+                        if (covered >= 12) boxRows++;
+                        else if (boxRows > 0) break;
                     }
+                    naverLabelAbove = boxRows > lh * 0.3f && boxRows < lh * 0.85f;
                     if (boxRows > lh * 0.3f && boxRows < lh * 0.85f) laneH *= lh / (float) boxRows;
                 }
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
@@ -7923,7 +7926,9 @@ public final class HudService extends Service {
                 if (navApp == 2) {
                     // Naver: a little right and up (2026-11-23 request).
                     // literals: the navigation render check compiles this block without class constants
-                    cx = Math.min(mapRight() - halfW, cx + 40f);
+                    // 5+ lanes (distance above the box): centred under the car like the phone, the box
+                    // sat off to the right (2026-11-25). Up to 4 lanes keep the tuned +40.
+                    cx = Math.min(mapRight() - halfW, cx + (naverLabelAbove ? 0f : 40f));
                     laneBottom -= 40f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
