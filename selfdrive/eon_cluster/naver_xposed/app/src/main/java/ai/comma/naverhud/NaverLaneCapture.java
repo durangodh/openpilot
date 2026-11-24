@@ -43,6 +43,10 @@ final class NaverLaneCapture {
     // map label passing behind) no longer drops the box; the last good crop stays up to STALE_MS.
     private static final long STALE_MS = 3000;
     private int cropMisses;
+    // 2026-11-24: the strip still shows about half the time; where it is lost was never measured.
+    // Counters written to naver_hud.log every 30 s while lanes are shown ("lane capture stats").
+    private int stSearch, stFound, stNotFound, stCopyFail, stCropOk, stCropBad, stLostStale, stLostZero, stNoWindow;
+    private long stSince, stLiveMs, stLastTick;
     private static final long ZERO_GRACE_MS = 2000;
     private long zeroSince;
     // Real screens to tune the finder with (2026-11-22): the half-size window copy with the found
@@ -102,6 +106,22 @@ final class NaverLaneCapture {
         }
     }
 
+    private void stats(long now) {
+        if (stLastTick != 0 && live) stLiveMs += now - stLastTick;
+        stLastTick = now;
+        if (stSince == 0) stSince = now;
+        if (now - stSince < 30_000) return;
+        Activity a = activity;
+        NaverHudLog.line(String.format(Locale.US, "lane capture stats %ds: shown %d%% | search %d found %d none %d copyfail %d"
+                        + " | crop ok %d bad %d | lost stale %d zero %d | nowindow %d | lanes %d activity %s",
+                (now - stSince) / 1000, 100 * stLiveMs / Math.max(1, now - stSince), stSearch, stFound, stNotFound,
+                stCopyFail, stCropOk, stCropBad, stLostStale, stLostZero, stNoWindow, lanes,
+                a == null ? "none" : a.getClass().getSimpleName()));
+        stSearch = stFound = stNotFound = stCopyFail = stCropOk = stCropBad = stLostStale = stLostZero = stNoWindow = 0;
+        stLiveMs = 0;
+        stSince = now;
+    }
+
     /** 잘라 온 그림을 지금 쓰는 중이면 true. */
     boolean live() {
         return live;
@@ -110,17 +130,20 @@ final class NaverLaneCapture {
     private void tick() {
         if (!running) return;
         long now = SystemClock.elapsedRealtime();
+        stats(now);
         if (zeroSince != 0 && now - zeroSince > ZERO_GRACE_MS) {
             running = false;
             zeroSince = 0;
             if (live) {
                 live = false;
+                stLostZero++;
                 listener.onLost();
             }
             return;
         }
         if (live && now - capturedAt > STALE_MS) {
             live = false;
+            stLostStale++;
             listener.onLost();
         }
         if (!busy) capture(now);
@@ -131,13 +154,17 @@ final class NaverLaneCapture {
         Activity a = activity;
         Window window = a == null || a.isFinishing() ? null : a.getWindow();
         View decor = window == null ? null : window.peekDecorView();
-        if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0 || !decor.isAttachedToWindow()) return;
+        if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0 || !decor.isAttachedToWindow()) {
+            stNoWindow++;
+            return;
+        }
         try {
             final int n = lanes;
             // Search only without a box or when the lane count changed (2026-11-23, S20 heat): a moved
             // or vanished box fails the crop check twice and is searched again then.
             if (box == null || boxLanes != n) {
                 searchedAt = now;
+                stSearch++;
                 final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
                 // Naver's own distance label bounds, scaled to the half-size copy.
                 final java.util.List<int[]> anchors = new java.util.ArrayList<>();
@@ -227,6 +254,9 @@ final class NaverLaneCapture {
     }
 
     private void onSearched(Rect found, int n, int result, int w, int h) {
+        if (result != PixelCopy.SUCCESS) stCopyFail++;
+        else if (found == null) stNotFound++;
+        else stFound++;
         if (found == null && box != null && boxLanes == n) {
             // periodic re-search missed, but the known box still crops fine: keep it
             Activity a = activity;
@@ -274,6 +304,7 @@ final class NaverLaneCapture {
             main.post(() -> {
                 busy = false;
                 if (!good) {
+                    stCropBad++;
                     crop.recycle();
                     if (++cropMisses >= 2) {
                         box = null;      // 두 번 연속 상자가 아니면 다음 틱에 다시 찾는다
@@ -282,6 +313,7 @@ final class NaverLaneCapture {
                     return;
                 }
                 cropMisses = 0;
+                stCropOk++;
                 capturedAt = SystemClock.elapsedRealtime();
                 view.setImage(crop);
                 if (!live && running) {
