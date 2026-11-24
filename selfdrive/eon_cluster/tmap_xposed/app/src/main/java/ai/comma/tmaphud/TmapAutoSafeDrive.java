@@ -15,7 +15,8 @@ import java.lang.reflect.Method;
  * 엔진 SAFE_DRIVE 모드 전환까지 한다. 외부에서 보내는 연동 명령(EDC 204)은 차량 연동
  * 인증이 필요해서 쓸 수 없다.
  *
- * 앱 동작을 바꾸므로 확인한 버전(behaviorHooksAllowed)에서만, 앱 실행마다 한 번만,
+ * 앱 동작을 바꾸므로 확인한 버전(behaviorHooksAllowed)에서만, 앱 실행 때 한 번과 목적지
+ * 경로 안내가 끝나거나 지워져 메인 화면으로 돌아올 때마다 한 번,
  * 메인 화면이 뜬 뒤 3초가 지나도 그 화면이 앞에 있고 팝업이 없을 때(창 포커스 있음),
  * 그리고 이미 안내 중이 아닐 때만 시작한다. 끄려면
  * /sdcard/Android/data/com.skt.tmap.ku/files/tmap_hud_no_safedrive 파일을 만든다.
@@ -31,7 +32,7 @@ final class TmapAutoSafeDrive {
 
     private final TmapBridge bridge;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private boolean done;
+    private boolean done, offFile;
     private int tries;
 
     TmapAutoSafeDrive(TmapBridge bridge) {
@@ -40,8 +41,16 @@ final class TmapAutoSafeDrive {
 
     /** 메인 스레드(Activity.onResume 뒤). */
     void onResumed(final Activity activity) {
-        if (done || !TmapHudModule.behaviorHooksAllowed) return;
+        if (!TmapHudModule.behaviorHooksAllowed) return;
         if (!MAIN_ACTIVITY.equals(activity.getClass().getName())) return;
+        // 2026-11-24: 앱 실행마다 한 번뿐이라 목적지 안내를 끝내거나 지운 뒤에는 안심주행이 다시
+        // 시작되지 않았다. 목적지 경로 안내가 있었고 메인 화면으로 돌아오면 다시 한 번 시작한다.
+        // (안심주행만 하다가 메인으로 나온 경우는 다시 시작하지 않는다: 목적지를 찾는 중일 수 있다.)
+        if (done && !offFile && bridge.takeRouteGuided()) {
+            done = false;
+            TmapHudLog.line("auto safe drive: armed again after route guidance");
+        }
+        if (done) return;
         tries = 0;
         main.removeCallbacksAndMessages(null);
         main.postDelayed(() -> maybeStart(activity), DELAY_MS);
@@ -52,6 +61,7 @@ final class TmapAutoSafeDrive {
         try {
             if (new File(OFF_FILE).exists()) {
                 done = true;
+                offFile = true;
                 TmapHudLog.xposed("auto safe drive off (" + OFF_FILE + ")");
                 return;
             }
@@ -65,11 +75,19 @@ final class TmapAutoSafeDrive {
                 }
                 return;
             }
-            done = true;
             if (bridge.guidanceLive()) {
+                // 방금 지운 안내의 마지막 데이터가 3초쯤 남는다. 잠시 뒤 다시 보고, 계속 안내 중이면
+                // (메인 화면만 잠깐 연 것) 시작하지 않는다.
+                if (++tries < MAX_TRIES) {
+                    main.postDelayed(() -> maybeStart(activity), RETRY_MS);
+                    return;
+                }
+                done = true;
                 TmapHudLog.xposed("auto safe drive skipped: guidance already running");
                 return;
             }
+            done = true;
+            bridge.takeRouteGuided();   // 지금까지의 경로 안내는 이번 시작에 포함
             Method start = activity.getClassLoader().loadClass(STARTER).getMethod("h", Activity.class);
             start.invoke(null, activity);
             TmapHudLog.xposed("auto safe drive started");

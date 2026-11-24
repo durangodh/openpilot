@@ -59,6 +59,15 @@ final class TmapBridge {
     private volatile Object rgData;
     private volatile long rgAt;
 
+    private volatile boolean routeGuided;
+
+    /** 지난번 물은 뒤로 목적지 경로 안내가 있었는지(한 번 읽으면 지워진다). */
+    boolean takeRouteGuided() {
+        boolean was = routeGuided;
+        routeGuided = false;
+        return was;
+    }
+
     /** 안내(경로 안내 또는 안심주행) 데이터가 최근에 들어왔는지. */
     boolean guidanceLive() {
         return rgData != null && SystemClock.elapsedRealtime() - rgAt <= RG_STALE_MS;
@@ -228,6 +237,7 @@ final class TmapBridge {
         send("speed", speed);
 
         Object routeResult = call(nav, "getRouteResult");
+        if (routeResult != null) routeGuided = true;
         refreshPolyline(nav, routeResult);
         int remainM = intField(rg, "nTotalDist");
         refreshCongestion(nav);
