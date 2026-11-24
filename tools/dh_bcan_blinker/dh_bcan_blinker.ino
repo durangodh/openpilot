@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24i" FW_VARIANT
+#define FW_VERSION "2026-11-24j" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -184,6 +184,7 @@ static uint8_t winSetMan[2][8];   // the same press without the auto bit: sent f
 // started at the auto stage; every press now starts with WIN_STAGE_MS of the manual stage.
 #define WIN_STAGE_MS 0   // 24e's manual-first stage (120 ms) is off again: the rear windows had moved
                          // a few days before (22b timing) and stopped after the 24c/24e changes
+static uint32_t winStageMs = 0;   // this command's manual stage before auto (rear down: 150 ms)
 static uint8_t winMask[2][8];     // switch bits of the windows we drive
 static bool winUse[2];
 static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
@@ -582,13 +583,11 @@ void sendWin(int slot, bool pressed) {
   gTx.data_length_code = 8;
   for (int i = 0; i < 8; i++) {
     uint8_t keep = winStock[slot][i] & ~winMask[slot][i];
-    const uint8_t *set = millis() - winStartMs < WIN_STAGE_MS ? winSetMan[slot] : winSet[slot];
+    const uint8_t *set = millis() - winStartMs < winStageMs ? winSetMan[slot] : winSet[slot];
     gTx.data[i] = keep | (pressed ? set[i] : 0);
   }
-  if (slot == 0 && b6Known) {
-    b6Sent = b6Sent == b6Last ? b6Other : b6Last;   // alternate like the panel
-    gTx.data[6] = b6Sent;
-  }
+  // 24j: 24i's byte6 alternation is off again (the first test with it hit 8 bus errors; byte6
+  // looks like a status with short blips, not a toggle). Byte6 is the panel's own value again.
   if (twai_transmit(&gTx, 0) != ESP_OK) txFail++;
   tapFrames++;
 }
@@ -628,7 +627,7 @@ const char *requestWin(const char *cmd, uint32_t now) {
   const bool upFull = dir == 'U';
   memset(winSet, 0, sizeof(winSet));
   memset(winSetMan, 0, sizeof(winSetMan));
-  bool rearUp = false;
+  bool rearUp = false, rearDown = false;
   memset(winMask, 0, sizeof(winMask));
   winUse[0] = winUse[1] = false;
   for (int n = 0; n < 4; n++) {
@@ -640,11 +639,13 @@ const char *requestWin(const char *cmd, uint32_t now) {
     int slot = winSlot(w.id);
     // Rear windows (3, 4) ignore an injected auto-up (2026-11-24: 'close all' left them down; the
     // first-day manual up had closed them): they close with the manual stage held WIN_UP_REAR_MS.
-    // 24h: the rear doors also ignored the injected auto-down ('rear window does not open'):
-    // they open the same way, manual down held WIN_UP_REAR_MS.
+    // 24j: rear down is the driver switch's own sequence from the 2026-11-24 scan: manual stage
+    // (0x50) first, then manual + auto (0xD0), then release. 24h's manual-only 6 s hold did not
+    // move them. Rear up stays the manual stage held WIN_UP_REAR_MS.
     bool rear = n >= 2;
-    if ((dir == 'U' || dir == 'D') && rear) rearUp = true;
-    uint8_t bits = dir == 'D' ? (rear ? w.down : (uint8_t)(w.down | w.autoBit))
+    if (dir == 'U' && rear) rearUp = true;
+    if (dir == 'D' && rear) rearDown = true;
+    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit)
         : dir == 'U' ? ((upFull && !rear) ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
     // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
     if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
@@ -662,6 +663,8 @@ const char *requestWin(const char *cmd, uint32_t now) {
   }
   winDurMs = dir == 'D' || (dir == 'U' && upFull) ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
   if (rearUp) winDurMs = WIN_UP_REAR_MS;   // also when the front passenger closes with them
+  winStageMs = rearDown ? 150 : 0;
+  if (rearDown) winDurMs = 450;
   if (dir != 'S') lastWinDir = dir;
   if (dir == 'U') {
     outf("%9lu  window %c close %s\n", (unsigned long)now, which, upFull ? "fully (second command)" : "half (manual 1.5 s)");
