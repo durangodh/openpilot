@@ -160,9 +160,10 @@ final class NaverLaneCapture {
         }
         try {
             final int n = lanes;
-            // Search only without a box or when the lane count changed (2026-11-23, S20 heat): a moved
-            // or vanished box fails the crop check twice and is searched again then.
-            if (box == null || boxLanes != n) {
+            // Searched again every SEARCH_EVERY_MS as before 2026-11-23: Naver shifts the box with the
+            // distance text width (59m -> 100m), and searching only on a lost box (the heat change)
+            // left the crop on the old place, so the strip showed about half the time.
+            if (box == null || boxLanes != n || now - searchedAt > SEARCH_EVERY_MS) {
                 searchedAt = now;
                 stSearch++;
                 final int sw = decor.getWidth() / 2, sh = decor.getHeight() / 2;
