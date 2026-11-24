@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-23d" FW_VARIANT
+#define FW_VERSION "2026-11-24a" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -152,13 +152,14 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 //   0x120 byte4: rear left       down 0x40 up 0x20 auto 0x80 (0x10 / 0x08: status, kept)
 //   0x120 byte4: rear right      down 0x02 up 0x01 auto 0x04
 // Like the lever tap, a copy of the panel's own frame is sent right behind it with the switch
-// bits set. Down presses auto (the window goes all the way, no pinch risk); up only the manual
-// stage for WIN_UP_MS per command, so a closing window never runs on by itself; S taps the
-// manual opposite stage, which stops an auto run. Any switch the occupants press wins at once.
+// bits set. Down and (2026-11-24 request: closing stopped half way) up both press the auto stage,
+// so the window goes all the way; the car's own one-touch-up pinch protection applies as with the
+// switch. S taps the manual opposite stage, which stops an auto run. Any switch the occupants
+// press wins at once.
 #define WIN_ID_FRONT 0x122
 #define WIN_ID_PANEL 0x120
 #define WIN_DOWN_MS 300
-#define WIN_UP_MS 1500
+static char lastWinDir = 'D';   // last auto run asked for, so S taps the opposite way
 #define WIN_STOP_MS 200
 #define WIN_WAIT_MS 600
 struct WinDef { uint16_t id; uint8_t byte, mask, down, up, autoBit; };
@@ -580,7 +581,7 @@ void endWin(const char *res) {
   finish(res, now);
 }
 
-// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up, manual WIN_UP_MS) / 'S' (stop)
+// cmd: "W" + '1'-'4' or 'A' + 'D' (down, auto) / 'U' (up, auto) / 'S' (stop)
 const char *requestWin(const char *cmd, uint32_t now) {
   if (tap != TAP_IDLE || win != WIN_IDLE) return "busy";
   char which = cmd[1], dir = cmd[2];
@@ -592,8 +593,9 @@ const char *requestWin(const char *cmd, uint32_t now) {
     if (which != 'A' && which != '1' + n) continue;
     const WinDef &w = WINS[n];
     int slot = winSlot(w.id);
-    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? w.up : 0;
-    if (dir == 'S') bits = w.up;   // a short manual press stops an auto run either way (see below)
+    uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? (uint8_t)(w.up | w.autoBit) : 0;
+    // S: a short manual tap the other way stops an auto run (down after an auto-up, else up)
+    if (dir == 'S') bits = lastWinDir == 'U' ? w.down : w.up;
     winSet[slot][w.byte] |= bits;
     winMask[slot][w.byte] |= w.mask;
     winUse[slot] = true;
@@ -605,7 +607,8 @@ const char *requestWin(const char *cmd, uint32_t now) {
       if (winStock[k][i] & winMask[k][i]) return "switch";   // someone is pressing a window switch
     }
   }
-  winDurMs = dir == 'D' ? WIN_DOWN_MS : dir == 'U' ? WIN_UP_MS : WIN_STOP_MS;
+  winDurMs = dir == 'D' || dir == 'U' ? WIN_DOWN_MS : WIN_STOP_MS;
+  if (dir != 'S') lastWinDir = dir;
   tapFrames = 0;
   txFail = 0;
   if (!startCan(true)) {

@@ -97,7 +97,7 @@ def window_request(window, action, path=None, clock=time.time):
     os.replace(tmp, path)
   except OSError as e:
     return {"ok": False, "error": "창문 명령 전달 실패: %s" % e}
-  note = {"down": "끝까지 내려가는 중", "up": "1.5초 올림(더 올리려면 다시)", "stop": "멈춤"}[action]
+  note = {"down": "끝까지 내려가는 중", "up": "끝까지 닫히는 중(멈추려면 stop)", "stop": "멈춤"}[action]
   return {"ok": True, "cmd": cmd, "note": note}
 
 
