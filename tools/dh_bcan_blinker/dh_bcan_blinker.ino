@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24b" FW_VARIANT
+#define FW_VERSION "2026-11-24c" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -180,6 +180,8 @@ static uint8_t winSet[2][8];      // [0] 0x120, [1] 0x122: bits we press
 static uint8_t winMask[2][8];     // switch bits of the windows we drive
 static bool winUse[2];
 static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
+static uint32_t winPeriod[2] = {0, 0};   // measured panel frame period per slot (ms)
+#define WIN_CLEAR_MS 8
 static uint8_t winStock[2][8];
 static bool winStockValid[2] = {false, false};
 static uint32_t winStockMs[2] = {0, 0};
@@ -597,6 +599,9 @@ const char *requestWin(const char *cmd, uint32_t now) {
   winUse[0] = winUse[1] = false;
   for (int n = 0; n < 4; n++) {
     if (which != 'A' && which != '1' + n) continue;
+    // "all" leaves the driver's window out: its motor ignores 0x122, and copying the driver door's
+    // own 0x122 frames only risked bus errors (2026-11-24: errors on closing).
+    if (which == 'A' && n == 0) continue;
     const WinDef &w = WINS[n];
     int slot = winSlot(w.id);
     uint8_t bits = dir == 'D' ? (uint8_t)(w.down | w.autoBit) : dir == 'U' ? (upFull ? (uint8_t)(w.up | w.autoBit) : w.up) : 0;
@@ -636,6 +641,10 @@ const char *requestWin(const char *cmd, uint32_t now) {
 
 // A panel frame arrived (slot 0: 0x120, 1: 0x122): keep it, notice occupants, answer it.
 void winFrame(int slot, const twai_message_t &m, uint32_t now) {
+  uint32_t gap = now - winStockMs[slot];
+  if (winStockValid[slot] && gap > 5 && gap < 2000) {
+    winPeriod[slot] = winPeriod[slot] ? (winPeriod[slot] * 3 + gap) / 4 : gap;   // panel frame period
+  }
   memcpy(winStock[slot], m.data, 8);
   winStockValid[slot] = true;
   winStockMs[slot] = now;
@@ -675,8 +684,17 @@ void winTick(uint32_t now) {
     if (now - winStartMs >= winDurMs) {
       endWin("ok");
     } else if (now - winLastSend >= RESEND_MS) {
-      winLastSend = now;
-      for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
+      // Keep clear of the panel's own next frame (same ID: starting together is a bus error). The
+      // answer right behind each panel frame never collides; the 40 ms repeats skip the last
+      // WIN_CLEAR_MS before the next panel frame is due.
+      bool clear = true;
+      for (int k = 0; k < 2; k++) {
+        if (winUse[k] && winPeriod[k] && now - winStockMs[k] + WIN_CLEAR_MS >= winPeriod[k]) clear = false;
+      }
+      if (clear) {
+        winLastSend = now;
+        for (int k = 0; k < 2; k++) if (winUse[k]) sendWin(k, true);
+      }
     }
   }
 }
@@ -1346,7 +1364,8 @@ void loop() {
     if (!fatal && (alerts & (TWAI_ALERT_BUS_ERROR | TWAI_ALERT_TX_FAILED))) {
       busErrs++;
       outf("! bus error %u during transmit (alerts 0x%lx), retrying\n", (unsigned)busErrs, (unsigned long)alerts);
-      fatal = busErrs >= BUS_ERRORS_ABORT;
+      // a window press is not time critical: allow more retried errors before giving up
+      fatal = busErrs >= (win != WIN_IDLE ? BUS_ERRORS_ABORT * 2 : BUS_ERRORS_ABORT);
     }
     if (fatal) {
       outf("! bus problem while transmitting (alerts 0x%lx, %u errors): abort\n", (unsigned long)alerts, (unsigned)busErrs);
