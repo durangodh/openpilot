@@ -54,7 +54,7 @@
 #define SETUP_AP_PASS "dhblinker"
 // Firmware update from a phone browser: http://<board IP>/update (user OTA_USER, password SETUP_AP_PASS).
 #define OTA_USER "dh"
-#define FW_VERSION "2026-11-24e" FW_VARIANT
+#define FW_VERSION "2026-11-24f" FW_VARIANT
 #define MAX_NETS 4
 #define NET_TRY_MS 12000          // per saved network
 #define NET_TRY_PORTAL_MS 30000   // slower while the setup Wi-Fi is open (the radio shares one channel)
@@ -159,7 +159,7 @@ enum TapState { TAP_IDLE, TAP_WAIT_STOCK, TAP_SENDING };
 // run. Any switch the occupants press wins at once.
 #define WIN_ID_FRONT 0x122
 #define WIN_ID_PANEL 0x120
-#define WIN_DOWN_MS 400   // 120 ms manual + auto, about like a firm press
+#define WIN_DOWN_MS 300
 #define WIN_UP_MS 1500
 #define WIN_UP_AGAIN_MS 60000
 static char lastWinDir = 'D';   // last run asked for, so S taps the opposite way
@@ -181,12 +181,13 @@ static uint8_t winSetMan[2][8];   // the same press without the auto bit: sent f
 // 2026-11-24 scan of the driver panel's rear switches: the panel sends the manual stage first
 // (0x10 -> 0x50) and the auto stage right after (-> 0xD0). The rear doors ignored a press that
 // started at the auto stage; every press now starts with WIN_STAGE_MS of the manual stage.
-#define WIN_STAGE_MS 120
+#define WIN_STAGE_MS 0   // 24e's manual-first stage (120 ms) is off again: the rear windows had moved
+                         // a few days before (22b timing) and stopped after the 24c/24e changes
 static uint8_t winMask[2][8];     // switch bits of the windows we drive
 static bool winUse[2];
 static uint32_t winStartMs = 0, winCmdMs = 0, winLastSend = 0, winDurMs = 0;
 static uint32_t winPeriod[2] = {0, 0};   // measured panel frame period per slot (ms)
-#define WIN_CLEAR_MS 8
+#define WIN_CLEAR_MS 0
 static uint8_t winStock[2][8];
 static bool winStockValid[2] = {false, false};
 static uint32_t winStockMs[2] = {0, 0};
@@ -699,7 +700,8 @@ void winTick(uint32_t now) {
       // WIN_CLEAR_MS before the next panel frame is due.
       bool clear = true;
       for (int k = 0; k < 2; k++) {
-        if (winUse[k] && winPeriod[k] && now - winStockMs[k] + WIN_CLEAR_MS >= winPeriod[k]) clear = false;
+        // 24c's skip before the panel's next frame is off (WIN_CLEAR_MS 0): back to 22b timing
+        if (WIN_CLEAR_MS > 0 && winUse[k] && winPeriod[k] && now - winStockMs[k] + WIN_CLEAR_MS >= winPeriod[k]) clear = false;
       }
       if (clear) {
         winLastSend = now;
