@@ -210,6 +210,9 @@ final class NaverBridge {
     // 6.12: 화면의 원본 차로 상자를 잘라 온다(NaverLaneCapture). 못 찾으면 위 laneStrip 으로 그린다.
     private NaverLaneCapture screenLane;
     private final NaverLaneCompose laneCompose = new NaverLaneCompose();
+    private final NaverSignalCompose signalCompose = new NaverSignalCompose();
+    private volatile boolean signalComposeUsed;
+    private Object lastSignalItem;
 
     private boolean laneViewClassExists(Object item) {
         if (item == null) return offscreenLane != null;
@@ -834,6 +837,35 @@ final class NaverBridge {
 
     /** 폰이 표시하는 신호(없으면 직진·유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
     private void publishSignalImage(Object item) {
+        // 6.12 (2026-11-24): Naver's own signal composable drawn off screen, like the lane strip.
+        if (!signalCompose.failed()) {
+            boolean has = false;
+            try {
+                has = item != null && !Boolean.TRUE.equals(call(item, "h")) && !asList(call(item, "k")).isEmpty();
+            } catch (Throwable ignored) {
+            }
+            final Object shown = has ? item : null;
+            if (shown == lastSignalItem || (shown != null && shown.equals(lastSignalItem))) {
+                if (signalComposeUsed) return;
+            } else {
+                lastSignalItem = shown;
+                final boolean hasF = has;
+                mainHandler.post(() -> {
+                    android.app.Activity act = map.latestActivity();
+                    if (act == null || !signalCompose.update(act, shown)) return;
+                    android.view.View v = signalCompose.view();
+                    if (v == null) return;
+                    signalComposeUsed = true;
+                    signalImage.clear();
+                    signalView.onUpdate(v, hasF);
+                    if (hasF) mainHandler.postDelayed(() -> signalCompose.verify(true), 1500);
+                });
+                if (signalComposeUsed) return;
+            }
+        } else if (signalComposeUsed) {
+            signalComposeUsed = false;
+            signalView.release();   // back to the module's own signal image
+        }
         // 폰 신호등 뷰를 뜨고 있으면 그 그림(폰과 같은 신호·잔여초)만 쓴다.
         if (signalView.used()) return;
         try {

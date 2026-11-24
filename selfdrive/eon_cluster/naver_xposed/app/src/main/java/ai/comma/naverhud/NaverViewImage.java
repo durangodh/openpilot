@@ -73,6 +73,16 @@ final class NaverViewImage {
         this.fill = Math.max(0.3f, Math.min(1f, fill));
     }
 
+    /** Stop using the view (its source failed): clear the HUD image and let others publish again. */
+    void release() {
+        main.post(() -> {
+            used = false;
+            visible = false;
+            view = null;
+            clear();
+        });
+    }
+
     /** 폰 뷰가 한 번이라도 갱신됐으면 true(이후 이 그림만 쓴다). */
     boolean used() {
         return used;
