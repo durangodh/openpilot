@@ -7900,7 +7900,25 @@ public final class HudService extends Service {
                 // came out far bigger than the phone's own box (2026-11-22): draw it smaller.
                 // 0.52 suited the drawn strip; the original crop (box + its distance) came out too small
                 // (2026-11-23).
-                if (navApp == 2) laneH *= 0.641f;   // 0.75, -10 %, -5 % (2026-11-23)
+                if (navApp == 2) {
+                    laneH *= 0.641f;   // 0.75, -10 %, -5 % (2026-11-23)
+                    // 5+ lanes: Naver puts the distance above the box, so the image is taller and
+                    // the box came out small (2026-11-24). Size by the dark box rows at the bottom.
+                    int lw = laneShown.getWidth(), lh = laneShown.getHeight(), boxRows = 0, gapRows = 0;
+                    int lx = Math.max(1, Math.min(lw - 1, Math.round(lw * 0.06f)));
+                    for (int yy = lh - 1; yy >= 0 && gapRows <= 6; yy--) {
+                        int px = laneShown.getPixel(lx, yy);
+                        boolean dk = (px >>> 24) > 200 && ((px >> 16) & 255) < 90
+                                && ((px >> 8) & 255) < 90 && (px & 255) < 90;
+                        if (dk) {
+                            boxRows = lh - yy;
+                            gapRows = 0;
+                        } else if (boxRows > 0) {
+                            gapRows++;
+                        }
+                    }
+                    if (boxRows > lh * 0.3f && boxRows < lh * 0.85f) laneH *= lh / (float) boxRows;
+                }
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;

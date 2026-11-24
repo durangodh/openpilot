@@ -119,7 +119,10 @@ final class NaverSignalCompose {
         }
         if (v == null) throw new NoSuchMethodException("ComposeView(Context)");
         int w = activity.getResources().getDisplayMetrics().widthPixels;
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        // Wrap content: Android Auto gives the signal no width either; the full screen width let the
+        // pill stretch long and thin (2026-11-24).
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
         v.setLayoutParams(lp);
         // Outside the window: composed and laid out with the activity, never drawn on the phone or
         // touched; NaverViewImage draws it into its own bitmap.

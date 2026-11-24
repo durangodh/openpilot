@@ -19,7 +19,7 @@ public class NavigationRenderCheck {
     int optInt(String key,int fallback){ return values.containsKey(key)?(Integer)values.get(key):fallback; }
     String optString(String key,String fallback){ return values.containsKey(key)?(String)values.get(key):fallback; }
   }
-  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} int getWidth(){return 200;} static int mapH=150; int getHeight(){return mapH;} }
+  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} int getWidth(){return 200;} static int mapH=150; int getHeight(){return mapH;} int getPixel(int x,int y){return 0;} }
   static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
