@@ -7890,29 +7890,18 @@ public final class HudService extends Service {
                 // 0.52 suited the drawn strip; the original crop (box + its distance) came out too small
                 // (2026-11-23).
                 boolean naverLabelAbove = false;
+                float[] naverBox = {1f, 1f};
                 if (navApp == 2) {
                     // 2026-11-25: one box height for every lane count, the phone's own proportion. The
                     // 5-lane strip of that day's photos (box about 32 px, by mistake) matched the phone
                     // next to it; strips of up to 4 lanes were 0.641 (56 px) and looked huge.
                     laneH *= 0.368f;
-                    // 5+ lanes: Naver puts the distance above the box, so the image is taller and
-                    // the box came out small (2026-11-24). Size by the dark box rows at the bottom.
-                    // 2026-11-25: the first version looked for dark pixels in one column at 6 % of the
-                    // width; with 5 lanes the first arrow runs through that column (and the box is partly
-                    // transparent), so nothing was found and the box stayed small. Now: rows the image
-                    // covers almost edge to edge are the box, the distance label above covers only a part.
-                    int lw = laneShown.getWidth(), lh = laneShown.getHeight(), boxRows = 0;
-                    for (int yy = lh - 1; yy >= 0; yy--) {
-                        int covered = 0;
-                        for (int k = 0; k < 16; k++) {
-                            int xx = Math.min(lw - 1, (int) ((k + 0.5f) * lw / 16f));
-                            if ((laneShown.getPixel(xx, yy) >>> 24) > 60) covered++;
-                        }
-                        if (covered >= 12) boxRows++;
-                        else if (boxRows > 0) break;
-                    }
-                    naverLabelAbove = boxRows > lh * 0.3f && boxRows < lh * 0.85f;
-                    if (boxRows > lh * 0.3f && boxRows < lh * 0.85f) laneH *= lh / (float) boxRows;
+                    // The image is the lane box plus its distance: beside the box up to 4 lanes, above it
+                    // from 5. naverLaneBox says which part is the box, so the box itself always gets the
+                    // same height. (2026-11-25, r663: a wrong guess here made every strip 2.4x too big.)
+                    naverBox = naverLaneBox(laneShown);
+                    naverLabelAbove = naverBox[0] > 0.3f && naverBox[0] < 0.85f;
+                    if (naverLabelAbove) laneH /= naverBox[0];
                 }
                 float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
@@ -7927,12 +7916,12 @@ public final class HudService extends Service {
                     laneBottom = NAVI_LANE_BOTTOM;
                 }
                 if (navApp == 2) {
-                    // Naver: a little right and up (2026-11-23 request).
+                    // Naver (2026-11-25): the box, not box + distance, is centred under the car as on the
+                    // phone (the +40 of 11-23 made up for the distance beside it), and the box top stays
+                    // where it was tuned then (40 up at the old 56 px height; the box is 32 px now).
                     // literals: the navigation render check compiles this block without class constants
-                    // 5+ lanes (distance above the box): centred under the car like the phone, the box
-                    // sat off to the right (2026-11-25). Up to 4 lanes keep the tuned +40.
-                    cx = Math.min(mapRight() - halfW, cx + (naverLabelAbove ? 0f : 23f));   // 40 at the old size
-                    laneBottom -= 40f;
+                    cx = Math.min(mapRight() - halfW, cx + (0.5f - naverBox[1] / 2f) * w);
+                    laneBottom -= 64f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
                 // 보정(아래 위젯 +258px)까지 받아 화면 밖으로 밀려 안 보였다. 네비모드는 그대로 둔다.
@@ -8313,6 +8302,45 @@ public final class HudService extends Service {
     private Bitmap laneTrimmed;
 
     /** 차로 그림의 투명 여백을 잘라낸 사본(같은 그림이면 캐시). */
+    private Bitmap naverBoxSource;        // render thread only
+    private final float[] naverBoxResult = {1f, 1f};
+
+    /**
+     * Where the lane box sits in Naver's lane image: {box rows / image rows, box columns / image
+     * columns}. The box is at the bottom left; the distance text is above it (5+ lanes: an empty band
+     * of rows between them) or to its right (an empty band of columns). {1, 1} when it is all box.
+     */
+    private float[] naverLaneBox(Bitmap b) {
+        if (b == naverBoxSource) return naverBoxResult;
+        naverBoxSource = b;
+        naverBoxResult[0] = naverBoxResult[1] = 1f;
+        int w = b.getWidth(), h = b.getHeight();
+        if (w < 8 || h < 8) return naverBoxResult;
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        int boxRows = h;
+        for (int y = h - 5; y >= 0; y--) {
+            boolean any = false;
+            for (int x = 0; x < w && !any; x++) any = (px[y * w + x] >>> 24) > 40;
+            if (!any) {
+                boxRows = h - 1 - y;
+                break;
+            }
+        }
+        int top = h - boxRows, boxCols = w;
+        for (int x = Math.max(4, w / 8); x < w; x++) {
+            boolean any = false;
+            for (int y = top; y < h && !any; y++) any = (px[y * w + x] >>> 24) > 40;
+            if (!any) {
+                boxCols = x;
+                break;
+            }
+        }
+        naverBoxResult[0] = boxRows / (float) h;
+        naverBoxResult[1] = boxCols / (float) w;
+        return naverBoxResult;
+    }
+
     private Bitmap trimmedLane(Bitmap src) {
         if (src == null || src.isRecycled() || src.getWidth() <= 0 || src.getHeight() <= 0) {
             return null;
