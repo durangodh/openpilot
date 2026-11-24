@@ -309,24 +309,29 @@ final class NaverLaneCapture {
             Bitmap crop = null;
             if (result == PixelCopy.SUCCESS) {
                 int aw = wide.getWidth(), ah = wide.getHeight();
-                int[] px = new int[aw * ah];
-                wide.getPixels(px, 0, aw, 0, 0, aw, ah);
-                int[] f = lanesNow > 0 ? LaneBoxFinder.find(px, aw, ah, lanesNow) : null;
                 Rect target = new Rect(r);   // window coordinates of what we cut
-                if (f != null && bp0 != null) {
-                    // keep the label's offset: the crop's box part moves to the box just found
-                    int left = area.left + f[0] - bp0.left, top = area.top + f[1] - bp0.top;
-                    target = new Rect(left, top, left + r.width(), top + r.height());
-                    ok = true;
-                } else if (f != null) {
-                    target = new Rect(area.left + f[0] - 2, area.top + f[1] - 2, area.left + f[2] + 3, area.top + f[3] + 3);
-                    ok = true;
-                } else if (bp0 != null) {
+                // Cheap first (S20 load): is the box still at the old place? Only when it is not,
+                // look for it in the small area around (the box slid with the distance text).
+                if (bp0 != null) {
                     int bl = r.left - area.left + bp0.left, bt = r.top - area.top + bp0.top;
                     if (bl >= 0 && bt >= 0 && bl + bp0.width() <= aw && bt + bp0.height() <= ah && bp0.width() >= 8 && bp0.height() >= 8) {
                         int[] sub = new int[bp0.width() * bp0.height()];
                         wide.getPixels(sub, 0, bp0.width(), bl, bt, bp0.width(), bp0.height());
                         ok = LaneBoxFinder.stillBox(sub, bp0.width(), bp0.height());
+                    }
+                }
+                if (!ok && lanesNow > 0) {
+                    int[] px = new int[aw * ah];
+                    wide.getPixels(px, 0, aw, 0, 0, aw, ah);
+                    int[] f = LaneBoxFinder.find(px, aw, ah, lanesNow);
+                    if (f != null && bp0 != null) {
+                        // keep the label's offset: the crop's box part moves to the box just found
+                        int left = area.left + f[0] - bp0.left, top = area.top + f[1] - bp0.top;
+                        target = new Rect(left, top, left + r.width(), top + r.height());
+                        ok = true;
+                    } else if (f != null) {
+                        target = new Rect(area.left + f[0] - 2, area.top + f[1] - 2, area.left + f[2] + 3, area.top + f[3] + 3);
+                        ok = true;
                     }
                 }
                 if (ok) {
