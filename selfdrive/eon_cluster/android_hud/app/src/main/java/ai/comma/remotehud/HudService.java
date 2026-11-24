@@ -7891,7 +7891,10 @@ public final class HudService extends Service {
                 // (2026-11-23).
                 boolean naverLabelAbove = false;
                 if (navApp == 2) {
-                    laneH *= 0.641f;   // 0.75, -10 %, -5 % (2026-11-23)
+                    // 2026-11-25: one box height for every lane count, the phone's own proportion. The
+                    // 5-lane strip of that day's photos (box about 32 px, by mistake) matched the phone
+                    // next to it; strips of up to 4 lanes were 0.641 (56 px) and looked huge.
+                    laneH *= 0.368f;
                     // 5+ lanes: Naver puts the distance above the box, so the image is taller and
                     // the box came out small (2026-11-24). Size by the dark box rows at the bottom.
                     // 2026-11-25: the first version looked for dark pixels in one column at 6 % of the
@@ -7928,7 +7931,7 @@ public final class HudService extends Service {
                     // literals: the navigation render check compiles this block without class constants
                     // 5+ lanes (distance above the box): centred under the car like the phone, the box
                     // sat off to the right (2026-11-25). Up to 4 lanes keep the tuned +40.
-                    cx = Math.min(mapRight() - halfW, cx + (naverLabelAbove ? 0f : 40f));
+                    cx = Math.min(mapRight() - halfW, cx + (naverLabelAbove ? 0f : 23f));   // 40 at the old size
                     laneBottom -= 40f;
                 }
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
