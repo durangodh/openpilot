@@ -3326,31 +3326,6 @@ public final class HudService extends Service {
         text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
-    private float shownCarBearing = 0f;
-    private long carBearingFrameMs = 0L;
-
-    /**
-     * The Naver module's map camera follows the car (heading up), so the marker's bearing
-     * relative to the camera is near 0 and only swings a little in turns. Right after a
-     * navigation switch the camera bearing is not set yet and the relative bearing is the
-     * car's compass heading (the car lay on its side), and GPS noise can flip it. Only
-     * relative bearings within 45 degrees turn the car; anything larger counts as 0.
-     * Turns are smoothed and start from 0.
-     */
-    private float smoothedNaverCarBearing(int app) {
-        long now = SystemClock.elapsedRealtime();
-        float target = naverCarBearingByApp[app] / 10f;
-        if (!(Math.abs(target) <= 45f)) target = 0f;
-        if (carBearingFrameMs == 0L || now - carBearingFrameMs > 2000L) shownCarBearing = 0f;
-        float dtSec = carBearingFrameMs == 0L ? 0f : Math.min(1f, (now - carBearingFrameMs) / 1000f);
-        carBearingFrameMs = now;
-        float diff = target - shownCarBearing;
-        float maxStep = 90f * dtSec;  // at most 90 deg/s
-        float step = diff * Math.min(1f, dtSec * 6f);
-        shownCarBearing += Math.max(-maxStep, Math.min(maxStep, step));
-        return shownCarBearing;
-    }
-
     private boolean naverMapOwnsEgo(JSONObject s) {
         int app = s.optInt("hudNavApp", 0);
         return naviLayout && (app == 1 || app == 2);
@@ -3454,7 +3429,8 @@ public final class HudService extends Service {
         float bottom = y + height * 0.12f;
         int save = c.save();
         c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
-        c.rotate(smoothedNaverCarBearing(app), x, y);
+        // 2026-11-24 요청: 차를 지도에 대해 따로 돌리지 않는다. 지도 카메라가 경로 방향을 따라
+        // 돌아가므로 차는 늘 경로 진행방향(위)을 본다.
         if (frameDark && s.optInt("hudHeadlights", 1) != 0) {
             drawMapHeadlights(c, p, x, bottom - height, width);
         }
