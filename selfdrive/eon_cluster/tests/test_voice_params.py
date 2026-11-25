@@ -153,3 +153,20 @@ def test_fixed_wiper_phrase(monkeypatch):
   assert v.car_command("와이퍼 한 번")["handled"] and calls == [("wiper",)]
   assert v.car_command("창문 전부 열어") is None    # window commands removed (2026-11-24)
   assert v.car_command("최저 크루즈 속도 얼마야") is None
+
+
+def test_fixed_lane_change_phrases():
+  import selfdrive.eon_cluster.voice_params as v
+  calls = []
+  press = lambda cmd: calls.append(cmd) or "accepted"
+  for text, want in {"왼쪽 차선 변경": "lane_left", "오른쪽 차선 변경해줘": "lane_right",
+                     "좌측으로 차로 변경": "lane_left", "우측 차선 바꿔 줘": "lane_right"}.items():
+    calls.clear()
+    out = v.car_command(text, press)
+    assert out["ok"] and out["handled"] and calls == [want], text
+  calls.clear()
+  for text in ("왼쪽 차선 변경 설정 알려줘", "차선 변경", "왼쪽", "오른쪽 차선 변경 속도 얼마야"):
+    assert v.car_command(text, press) is None, text      # only the whole fixed sentence
+  assert calls == []
+  assert not v.car_command("왼쪽 차선 변경", lambda cmd: "blocked")["ok"]
+  assert not v.car_command("왼쪽 차선 변경", None)["ok"]

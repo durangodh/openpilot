@@ -1438,6 +1438,9 @@ def main():
             device_valid = sm.alive["deviceState"] and sm.valid["deviceState"]
             offroad = device_valid and not started and params.get_bool("IsOffroad")
             onroad = device_valid and started and car_valid
+            # the lane phrases ask for a lane change like the remote's lane buttons: the same car state
+            voice_buttons.vehicle = (started, car_valid, car.gearShifter == "drive", car.brakePressed,
+                                     car.gasPressed, bool(car_valid and car.vEgo < 0.5))
             answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed),
                                          system_jobs, lambda: voice_system.allowed(sm), offroad=offroad, onroad=onroad)
             if answer is not None:

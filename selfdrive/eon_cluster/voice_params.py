@@ -95,13 +95,28 @@ def washer_request(path=None, clock=time.time):
 _WIPER = re.compile(r"^(와이퍼(한번|한 번)?(닦아|작동|움직여|켜)?|유리닦아|앞유리닦아)(줘|주세요)?$")
 
 
-def car_command(text):
+# Lane change by voice (2026-11-25 request): only these fixed phrases, the whole sentence, so a
+# misheard word never moves the car. Same path as the remote's lane buttons.
+_LANE = re.compile(r"^(왼쪽|좌측|오른쪽|우측)(으로)?(차선|차로)(을|를)?(변경|바꿔|이동)(해)?(줘|주세요)?$")
+
+
+def car_command(text, press=None):
   """A fixed wiper phrase (window commands removed 2026-11-24) -> the direct reply, or None (not a car command)."""
   compact = re.sub(r"\s+", "", text)
   if _WIPER.match(compact):
     out = washer_request()
     return {"ok": out.get("ok", False), "handled": True, "error": out.get("error", ""),
             "setting": {"title": "와이퍼 한 번", "value": out.get("note", "")}}
+  lane = _LANE.match(compact)
+  if lane:
+    left = lane.group(1) in ("왼쪽", "좌측")
+    title = ("왼쪽" if left else "오른쪽") + " 차선 변경"
+    if press is None:
+      return {"ok": False, "handled": True, "error": "버튼 경로 없음"}
+    result = press("lane_left" if left else "lane_right")
+    if result != "accepted":
+      return {"ok": False, "handled": True, "error": "지금은 차선 변경을 보낼 수 없음(시동·차량 데이터 확인)"}
+    return {"ok": True, "handled": True, "error": "", "setting": {"title": title, "value": "요청함"}}
   return None
 
 
@@ -196,11 +211,11 @@ class VoiceParams:
     return {"ok": result == "accepted", "result": result,
             "error": "" if result == "accepted" else "지금은 버튼을 보낼 수 없음(시동·차량 데이터 확인)"}
 
-  def direct(self, text):
+  def direct(self, text, press=None):
     if not isinstance(text, str) or not 0 < len(text) <= 180:
       return {"ok": False, "handled": True, "error": "음성 문장을 확인하세요."}
     text = unicodedata.normalize("NFKC", text).strip().rstrip("?.!。 ")
-    car = car_command(text)
+    car = car_command(text, press)
     if car is not None:
       return car
     write = DIRECT_WRITE.fullmatch(text)
@@ -243,7 +258,7 @@ class VoiceParams:
     except (ValueError, AttributeError, UnicodeDecodeError):
       return None
     if op == "direct":
-      out = self.direct(req.get("text"))
+      out = self.direct(req.get("text"), press)
     elif op == "direct_set":
       if not onroad and (not offroad or moving):
         out = {"ok": False, "error": "차량 상태를 확인할 수 없습니다. 연결 상태를 확인하세요."}
