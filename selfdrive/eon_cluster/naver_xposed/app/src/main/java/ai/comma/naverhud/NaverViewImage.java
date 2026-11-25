@@ -127,7 +127,7 @@ final class NaverViewImage {
                 main.postDelayed(this::tick, TICK_MS);
                 return;
             }
-            Bitmap bmp = draw(v, maxW, maxH, fill, padLeft, padTop);
+            Bitmap bmp = draw(v, maxW, maxH, fill, padLeft, padTop, this);
             if (bmp != null) {
                 boolean same = lastBitmap != null && lastBitmap.sameAs(bmp);
                 if (!same || now - lastSentAt >= RESEND_MS) {
@@ -154,7 +154,8 @@ final class NaverViewImage {
      * 뷰를 그린 뒤 투명 여백을 잘라내고 HUD 칸 크기로 줄인다. 폰 차로 뷰는 화면 폭만큼
      * 넓고 그림은 가운데에 작게 있어서, 여백째 줄이면 HUD 에서 차로가 아주 작게 보였다.
      */
-    private static Bitmap draw(View v, int maxW, int maxH, float fill, int padLeftPx, int padTopPx) {
+    private static Bitmap draw(View v, int maxW, int maxH, float fill, int padLeftPx, int padTopPx,
+                               NaverViewImage owner) {
         int w = v.getWidth(), h = v.getHeight();
         if (w <= 0 || h <= 0) return null;
         float s0 = Math.min(1f, 1080f / w);   // 여백 찾기용으로 너무 크지 않게만
@@ -182,6 +183,7 @@ final class NaverViewImage {
             full.recycle();
             return null;
         }
+        if (owner != null) owner.washCheck(v, full, px, fw, fh, left, top, right, bottom);
         int pad = 2;
         left = Math.max(0, left - pad);
         top = Math.max(0, top - pad);
@@ -204,6 +206,77 @@ final class NaverViewImage {
         }
         full.recycle();
         return out;
+    }
+
+    // ---- 진단(2026-11-25): 과속카메라 경고 때 차로 그림 전체가 연하게 빨개지고 차로가 작아진다 ----
+    /** NaverBridge 가 넣는 지금 차로 항목 글자(기록용). */
+    volatile String note = "";
+    private boolean washOn;
+    private int washDumps;
+    private long washDumpAt;
+
+    /**
+     * 그림 전체에 색이 깔렸는지(내용이 뷰 폭의 70% 이상이거나 절반 이상이 칠해짐) 보고, 그 순간의
+     * 원본 그림과 뷰 상태를 남긴다. 그림은 files/lane_wash_N.png (실행마다 최대 5장).
+     */
+    private void washCheck(View v, Bitmap full, int[] px, int fw, int fh, int left, int top, int right, int bottom) {
+        if (!"lane_bottom".equals(name)) return;
+        try {
+            int covered = 0;
+            for (int p : px) if ((p >>> 24) > 16) covered++;
+            boolean wash = (right - left + 1) >= 0.7f * fw || covered >= 0.5f * px.length;
+            if (wash == washOn) return;
+            washOn = wash;
+            if (!wash) {
+                NaverHudLog.line("lane wash: off (content " + (right - left + 1) + "x" + (bottom - top + 1)
+                        + " of " + fw + "x" + fh + ")");
+                return;
+            }
+            StringBuilder sb = new StringBuilder("lane wash: ON view=" + v.getClass().getName() + " " + fw + "x" + fh
+                    + " covered=" + (100L * covered / px.length) + "%");
+            int[][] pts = {{2, 2}, {fw - 3, 2}, {2, fh - 3}, {fw - 3, fh - 3}, {fw / 2, fh / 2}, {fw / 4, fh / 2}};
+            sb.append(" px=");
+            for (int[] q : pts) {
+                int x = Math.max(0, Math.min(fw - 1, q[0])), y = Math.max(0, Math.min(fh - 1, q[1]));
+                sb.append(String.format("%08x ", px[y * fw + x]));
+            }
+            sb.append("| bg=").append(v.getBackground()).append(" fg=")
+                    .append(android.os.Build.VERSION.SDK_INT >= 23 ? v.getForeground() : null)
+                    .append(" focus=").append(v.hasFocus()).append(" alpha=").append(v.getAlpha())
+                    .append(" parent=").append(v.getParent() == null ? null : v.getParent().getClass().getName());
+            if (v instanceof android.view.ViewGroup) {
+                android.view.ViewGroup g = (android.view.ViewGroup) v;
+                for (int i = 0; i < g.getChildCount() && i < 4; i++) {
+                    View ch = g.getChildAt(i);
+                    sb.append(" child").append(i).append('=').append(ch.getClass().getName()).append(' ')
+                            .append(ch.getWidth()).append('x').append(ch.getHeight())
+                            .append(" bg=").append(ch.getBackground());
+                }
+            }
+            String n = note;
+            sb.append(" | item=").append(n == null ? "" : n.length() > 600 ? n.substring(0, 600) : n);
+            NaverHudLog.line(sb.toString());
+            long now = SystemClock.elapsedRealtime();
+            if (washDumps < 5 && now - washDumpAt > 3000) {
+                washDumpAt = now;
+                final int index = ++washDumps;
+                final Bitmap copy = full.copy(Bitmap.Config.ARGB_8888, false);
+                encoder.execute(() -> {
+                    java.io.File file = new java.io.File(
+                            "/sdcard/Android/data/com.nhn.android.nmap/files/lane_wash_" + index + ".png");
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+                        copy.compress(Bitmap.CompressFormat.PNG, 100, out);
+                        NaverHudLog.line("lane wash: saved " + file.getName());
+                    } catch (Throwable t) {
+                        NaverHudLog.ex("lane wash save", t);
+                    } finally {
+                        copy.recycle();
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            NaverHudLog.ex("lane wash check", t);
+        }
     }
 
     private void send(Bitmap bmp) {

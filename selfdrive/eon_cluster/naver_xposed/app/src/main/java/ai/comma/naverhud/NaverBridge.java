@@ -251,6 +251,7 @@ final class NaverBridge {
             // Android Auto does and like the 6.11 off-screen view. Screen capture only if it fails.
             if (!laneCompose.failed()) {
                 android.app.Activity act = map.latestActivity();
+                laneImage.note = String.valueOf(item);
                 if (act != null && laneCompose.update(act, n > 0 ? item : null)) {
                     if (screenLane != null) screenLane.update(act, 0, -1);   // let the capture end
                     android.view.View v = laneCompose.view();
