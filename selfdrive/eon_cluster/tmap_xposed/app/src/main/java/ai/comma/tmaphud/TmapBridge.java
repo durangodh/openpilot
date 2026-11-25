@@ -261,6 +261,7 @@ final class TmapBridge {
         send("navigation_status", TmapJson.status(guiding, offRoute, route != null));
 
         publishSignal(now, lat, lon, speedKph);
+        images.setNavigationManager(nav);
         images.update(rg, guiding,
                 Boolean.TRUE.equals(call(call(nav, "getNaviConfigData"), "getNightMode")));
     }

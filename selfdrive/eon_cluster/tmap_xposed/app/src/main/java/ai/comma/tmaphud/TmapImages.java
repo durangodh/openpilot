@@ -103,9 +103,213 @@ final class TmapImages {
         publish("tbt_next", nextType > 0 ? nextType + "|" + nextDist : null,
                 () -> renderNext(nextIcon, nextDist));
 
-        publishLane(rg);
+        publishLane(rg, guiding ? hiPassLanes(rg, curType, curDist) : null, curDist);
         publishSafety(rg);
-        publishCrossroad(guiding && rg != null && TmapBridge.booleanField(rg, "bExtcImage") ? rg : null, night);
+        // The junction popup slot: TMAP's junction picture first, then the direction sign picture,
+        // then a road incident notice (2026-11-25).
+        boolean live = guiding && rg != null;
+        if (live && TmapBridge.booleanField(rg, "bExtcImage")) {
+            publishCrossroad(rg, night);
+        } else if (live && (publishDirSign(rg, curDist) || publishIncident(rg))) {
+            crossroadUrl = null;
+            publish("crossroad_minimized", null, null);
+        } else {
+            publishCrossroad(null, night);
+        }
+    }
+
+    // ---- 하이패스 차로 ----
+
+    /**
+     * 톨게이트 하이패스 차로 번호(없으면 null). 티맵 ObservableLaneData.showHiPassLane 과 같은 조건:
+     * nHiPassLaneCount > 0, 지금 안내가 톨게이트(회전 종류 249·153·154), 2km 이내.
+     * nHiPassArry 는 하이패스 차로 번호 목록(티맵은 ic_hipass_번호 아이콘으로 그린다).
+     */
+    static int[] hiPassLanes(Object rg, int turnType, int turnDist) {
+        if (rg == null || !(turnType == 249 || turnType == 153 || turnType == 154)) return null;
+        if (turnDist <= 0 || turnDist > 2000) return null;
+        int count = TmapBridge.intField(rg, "nHiPassLaneCount");
+        int[] lanes = TmapBridge.intArrayField(rg, "nHiPassArry");
+        if (count <= 0 || lanes == null) return null;
+        int n = 0;
+        int[] out = new int[Math.min(count, Math.min(lanes.length, 10))];
+        for (int i = 0; i < out.length; i++) if (lanes[i] >= 1 && lanes[i] <= 20) out[n++] = lanes[i];
+        return n == 0 ? null : java.util.Arrays.copyOf(out, n);
+    }
+
+    private boolean hiPassLogged;
+
+    /** 하이패스 줄: 파란 "하이패스" 글자와 차로 번호 동그라미. 높이 rowH. */
+    private void drawHiPassRow(Canvas c, int[] lanes, float left, float top, int rowH) {
+        text.setStyle(Paint.Style.FILL);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTextSize(rowH * 0.46f);
+        text.setColor(0xFF4DA3FF);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        float baseline = top + rowH / 2f - (fm.ascent + fm.descent) / 2f;
+        c.drawText("하이패스", left, baseline, text);
+        float x = left + text.measureText("하이패스") + rowH * 0.25f;
+        float r = rowH * 0.36f;
+        for (int lane : lanes) {
+            paint.setColor(0xFF1E6FE0);
+            c.drawCircle(x + r, top + rowH / 2f, r, paint);
+            text.setColor(Color.WHITE);
+            text.setTextAlign(Paint.Align.CENTER);
+            text.setTextSize(lane >= 10 ? r * 1.05f : r * 1.3f);
+            Paint.FontMetrics m = text.getFontMetrics();
+            c.drawText(String.valueOf(lane), x + r, top + rowH / 2f - (m.ascent + m.descent) / 2f, text);
+            x += 2 * r + rowH * 0.14f;
+        }
+    }
+
+    private float hiPassRowWidth(int[] lanes, int rowH) {
+        text.setTextSize(rowH * 0.46f);
+        return text.measureText("하이패스") + rowH * 0.25f + lanes.length * (rowH * 0.72f + rowH * 0.14f);
+    }
+
+    // ---- 방면 표지판 그림 ----
+
+    private volatile Object navigationManager;
+    private volatile int dirCode;            // 받아 둔 그림의 코드
+    private volatile byte[] dirBytes;        // PNG
+    private volatile int dirFetching;        // 받고 있는 코드
+    private int dirLoggedCode;
+
+    void setNavigationManager(Object nav) {
+        navigationManager = nav;
+    }
+
+    /**
+     * 방면 표지판 그림(RGData.bDirImage / nDirImageCode): 엔진의 getDirImageBuffer(code, w[], h[]) 가
+     * 그림 바이트를 준다(티맵 연동 서비스 getTmapDirImage 와 같은 호출). 형식은 실차에서 확인되지
+     * 않아 PNG/JPEG 서명과 크기(픽셀당 2·3·4 바이트)로 가려 읽고, 처음 받은 값을 기록한다.
+     */
+    private boolean publishDirSign(Object rg, int turnDist) {
+        if (!TmapBridge.booleanField(rg, "bDirImage")) return false;
+        final int code = TmapBridge.intField(rg, "nDirImageCode");
+        int showDist = TmapBridge.intField(rg, "nDirImageShowDist");
+        if (code == 0) return false;
+        if (code != dirLoggedCode) {
+            dirLoggedCode = code;
+            TmapHudLog.line("dir sign: code=" + code + " showDist=" + showDist + " turnDist=" + turnDist);
+        }
+        if (showDist > 0 && turnDist > showDist) return false;
+        byte[] image = dirCode == code ? dirBytes : null;
+        if (image == null) {
+            final Object nav = navigationManager;
+            if (nav != null && dirFetching != code) {
+                dirFetching = code;
+                fetcher.execute(() -> fetchDirSign(nav, code));
+            }
+            return false;
+        }
+        publishBytes("crossroad_expanded", "dir:" + code, image);
+        return true;
+    }
+
+    private void fetchDirSign(Object nav, int code) {
+        try {
+            Object engine = TmapBridge.call(nav, "getTmapNavigationEngineInterface");
+            if (engine == null) return;
+            java.lang.reflect.Method m = engine.getClass().getMethod("getDirImageBuffer",
+                    short.class, int[].class, int[].class);
+            int[] w = new int[1], h = new int[1];
+            byte[] raw = (byte[]) m.invoke(engine, (short) code, w, h);
+            StringBuilder head = new StringBuilder();
+            for (int i = 0; raw != null && i < Math.min(8, raw.length); i++) head.append(String.format("%02x", raw[i]));
+            TmapHudLog.line("dir sign image: code=" + code + " " + w[0] + "x" + h[0] + " bytes="
+                    + (raw == null ? -1 : raw.length) + " head=" + head);
+            Bitmap bmp = decodeRaw(raw, w[0], h[0]);
+            if (bmp == null) return;
+            ByteArrayOutputStream png = new ByteArrayOutputStream(65536);
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, png);
+            bmp.recycle();
+            dirBytes = png.toByteArray();
+            dirCode = code;
+        } catch (Throwable error) {
+            TmapHudLog.ex("dir sign image", error);
+        }
+    }
+
+    /** PNG/JPEG 이면 그대로, 아니면 w×h 와 길이로 RGB565 / RGB888 / RGBA8888 을 가려 읽는다. */
+    static Bitmap decodeRaw(byte[] raw, int w, int h) {
+        if (raw == null || raw.length < 16) return null;
+        Bitmap coded = BitmapFactory.decodeByteArray(raw, 0, raw.length);
+        if (coded != null) return coded;
+        if (w <= 0 || h <= 0 || w > 2048 || h > 2048) return null;
+        long px = (long) w * h;
+        int bpp = raw.length >= px * 4 ? 4 : raw.length >= px * 3 ? 3 : raw.length >= px * 2 ? 2 : 0;
+        if (bpp == 0) return null;
+        int[] out = new int[(int) px];
+        for (int i = 0, o = 0; i < px; i++, o += bpp) {
+            if (bpp == 2) {
+                int v = (raw[o] & 255) | ((raw[o + 1] & 255) << 8);
+                out[i] = 0xFF000000 | ((v >> 11) * 255 / 31 << 16) | (((v >> 5) & 63) * 255 / 63 << 8) | ((v & 31) * 255 / 31);
+            } else {
+                int a = bpp == 4 ? raw[o + 3] & 255 : 255;
+                out[i] = (a << 24) | ((raw[o] & 255) << 16) | ((raw[o + 1] & 255) << 8) | (raw[o + 2] & 255);
+            }
+        }
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888);
+    }
+
+    // ---- 돌발 정보 ----
+
+    private String incidentKey;
+    private long incidentSince;
+
+    /**
+     * 돌발 정보(RGData.bRTM / nRtmCode / nRtmDist): 종류 코드의 뜻은 확인되지 않아 "돌발 상황"과 남은
+     * 거리만 보여 주고 코드를 기록한다. EON 박스를 오래 가리지 않게, 처음 뜰 때 8초와 300m 안에서만.
+     */
+    private boolean publishIncident(Object rg) {
+        if (!TmapBridge.booleanField(rg, "bRTM")) {
+            incidentKey = null;
+            return false;
+        }
+        int code = TmapBridge.intField(rg, "nRtmCode");
+        int dist = TmapBridge.intField(rg, "nRtmDist");
+        if (dist <= 0) return false;
+        String key = code + "@" + Math.round(TmapBridge.doubleField(rg, "wpRtmPosLat") * 1e4) + ","
+                + Math.round(TmapBridge.doubleField(rg, "wpRtmPosLon") * 1e4);
+        long now = SystemClock.elapsedRealtime();
+        if (!key.equals(incidentKey)) {
+            incidentKey = key;
+            incidentSince = now;
+            TmapHudLog.line("incident: code=" + code + " dist=" + dist + " key=" + key);
+        }
+        if (now - incidentSince > 8000 && dist > 300) return false;
+        final String distance = TmapAssets.distanceText(dist >= 1000 ? dist : dist / 50 * 50);
+        publish("crossroad_expanded", "rtm:" + key + "|" + distance, () -> renderIncident(distance));
+        return true;
+    }
+
+    private Bitmap renderIncident(String distance) {
+        int w = 420, h = 280;
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        paint.setColor(0xFF15181D);
+        c.drawRoundRect(new RectF(0, 0, w, h), 18, 18, paint);
+        // 경고 삼각형
+        android.graphics.Path tri = new android.graphics.Path();
+        tri.moveTo(w / 2f, 28);
+        tri.lineTo(w / 2f + 66, 140);
+        tri.lineTo(w / 2f - 66, 140);
+        tri.close();
+        paint.setColor(0xFFFFB020);
+        c.drawPath(tri, paint);
+        text.setStyle(Paint.Style.FILL);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(0xFF15181D);
+        text.setTextSize(78);
+        c.drawText("!", w / 2f, 128, text);
+        text.setColor(Color.WHITE);
+        text.setTextSize(44);
+        c.drawText("전방 돌발 상황", w / 2f, 198, text);
+        text.setColor(0xFFFFB020);
+        text.setTextSize(52);
+        c.drawText(distance, w / 2f, 256, text);
+        return bmp;
     }
 
     void clearAll() {
@@ -115,14 +319,25 @@ final class TmapImages {
 
     // ---- 차로 ----
 
-    private void publishLane(Object rg) {
+    private void publishLane(Object rg, final int[] hiPass, int tollDist) {
         int count = Math.min(8, TmapBridge.intField(rg, "nLaneCount"));
         int[] turns = TmapBridge.intArrayField(rg, "nLaneTurnInfo");
         int[] avail = TmapBridge.intArrayField(rg, "nLaneAvailable");
         int[] etc = TmapBridge.intArrayField(rg, "nLaneEtcInfo");
         boolean show = rg != null && count > 0 && TmapBridge.booleanField(rg, "bLane");
+        if (hiPass != null && !hiPassLogged) {
+            hiPassLogged = true;
+            TmapHudLog.line("hipass lanes " + java.util.Arrays.toString(hiPass) + " at " + tollDist + " m, lanes shown=" + show);
+        }
         if (!show) {
-            publish("lane_bottom", null, null);
+            if (hiPass == null) {
+                publish("lane_bottom", null, null);
+            } else {
+                // 차로 화살표가 없는 톨게이트: 하이패스 줄만, 위에 톨게이트까지 거리.
+                final int d = tollDist >= 1000 ? tollDist : tollDist / 10 * 10;
+                publish("lane_bottom", "hp" + java.util.Arrays.toString(hiPass) + "|" + d,
+                        () -> renderLanes(new int[0], new int[0], new int[0], d, hiPass));
+            }
             return;
         }
         final int n = count;
@@ -134,15 +349,18 @@ final class TmapImages {
         }
         // 폰 주행 화면처럼 차로 상자 위에 남은 거리(nLaneDist)를 붙인다. 이름마다 최대 2fps.
         final int dist = Math.max(0, TmapBridge.intField(rg, "nLaneDist"));
-        String key = n + "|" + TmapJson.ints(t, n) + TmapJson.ints(a, n) + TmapJson.ints(e, n) + "|" + dist;
-        publish("lane_bottom", key, () -> renderLanes(t, a, e, dist));
+        String key = n + "|" + TmapJson.ints(t, n) + TmapJson.ints(a, n) + TmapJson.ints(e, n) + "|" + dist
+                + (hiPass == null ? "" : "|hp" + java.util.Arrays.toString(hiPass));
+        publish("lane_bottom", key, () -> renderLanes(t, a, e, dist, hiPass));
     }
 
-    private Bitmap renderLanes(int[] turns, int[] avail, int[] etc, int distanceM) {
+    private Bitmap renderLanes(int[] turns, int[] avail, int[] etc, int distanceM, int[] hiPass) {
         int n = turns.length, cell = 72, pad = 8;
+        int hpH = hiPass == null ? 0 : (n == 0 ? cell : 52);          // 하이패스 줄 높이
+        int hpW = hiPass == null ? 0 : Math.round(hiPassRowWidth(hiPass, hpH)) + pad * 2;
         boolean anySuggested = false;
         for (int v : etc) anySuggested |= TmapAssets.laneSuggested(v);
-        int boxW = n * cell + pad * 2, boxH = cell + pad * 2;
+        int boxW = Math.max(n * cell + pad * 2, hpW), boxH = (n > 0 ? cell : 0) + hpH + pad * 2;
         // 위쪽 거리 글자: 티맵처럼 흰 테두리의 검은 굵은 글씨.
         String label = distanceM > 0 ? TmapAssets.distanceText(distanceM) : "";
         float textSize = 34f;
@@ -165,6 +383,10 @@ final class TmapImages {
         c.translate((w - boxW) / 2f, labelH);
         paint.setColor(PANEL);
         c.drawRoundRect(new RectF(0, 0, boxW, boxH), 14, 14, paint);
+        if (hiPass != null) {
+            drawHiPassRow(c, hiPass, (boxW - (hpW - pad * 2)) / 2f, pad, hpH);
+            c.translate((boxW - (n * cell + pad * 2)) / 2f, hpH);
+        }
         for (int i = 0; i < n; i++) {
             Resources.Theme theme = anySuggested && TmapAssets.laneSuggested(etc[i]) ? laneSuggestedTheme : laneTheme;
             int left = pad + i * cell;
