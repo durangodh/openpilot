@@ -143,6 +143,37 @@ PREVIEW_TURNS = (12, 13, 14, 16, 19)
 #   신리IC side road right of the underpass (Naver SideUnderpassRight): 84 from 1.5 km, then 46/12
 #   물향기지하차도 entry (Naver AccessUnderpassStraight): 91 from 1.8 km, then 46/36
 #   오산IC underpass entry (Naver AccessUnderpassLeft): 46/36 (log started at 140 m)
+# Roundabouts (AVN 2026-11-05 16:18, 동탄기흥로277번길, 9 o'clock exit):
+#   69 00 00 0f 01f4 00 f0   preview at 500 m: 0x60 + the exit's clock hour
+#   20 08 08 24 0190 00 a0   from 400 m: picture 32, direction = exit hour x 4 (36 = 9 o'clock,
+#                            the same angle / 7.5 deg as a turn), bar 300 m scale
+# Only that one exit is on record: the shape word 0x0808 looks like the exit's road arm
+# (0x0800 left) + 0x0008, so other exits use their nearest arm + 0x0008 (not yet seen on the car).
+# TMAP and Kakao give the exit as 131..142 = 1..12 o'clock. The Naver module numbers its
+# roundabout codes differently (not verified), so Naver roundabouts stay with the AVN screen.
+DISPLAY_ROTARY = 32
+ROTARY_PREVIEW_BASE = 0x60
+ROTARY_FLAG = 0x0008
+ROTARY_SHOW_M = 400
+NAV_APP_NAVER = 2
+
+
+def rotary_hour(turn_type, nav_app=1):
+  """Exit clock hour (1..12) of a roundabout maneuver, or 0."""
+  try:
+    turn_type = int(turn_type)
+  except (TypeError, ValueError):
+    return 0
+  if nav_app == NAV_APP_NAVER or not 131 <= turn_type <= 142:
+    return 0
+  return turn_type - 130
+
+
+def rotary_side(hour):
+  arm = ARM_STRAIGHT if hour in (11, 12, 1) else ARM_RIGHT if 2 <= hour <= 5 else ARM_LEFT if 7 <= hour <= 10 else 0
+  return arm | ROTARY_FLAG
+
+
 DISPLAY_UNDERPASS = 46
 UNDERPASS = {"side_right": (12, 84), "access_left": (36, 91), "access_straight": (36, 91)}
 UNDERPASS_SHOW_M = 400
@@ -272,7 +303,7 @@ def show_turn(turn_type, dist_m, lane=None, after_exit=False):
 
 
 def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
-                tollgate=False, preview=False, junction=None, underpass=""):
+                tollgate=False, preview=False, junction=None, underpass="", rotary=0):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
@@ -293,6 +324,12 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
     if preview:
       return bytes([preview_display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
     return bytes([DISPLAY_UNDERPASS, 0, 0, direction, hi, lo, unit, (bar_tenths(dist, scale_m) << 4) | tenths])
+  if 1 <= rotary <= 12:
+    if preview:
+      return bytes([ROTARY_PREVIEW_BASE + rotary, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
+    side = rotary_side(rotary)
+    return bytes([DISPLAY_ROTARY, side >> 8, side & 0xFF, (rotary * 4) % 48, hi, lo, unit,
+                  (bar_tenths(dist, BAR_SCALE_NEAR_M) << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
@@ -490,6 +527,10 @@ class McanHud:
     self.opts.update(self.fixed)
     self.opts_read_frame = None
     self._params = None
+    # navi app selected on the HUD (EonClusterHudNavApp: 1 TMAP, 2 Naver, 3 Kakao); tests pass
+    # options["nav_app"].
+    self.nav_app = int(self.fixed.pop("nav_app", 1))
+    self.nav_app_fixed = options is not None and "nav_app" in options
     self.stopped_frames = 0
     self.stop_lead_d = None      # lead distance when ego stopped
     self.lead_go_frame = None    # frame the lead was seen departing
@@ -514,6 +555,14 @@ class McanHud:
       if self._params is None:
         from common.params import Params
         self._params = Params()
+      if not self.nav_app_fixed:
+        raw = self._params.get("EonClusterHudNavApp")
+        if isinstance(raw, bytes):
+          raw = raw.decode("utf-8", "replace")
+        try:
+          self.nav_app = int(raw) if raw else 1
+        except ValueError:
+          self.nav_app = 1
       for key, (name, default) in HUD_OPTIONS.items():
         if key in self.fixed:
           continue
@@ -589,7 +638,10 @@ class McanHud:
           underpass = TMAP_UNDERPASS.get(int(raw_turn), "")
         except (TypeError, ValueError):
           underpass = ""
-      if underpass in UNDERPASS:
+      rotary = 0 if ahead is not None else rotary_hour(raw_turn, self.nav_app)
+      if rotary:
+        shown = self.shown or dist <= ROTARY_SHOW_M
+      elif underpass in UNDERPASS:
         shown = self.shown or dist <= UNDERPASS_SHOW_M
       else:
         shown = self.shown or show_turn(turn_type, dist, lane, self.prev_exit)
@@ -600,7 +652,7 @@ class McanHud:
       payload = tbt_payload(turn_type, dist, text, hud_turn_type(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
                             tollgate=tollgate, preview=not shown, underpass=underpass,
-                            junction=self.junction)
+                            junction=self.junction, rotary=rotary)
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
@@ -692,8 +744,10 @@ class McanHud:
         # the AVN's idle bar while rerouting
         percent = 100 if rerouting else bar_percent(dist, bar_scale(self.maneuver_start))
         bar_payload = BAR_PREFIX_DEFAULT + bytes([percent])
-        if payload[0] in BAR_EMPTY_DISPLAYS:
-          bar_payload = BAR_PREFIX_DEFAULT + b"\x00"
+        if payload[0] in BAR_EMPTY_DISPLAYS or ROTARY_PREVIEW_BASE < payload[0] <= ROTARY_PREVIEW_BASE + 12:
+          bar_payload = BAR_PREFIX_DEFAULT + b"\x00"   # roundabout preview: 0 % like the AVN (11-05 16:18)
+        elif payload[0] == DISPLAY_ROTARY:
+          bar_payload = BAR_PREFIX_DEFAULT + bytes([bar_percent(dist, BAR_SCALE_NEAR_M)])
         if payload[0] == DISPLAY_TOLLGATE:
           bar_payload = tollgate_bar_payload(dist, toll_fee_won)
         msgs.append(make_can_msg(BAR_ADDR, bar_payload, MCAN_BUS))

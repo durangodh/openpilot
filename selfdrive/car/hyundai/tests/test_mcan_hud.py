@@ -523,3 +523,24 @@ def test_camera_text_switches_off():
                                   "average_speed_kph": 89}})
   msgs = run(McanHud(options={"camera_text": False}), state, 30)
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]
+
+
+def test_roundabout_like_avn():
+  """AVN 2026-11-05 16:18, 9 o'clock exit: 69.. preview at 500 m, 20 08 08 24 from 400 m."""
+  from selfdrive.car.hyundai.mcan_hud import rotary_hour
+  assert tbt_payload(139, 500, preview=True, rotary=9).hex() == "6900000f01f400f0"
+  assert tbt_payload(139, 400, rotary=9).hex() == "20080824019000a0"
+  assert tbt_payload(139, 290, rotary=9).hex() == "2008082401220090"
+  assert tbt_payload(139, 50, rotary=9).hex() == "2008082400320010"
+  assert tbt_payload(133, 200, rotary=3)[:4].hex() == "2000180c"     # 3 o'clock: right arm, direction 12
+  assert tbt_payload(142, 200, rotary=12)[3] == 0                    # 12 o'clock: straight ahead
+  assert rotary_hour(139) == 9 and rotary_hour(131) == 1 and rotary_hour(142) == 12
+  assert rotary_hour(139, nav_app=2) == 0 and rotary_hour(13) == 0 and rotary_hour("x") == 0
+  hud = McanHud()
+  state = nav(turn_type=139, dist=500.0, text="동탄기흥로277번길")
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["6900000f01f400f0"]
+  state["distance"] = 400.0
+  assert [d.hex() for a, d, _ in run(hud, state, 5, start=5) if a == TBT_ADDR] == ["20080824019000a0"]
+  # Naver's roundabout codes are numbered differently: left to the AVN
+  hud = McanHud(options={"nav_app": 2})
+  assert [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == []
