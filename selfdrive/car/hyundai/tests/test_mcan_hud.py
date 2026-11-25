@@ -342,6 +342,13 @@ def test_underpass_like_avn():
   assert [d.hex() for a, d, _ in run(hud, state, 5, start=5) if a == TBT_ADDR] == ["2e00000c019000a0"]
   # unknown underpass kinds keep the normal turn
   assert tbt_payload(13, 400, underpass="side_left")[0] == 13
+  # TMAP sends its own underpass turn codes instead of the "underpass" kind (2026-11-25)
+  hud = McanHud()
+  state = nav(turn_type=123, dist=400.0, text="지하차도 옆길")
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["2e00000c019000a0"]
+  hud = McanHud()
+  state = nav(turn_type=119, dist=400.0, text="지하차도")
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["2e000024019000a0"]
 
 
 def test_arrived_flag_when_naver_ends_guidance_near_the_goal():
@@ -409,6 +416,10 @@ def test_tmap_highway_codes_draw_like_the_naver_maneuvers():
   assert hud_turn_type(105) == 17 and hud_turn_type(102) == 17 and hud_turn_type(118) == 17
   assert hud_turn_type(103) == 11 and hud_turn_type(120) == 11
   assert hud_turn_type(12) == 12 and hud_turn_type("x") == -1
+  # rest area / via point keep going, P-turn as a U-turn (the Naver module folds these itself)
+  assert hud_turn_type(151) == 11 and hud_turn_type(187) == 11 and hud_turn_type(15) == 14
+  from selfdrive.car.hyundai.mcan_hud import TMAP_UNDERPASS, UNDERPASS
+  assert all(kind in UNDERPASS for kind in TMAP_UNDERPASS.values())
   # TMAP right exit at 600 m: the AVN's EXIT sign like Naver's 18
   tbt = [d for a, d, _ in run(McanHud(), nav(turn_type=104, dist=1500.0, text="기흥동탄IC"), 5) if a == TBT_ADDR]
   naver = [d for a, d, _ in run(McanHud(), nav(turn_type=18, dist=1500.0, text="기흥동탄IC"), 5) if a == TBT_ADDR]

@@ -115,7 +115,15 @@ TMAP_TURN_ALIASES = {
   **{code: 18 for code in (6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124, 195, 196)},
   **{code: 17 for code in (7, 44, 75, 76, 102, 105, 112, 115, 118)},
   **{code: TURN_STRAIGHT for code in (103, 106, 113, 116, 119, 120, 121, 122, 175)},
+  # 2026-11-25: codes the Naver module already folds (rest area / via point -> keep going,
+  # P-turn -> U-turn); with TMAP's own codes the HUD went back to the AVN's idle screen.
+  **{code: TURN_STRAIGHT for code in (151, 152, 185, 186, 187, 188, 189)},
+  15: 14,
 }
+# TMAP underpass maneuvers as the AVN's underpass picture, like Naver's "underpass" kinds
+# (2026-11-25; codes by TMAP's icons road_10 / road_11, not yet checked on the car):
+# 119 into the underpass, 123 the side road beside it.
+TMAP_UNDERPASS = {119: "access_straight", 123: "side_right"}
 
 
 def hud_turn_type(turn_type):
@@ -576,6 +584,11 @@ class McanHud:
       # Far turns keep going with their preview until the AVN would draw them; once drawn
       # they stay drawn (a lane flicker must not bring the preview back).
       underpass = "" if ahead is not None else str(nav_state.get("underpass") or "")
+      if not underpass and ahead is None:
+        try:
+          underpass = TMAP_UNDERPASS.get(int(raw_turn), "")
+        except (TypeError, ValueError):
+          underpass = ""
       if underpass in UNDERPASS:
         shown = self.shown or dist <= UNDERPASS_SHOW_M
       else:
