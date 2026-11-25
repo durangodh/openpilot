@@ -535,12 +535,12 @@ def test_roundabout_like_avn():
   assert tbt_payload(133, 200, rotary=3)[:4].hex() == "2000180c"     # 3 o'clock: right arm, direction 12
   assert tbt_payload(142, 200, rotary=12)[3] == 0                    # 12 o'clock: straight ahead
   assert rotary_hour(139) == 9 and rotary_hour(131) == 1 and rotary_hour(142) == 12
-  assert rotary_hour(139, nav_app=2) == 0 and rotary_hour(13) == 0 and rotary_hour("x") == 0
+  assert rotary_hour(139, nav_app=2) == 9 and rotary_hour(13) == 0 and rotary_hour("x") == 0
   hud = McanHud()
   state = nav(turn_type=139, dist=500.0, text="동탄기흥로277번길")
   assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["6900000f01f400f0"]
   state["distance"] = 400.0
   assert [d.hex() for a, d, _ in run(hud, state, 5, start=5) if a == TBT_ADDR] == ["20080824019000a0"]
-  # Naver's roundabout codes are numbered differently: left to the AVN
+  # Naver the same (its module sends the exit hour by the turn point's name)
   hud = McanHud(options={"nav_app": 2})
-  assert [d for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == []
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["20080824019000a0"]

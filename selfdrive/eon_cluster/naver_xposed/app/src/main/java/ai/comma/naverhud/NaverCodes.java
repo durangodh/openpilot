@@ -99,6 +99,14 @@ public final class NaverCodes {
             default:
                 break;
         }
+        // Roundabouts by name (2026-11-25): Naver's own Android Auto table (GuidanceCodeUtilsKt.a,
+        // 6.12.2.4) gives RotaryDirectionN / RoundaboutDirectionN the exit angle of N o'clock
+        // (3 -> 90 deg, 9 -> 270, Straight 180, UTurn 360), so they become TMAP's 131..142 =
+        // 1..12 o'clock. The index order below (kept for a missing name) did not carry the hour.
+        int hour = rotaryHour(n);
+        if (hour > 0) {
+            return TBT_ROTARY_BASE + hour - 1;
+        }
         if (naver >= 21 && naver <= 34) {          // Rotary*
             return rotary(naver - 21);
         }
@@ -120,6 +128,21 @@ public final class NaverCodes {
             return TBT_STRAIGHT;
         }
         return TBT_NONE;
+    }
+
+    /** Exit clock hour (1..12) of a Rotary / Roundabout turn point name, 0 for any other name. */
+    static int rotaryHour(String name) {
+        if (name == null || !(name.startsWith("Rotary") || name.startsWith("Roundabout"))) return 0;
+        if (name.endsWith("Straight")) return 12;
+        if (name.endsWith("UTurn")) return 6;
+        int at = name.indexOf("Direction");
+        if (at < 0) return 0;
+        try {
+            int hour = Integer.parseInt(name.substring(at + 9));
+            return hour >= 1 && hour <= 12 ? hour : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** index 0 = straight, 1 = uturn, 2.. = clock 7,8,9,10,11,12,1,2,3,4,5,6 -> 131..142. */

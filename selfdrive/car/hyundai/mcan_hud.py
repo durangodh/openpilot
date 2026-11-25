@@ -149,8 +149,9 @@ PREVIEW_TURNS = (12, 13, 14, 16, 19)
 #                            the same angle / 7.5 deg as a turn), bar 300 m scale
 # Only that one exit is on record: the shape word 0x0808 looks like the exit's road arm
 # (0x0800 left) + 0x0008, so other exits use their nearest arm + 0x0008 (not yet seen on the car).
-# TMAP and Kakao give the exit as 131..142 = 1..12 o'clock. The Naver module numbers its
-# roundabout codes differently (not verified), so Naver roundabouts stay with the AVN screen.
+# All three modules give the exit as 131..142 = 1..12 o'clock (TMAP's own codes; Kakao's
+# Direction_N; the Naver module from b152 by the turn point's name, checked against Naver's
+# Android Auto angle table).
 DISPLAY_ROTARY = 32
 ROTARY_PREVIEW_BASE = 0x60
 ROTARY_FLAG = 0x0008
@@ -164,7 +165,7 @@ def rotary_hour(turn_type, nav_app=1):
     turn_type = int(turn_type)
   except (TypeError, ValueError):
     return 0
-  if nav_app == NAV_APP_NAVER or not 131 <= turn_type <= 142:
+  if not 131 <= turn_type <= 142:
     return 0
   return turn_type - 130
 
