@@ -301,8 +301,9 @@ class DesireHelper:
 
   @staticmethod
   def _noo_turn_hard_cancel(noo_enabled, noo_mode, lateral_active,
-                            brake_pressed, lane_change_state, guidance_fresh=True):
-    return (not guidance_fresh or brake_pressed or not lateral_active or not noo_enabled or
+                            lane_change_state, guidance_fresh=True):
+    # The brake is not a cancel: drivers slow down for the turn themselves (2026-11-26).
+    return (not guidance_fresh or not lateral_active or not noo_enabled or
             noo_mode not in (0, 1) or
             lane_change_state in (LaneChangeState.laneChangeStarting,
                                   LaneChangeState.laneChangeFinishing))
@@ -433,10 +434,9 @@ class DesireHelper:
     noo_lane_change_available = (noo_available and self.lane_change_enabled
                                  and self.noo_mode in (0, 1, 2)
                                  and self.lane_change_need_torque >= 0)
-    noo_steering = (noo_available and not carstate.brakePressed
-                    and self.noo_mode in (0, 1))
-    # Keep the current fork event while steering is configured so a brake
-    # press can latch cancellation instead of resetting and re-acquiring it.
+    # Braking for the turn does not cancel turn steering (2026-11-26); opposite
+    # torque, the opposite blinker and lateral disengagement still do.
+    noo_steering = noo_available and self.noo_mode in (0, 1)
     navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state
     # Turn steering, the map path and lane preparation all use the app's
     # vehicle position. Hold them while that position does not follow the car
@@ -725,12 +725,12 @@ class DesireHelper:
     if opposite_torque or conflicting_blinker:
       turn_direction = 0
 
-    # Brake, lateral disengagement, lateral-disabled NOO modes and an active
+    # Lateral disengagement, lateral-disabled NOO modes and an active
     # lane change are hard cancellation boundaries. Do not let the turnState
     # latch keep publishing a stale turn desire for up to its 8/20 s timeout.
     turn_hard_cancel = self._noo_turn_hard_cancel(
       self.noo_enabled, self.noo_mode, lateral_active,
-      carstate.brakePressed, self.lane_change_state,
+      self.lane_change_state,
       guidance_fresh=navigation_state.get('fresh', False) and self.noo_pose_trusted)
     if turn_hard_cancel:
       turn_direction = 0
