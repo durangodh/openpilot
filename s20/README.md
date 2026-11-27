@@ -31,7 +31,7 @@
 ## 단계 (각 단계 통과 못 하면 멈춤)
 | 단계 | 내용 | 통과 기준 | 스크립트 |
 |---|---|---|---|
-| 1 | LineageOS + Magisk | 루트 쉘 | — |
+| 1 | LineageOS + Magisk | 루트 쉘 | `root/README.md` — **통과 2026-11-28** (23.2-20261114-NIGHTLY-r8q, kgsl-3d0 확인) |
 | 2 | 우분투 chroot | chroot 진입, apt 동작 | `chroot/setup_chroot.sh` |
 | 3 | **GPU** | tinygrad `DEV=QCOM` 연산 성공, gpu_id 6.5.x | `tests/stage3_gpu.sh` |
 | 4 | 판다 | USB 인식, CAN 수신 | `tests/stage4_panda.sh` |

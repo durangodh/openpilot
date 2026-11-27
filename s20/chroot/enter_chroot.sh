@@ -10,7 +10,8 @@ mnt() {  # mnt <src> <dst> [opts]
 }
 
 mnt /dev      "$ROOT/dev"     "-o bind"
-mnt devpts    "$ROOT/dev/pts" "-t devpts"
+# bind the host devpts: a new devpts instance would not match the bound /dev/ptmx
+mnt /dev/pts  "$ROOT/dev/pts" "-o bind"
 mnt proc      "$ROOT/proc"    "-t proc"
 mnt sysfs     "$ROOT/sys"     "-t sysfs"
 # msgq / VisionIPC shared memory (Android has no /dev/shm)
