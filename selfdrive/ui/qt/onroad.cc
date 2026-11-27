@@ -846,22 +846,44 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   p.drawImage(QPoint(0, 0), carrot_info_cache);
 }
 
+// 학습값 줄이 넘지 않을 왼쪽 경계: 시계(중심 x=170, 100px)의 오른쪽 끝 + 여유
+static constexpr int LEARN_CLOCK_RIGHT = 360;
+
 // 우상단 LT/SR 아래: 실시간 학습값 (조향 오토튠 / 롱컨 LONG LEARN). 켜진 기능이 없으면 비어 있다.
+// 왼쪽 시계(HH:mm, x≈30~310)와 겹치지 않게, 너무 긴 줄은 두 칸 띄움("  ") 단위로 끊어 다음 줄로 넘긴다
+// (2026-11-27: 롱컨 줄이 시계와 겹침).
 void NvgWindow::drawLearnStatus(QPainter &p) {
   if (learn_lines.isEmpty()) return;
   p.save();
   configFont(p, "Open Sans", 28, "Regular");
+  const QFontMetrics fm(p.font());
+  const int right = width() - 20;
+  const int max_w = std::max(200, right - LEARN_CLOCK_RIGHT);
   int y = 62;
   for (int i = 0; i < learn_lines.size() && i < 2; i++) {
     const QString &text = learn_lines[i];
     // 조향은 하늘색, 롱컨은 연두색
     QColor color = text.startsWith("LAT") ? QColor(0x9a, 0xd8, 0xff, 220) : QColor(0xb8, 0xf0, 0x9a, 220);
-    QRect box(35, y, width() - 55, 36);
-    p.setPen(QColor(0, 0, 0, 160));
-    p.drawText(box.translated(2, 2), Qt::AlignRight | Qt::AlignVCenter, text);
-    p.setPen(color);
-    p.drawText(box, Qt::AlignRight | Qt::AlignVCenter, text);
-    y += 36;
+    QStringList rows;
+    QString row;
+    for (const QString &part : text.split("  ", QString::SkipEmptyParts)) {
+      QString next = row.isEmpty() ? part : row + "  " + part;
+      if (!row.isEmpty() && fm.horizontalAdvance(next) > max_w) {
+        rows << row;
+        row = part;
+      } else {
+        row = next;
+      }
+    }
+    if (!row.isEmpty()) rows << row;
+    for (const QString &r : rows) {
+      QRect box(right - max_w, y, max_w, 36);
+      p.setPen(QColor(0, 0, 0, 160));
+      p.drawText(box.translated(2, 2), Qt::AlignRight | Qt::AlignVCenter, r);
+      p.setPen(color);
+      p.drawText(box, Qt::AlignRight | Qt::AlignVCenter, r);
+      y += 36;
+    }
   }
   p.restore();
 }
