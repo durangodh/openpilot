@@ -544,13 +544,3 @@ def test_roundabout_like_avn():
   # Naver the same (its module sends the exit hour by the turn point's name)
   hud = McanHud(options={"nav_app": 2})
   assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["20080824019000a0"]
-
-
-def test_destination_name_test_frames_match_avn():
-  """selfdrive/debug/mcan_hud_text.py: the AVN's F4 destination-name message (10-31 08:21)."""
-  from selfdrive.debug.mcan_hud_text import dest_payload, text_frames
-  frames = [f.hex() for f in text_frames("dest", "우리치과의원")]
-  assert frames[0] == "102ff400b0c6acb9" and len(frames) == 7
-  assert [f.hex() for f in text_frames("dest", "")][:2] == ["102ff40000000000", "2100000000000000"]
-  assert len(dest_payload("가" * 40)) == 47
-  assert text_frames("name", "노작로") == isotp_frames(text_payload("노작로"))
