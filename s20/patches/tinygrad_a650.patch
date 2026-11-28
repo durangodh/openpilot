@@ -1,8 +1,8 @@
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..1f52056 100644
+index 53804bd..9440b3f 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
-@@ -145,17 +145,18 @@ class QCOMComputeQueue(HWQueue):
+@@ -145,21 +145,22 @@ class QCOMComputeQueue(HWQueue):
               cast_int(global_size[0], ceil=True), cast_int(global_size[1], ceil=True), cast_int(global_size[2], ceil=True))
  
      self.reg(mesa.REG_A6XX_SP_CS_CNTL_0,
@@ -24,7 +24,12 @@ index 53804bd..1f52056 100644
  
      self.reg(mesa.REG_A6XX_SP_REG_PROG_ID_0, 0xfcfcfcfc, 0xfcfcfcfc, 0xfcfcfcfc, 0xfc, qreg.a6xx_sp_cs_const_config(constlen=1024 // 4, enabled=True))
  
-@@ -225,13 +226,25 @@ class QCOMProgramData:
+-    self.reg(mesa.REG_A6XX_SP_CS_PVT_MEM_STACK_OFFSET, qreg.a6xx_sp_cs_pvt_mem_stack_offset(data.hw_stack_offset))
++    self.reg(mesa.REG_A6XX_SP_CS_PVT_MEM_STACK_OFFSET, qreg.a6xx_sp_cs_pvt_mem_stack_offset(data.hw_stack_offset_reg))
+     # image_size is in bytes, but INSTR_SIZE is measured in units of instruction groups (16 instructions, 8 bytes each)
+     # https://elixir.bootlin.com/mesa/mesa-26.1.5/source/src/freedreno/ir3/ir3_shader.h#L719-L723
+     self.reg(mesa.REG_A6XX_SP_CS_INSTR_SIZE, qreg.a6xx_sp_cs_instr_size(ceildiv(data.image_size, 128)))
+@@ -225,13 +226,28 @@ class QCOMProgramData:
  
        self.tex_off, self.ibo_off, self.samp_off = 2048, 2048 + 0x40 * self.tex_cnt, 2048 + 0x40 * (self.tex_cnt + self.ibo_cnt)
        self.fregs, self.hregs = v.info.max_reg + 1, v.info.max_half_reg + 1
@@ -41,6 +46,9 @@ index 53804bd..1f52056 100644
 -    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * 128 * 16, 0x1000)
 +    self.pvtmem_size_total: int = self.pvtmem_size_per_item * 128 * 2 * (fibers_per_sp // 2048)
 +    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * fibers_per_sp, 0x1000)
++    # SP_CS_PVT_MEM_STACK_OFFSET.OFFSET is a 19-bit field in 2 KiB units (mesa a6xx.xml shr=11); the raw byte count
++    # (>= 1 MiB whenever there is private memory) overflows it and points the hardware stack at the private memory
++    self.hw_stack_offset_reg: int = (self.hw_stack_offset >> 11) if dev.gpu_id[:2] == (6, 5) else self.hw_stack_offset
      self.shared_size: int = max(1, (self.shmem - 1) // 1024)
 -    self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
 +    if dev.gpu_id[:2] == (6, 5):
