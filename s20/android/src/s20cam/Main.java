@@ -19,7 +19,7 @@ import java.util.Set;
  * Camera bridge for the S20 FE port (stage 6). Runs on the Android side with app_process as the shell user:
  *
  *   list                                       print every camera: facing, focal length, sensor, intrinsics, YUV sizes
- *   auto [road=0] [wide=2|none] [dir=...] [fps=20] [flip=1] [dry]
+ *   auto [road=0] [wide=none|2] [dir=...] [fps=20] [flip=1] [dry]
  *                                              stream the road and wide cameras into ring files as comma-like frames
  */
 public final class Main {
@@ -42,10 +42,11 @@ public final class Main {
       String dir = o.getOrDefault("dir", "/data/s20pilot/share");
       boolean flip = o.getOrDefault("flip", "0").equals("1");
       List<Streamer.Spec> specs = new ArrayList<>();
-      String road = o.getOrDefault("road", "0"), wide = o.getOrDefault("wide", "2");
-      specs.add(new Streamer.Spec(Plan.make(road, Cam.chars(cm, road), ow, oh, Float.parseFloat(o.getOrDefault("roadf", "2648"))), dir + "/road.ring", flip));
+      // the S20 FE cannot open the ultra-wide (2) while the main camera (0) is open: wide is off unless asked for
+      String road = o.getOrDefault("road", "0"), wide = o.getOrDefault("wide", "none");
+      specs.add(new Streamer.Spec(Plan.make(road, Cam.chars(cm, road), ow, oh, Float.parseFloat(o.getOrDefault("roadf", "2648"))), dir + "/road.ring", flip, true));
       if (!wide.equals("none"))
-        specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip));
+        specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip, false));
       for (Streamer.Spec sp : specs) Log.i("plan " + sp.plan);
       if (o.containsKey("dry")) System.exit(0);
       new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20"))).start();

@@ -58,9 +58,7 @@ final class Cam {
       if (pick != null) break;
     }
     if (pick == null) {
-      for (Method m : CameraManager.class.getDeclaredMethods())
-        if (m.getName().startsWith("openCamera")) Log.i("candidate: " + m);
-      Log.w("no hidden open method found, using openCamera");
+      // Android 16 takes a CameraCompatibilityInfo instead; openCamera works there once the context is fixed
       cm.openCamera(id, ex, cb);
       return;
     }

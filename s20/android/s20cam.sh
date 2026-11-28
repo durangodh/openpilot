@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # Android side of the camera bridge. Run as root on the phone (adb shell -> su):
 #   sh /data/s20pilot/s20cam.sh list
-#   sh /data/s20pilot/s20cam.sh auto [wide=none] [flip=1] [dry]     road (0) + wide (2) -> /data/s20pilot/share/*.ring
+#   sh /data/s20pilot/s20cam.sh auto [flip=1] [dry]     road camera (0) -> /data/s20pilot/share/road.ring at 20 fps
 # The camera service wants the shell package, so app_process runs as the shell user (uid 2000).
 JAR=/data/s20pilot/s20cam.jar
 SRC=/data/s20pilot/rootfs/root/openpilot/s20/android/s20cam.jar

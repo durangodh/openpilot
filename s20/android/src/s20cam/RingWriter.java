@@ -72,7 +72,8 @@ final class RingWriter {
 
   long frames() { return frameId; }
 
-  void write(Image img) {
+  /** Writes the frame; returns its mean luma (0..255, sampled every 16 px) for the exposure loop. */
+  int write(Image img) {
     long id = frameId++;
     int slot = (int) (id % SLOTS);
     int meta = 64 + 32 * slot;
@@ -81,10 +82,12 @@ final class RingWriter {
     Image.Plane[] p = img.getPlanes();
     ByteBuffer ys = p[0].getBuffer();
     int yrs = p[0].getRowStride(), yps = p[0].getPixelStride();
+    long lumaSum = 0; int lumaN = 0;
     for (int y = 0; y < capH; y++) {
       int off = y * yrs;
       if (yps == 1) { ys.position(off); ys.get(row, 0, Math.min(capW, ys.capacity() - off)); }
       else for (int x = 0; x < capW; x++) row[x] = ys.get(off + x * yps);
+      if ((y & 15) == 0) for (int x = 0; x < capW; x += 16) { lumaSum += row[x] & 0xff; lumaN++; }
       if (flip) reverse(row, capW, 1);
       int dy = flip ? capH - 1 - y : y;
       put(base + (offY + dy) * width + offX, row, capW);
@@ -108,6 +111,7 @@ final class RingWriter {
     buf.putLong(meta + 24, SystemClock.elapsedRealtimeNanos());
     buf.putLong(meta, id + 1);
     buf.putLong(24, id + 1);
+    return lumaN > 0 ? (int) (lumaSum / lumaN) : 0;
   }
 
   // reverse a row in units of `unit` bytes (1 for Y, 2 for UV pairs)
