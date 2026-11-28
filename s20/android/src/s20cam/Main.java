@@ -27,6 +27,7 @@ public final class Main {
 
   public static void main(String[] args) throws Exception {
     Workarounds.apply();
+    Cam.disableLandscapeToPortrait();
     CameraManager cm = cameraManager();
     if (args.length == 0 || args[0].equals("list")) {
       list(cm);

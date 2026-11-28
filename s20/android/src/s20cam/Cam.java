@@ -12,6 +12,23 @@ import java.util.concurrent.Executor;
 final class Cam {
   private Cam() {}
 
+  // CameraManager.getRotationOverride() asks ActivityManager for the app's tasks when the landscape-to-portrait
+  // compat switch is on; that call is refused for app_process ("package=android does not belong to uid=2000").
+  // The switch is a static in CameraManagerGlobal: turn it off, the camera then opens without the lookup.
+  static void disableLandscapeToPortrait() {
+    try {
+      Class<?> g = Class.forName("android.hardware.camera2.CameraManager$CameraManagerGlobal");
+      for (java.lang.reflect.Field f : g.getDeclaredFields()) {
+        if (f.getType() == boolean.class && java.lang.reflect.Modifier.isStatic(f.getModifiers())
+            && f.getName().toLowerCase().contains("landscapetoportrait")) {
+          f.setAccessible(true);
+          Log.i("CameraManagerGlobal." + f.getName() + " was " + f.getBoolean(null) + ", set false");
+          f.setBoolean(null, false);
+        }
+      }
+    } catch (Throwable t) { Log.w("landscape-to-portrait switch: " + t); }
+  }
+
   static CameraCharacteristics chars(CameraManager cm, String id) throws Exception {
     for (Method m : CameraManager.class.getDeclaredMethods()) {
       if (!m.getName().equals("getCameraCharacteristics")) continue;
@@ -42,7 +59,7 @@ final class Cam {
     }
     if (pick == null) {
       for (Method m : CameraManager.class.getDeclaredMethods())
-        if (m.getName().startsWith("openCamera")) Log.w("candidate: " + m);
+        if (m.getName().startsWith("openCamera")) Log.i("candidate: " + m);
       Log.w("no hidden open method found, using openCamera");
       cm.openCamera(id, ex, cb);
       return;
