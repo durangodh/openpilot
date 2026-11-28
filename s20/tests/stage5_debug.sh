@@ -25,7 +25,7 @@ CONFIGS=(
 run_one() {  # run_one <n>
   n=$1; cfg=${CONFIGS[$n]}; log=$LOGS/cfg$n.log
   echo "== [$n] $cfg"
-  env S20_SKIP_RE="$S20_SKIP_RE" S20_STACK_SHR=${S20_STACK_SHR:-11} DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
+  env S20_SKIP_RE="$S20_SKIP_RE" S20_STACK_SHR=${S20_STACK_SHR:-11} S20_PVT_FIBERS=${S20_PVT_FIBERS:-4096} S20_PERWAVE=${S20_PERWAVE:-auto} DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
 import sys, time, numpy as np
 from tinygrad import Tensor, Device, dtypes
 from tinygrad.nn.onnx import OnnxRunner
@@ -46,7 +46,7 @@ def _trace(self, call, prg):
   print(f"S20K {name} gs={prg.arg.global_size} ls={prg.arg.local_size} "
         f"fregs={d.fregs} hregs={d.hregs} pvt={d.pvtmem} shm={d.shmem} brn={d.brnchstck} img={d.image_size} "
         f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads} merged={getattr(d,'mergedregs','?')} "
-        f"perwave={getattr(d,'pvt_per_wave','?')} preload={getattr(d,'preload_units','?')} stack={getattr(d,'hw_stack_offset_reg','?')}", flush=True)
+        f"perwave={getattr(d,'pvt_per_wave','?')} preload={getattr(d,'preload_units','?')} stack={getattr(d,'hw_stack_offset_reg','?')} tsize={getattr(d,'threadsize','?')} pvttot={getattr(d,'pvtmem_size_total','?')}", flush=True)
   import os, re
   if os.environ.get("S20_SKIP_RE") and re.search(os.environ["S20_SKIP_RE"], name):
     print(f"S20SKIP {name}", flush=True)   # not sent to the GPU: results are wrong, only to find which kernel hangs

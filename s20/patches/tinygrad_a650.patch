@@ -1,13 +1,18 @@
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..0fead43 100644
+index 53804bd..039e077 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
-@@ -145,21 +145,22 @@ class QCOMComputeQueue(HWQueue):
+@@ -141,25 +141,26 @@ class QCOMComputeQueue(HWQueue):
+ 
+     self.reg(mesa.REG_A6XX_SP_CS_NDRANGE_0,
+              qreg.a6xx_sp_cs_ndrange_0(kerneldim=3, localsizex=local_size[0] - 1, localsizey=local_size[1] - 1, localsizez=local_size[2] - 1),
+-             global_size_mp[0], 0, global_size_mp[1], 0, global_size_mp[2], 0, 0xccc0cf, 0xfc | qreg.a6xx_sp_cs_wge_cntl(threadsize=mesa.THREAD64),
++             global_size_mp[0], 0, global_size_mp[1], 0, global_size_mp[2], 0, 0xccc0cf, 0xfc | qreg.a6xx_sp_cs_wge_cntl(threadsize=data.threadsize),
               cast_int(global_size[0], ceil=True), cast_int(global_size[1], ceil=True), cast_int(global_size[2], ceil=True))
  
      self.reg(mesa.REG_A6XX_SP_CS_CNTL_0,
 -             qreg.a6xx_sp_cs_cntl_0(threadsize=mesa.THREAD64, halfregfootprint=data.hregs, fullregfootprint=data.fregs, branchstack=data.brnchstck),
-+             qreg.a6xx_sp_cs_cntl_0(threadsize=mesa.THREAD64, halfregfootprint=data.hregs, fullregfootprint=data.fregs, branchstack=data.brnchstck,
++             qreg.a6xx_sp_cs_cntl_0(threadsize=data.threadsize, halfregfootprint=data.hregs, fullregfootprint=data.fregs, branchstack=data.brnchstck,
 +                                    mergedregs=data.mergedregs),
               qreg.a6xx_sp_cs_cntl_1(constantrammode=mesa.CONSTLEN_256, shared_size=data.shared_size), # should this be CONSTLEN_512?
               0, data.prg_offset, lib_addr,
@@ -29,18 +34,30 @@ index 53804bd..0fead43 100644
      # image_size is in bytes, but INSTR_SIZE is measured in units of instruction groups (16 instructions, 8 bytes each)
      # https://elixir.bootlin.com/mesa/mesa-26.1.5/source/src/freedreno/ir3/ir3_shader.h#L719-L723
      self.reg(mesa.REG_A6XX_SP_CS_INSTR_SIZE, qreg.a6xx_sp_cs_instr_size(ceildiv(data.image_size, 128)))
-@@ -225,13 +226,28 @@ class QCOMProgramData:
+@@ -186,7 +187,7 @@ class QCOMComputeQueue(HWQueue):
+     if data.NIR:
+       self.reg(mesa.REG_A6XX_SP_CS_CONST_CONFIG_0,
+                qreg.a6xx_sp_cs_const_config_0(wgidconstid=data.wgid, wgsizeconstid=data.wgsz, wgoffsetconstid=0xfc, localidregid=data.lid),
+-               qreg.a6xx_sp_cs_wge_cntl(linearlocalidregid=0xfc, threadsize=mesa.THREAD64))
++               qreg.a6xx_sp_cs_wge_cntl(linearlocalidregid=0xfc, threadsize=data.threadsize))
+       self.cmd(mesa.CP_EXEC_CS, 0,
+                qreg.cp_exec_cs_1(ngroups_x=global_size[0]), qreg.cp_exec_cs_2(ngroups_y=global_size[1]), qreg.cp_exec_cs_3(_ngroups_z=global_size[2]))
+     else: self.cmd(mesa.CP_RUN_OPENCL, 0)
+@@ -225,13 +226,31 @@ class QCOMProgramData:
  
        self.tex_off, self.ibo_off, self.samp_off = 2048, 2048 + 0x40 * self.tex_cnt, 2048 + 0x40 * (self.tex_cnt + self.ibo_cnt)
        self.fregs, self.hregs = v.info.max_reg + 1, v.info.max_half_reg + 1
 -    else: self._parse_lib(obj.lib)
 +      self.mergedregs, self.pvt_per_wave = bool(v.mergedregs), bool(v.pvtmem_per_wave)
++      if os.environ.get("S20_PERWAVE", "auto") != "auto": self.pvt_per_wave = os.environ["S20_PERWAVE"] == "1"
++      # ir3 may compile a compute shader for 128-wide waves (info.double_threadsize); mesa launches it that way
++      self.threadsize = mesa.THREAD128 if v.info.double_threadsize else mesa.THREAD64
 +    else:
-+      self.mergedregs, self.pvt_per_wave = False, False
++      self.mergedregs, self.pvt_per_wave, self.threadsize = False, False, mesa.THREAD64
 +      self._parse_lib(obj.lib)
  
 +    # per-SP private memory = per-fiber size * fibers per SP (mesa fd_dev_info: a630 2048, a650 4096); the size register is in 4 KiB units
-+    fibers_per_sp = 4096 if dev.gpu_id[:2] == (6, 5) else 2048
++    fibers_per_sp = int(os.environ.get("S20_PVT_FIBERS", 4096)) if dev.gpu_id[:2] == (6, 5) else 2048
      self.pvtmem_size_per_item: int = round_up(self.pvtmem, 512) >> 9
 -    self.pvtmem_size_total: int = self.pvtmem_size_per_item * 128 * 2
 -    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * 128 * 16, 0x1000)
