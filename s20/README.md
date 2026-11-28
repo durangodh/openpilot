@@ -35,7 +35,7 @@
 | 2 | 우분투 chroot | chroot 진입, apt 동작 | `chroot/setup_chroot.sh` — **통과 2026-11-28** |
 | 3 | **GPU** | **통과 2026-11-28** (gpu_id 6.5.0, IR3, matmul 512² 4.58 ms) — tinygrad `DEV=QCOM:IR3` 연산 성공, gpu_id 6.5.x (QCOMCL 컴파일러는 a630 전용이라 Mesa ir3 사용) | `tests/stage3_gpu.sh` |
 | 4 | 판다 | USB 인식, CAN 수신 | `tests/stage4_panda.sh` |
-| 5 | 빌드 | `scons` 완료, 모델 컴파일 | `tests/stage5_model.sh` — 2026-11-28 주행 모델 첫 완주 (spill 회피 패치, 디버그 모드 4.4 s/회, 출력 유한) |
+| 5 | 빌드 | `scons` 완료, 모델 컴파일 | `tests/stage5_model.sh` — 2026-11-28 주행 모델 컴파일·실행 통과: FLOAT16+NOLOCALS+JIT, **IMAGE=0 52.8~56.3 ms/회** (IMAGE=1 은 GPU hang, 조사 중) |
 | 6 | 카메라 브리지 | 도로·광각 20fps | `android/` |
 | 7 | 화면·GPS·센서 | UI 표시, 위치 수신 | — |
 | 8 | 주행 | — | — |
