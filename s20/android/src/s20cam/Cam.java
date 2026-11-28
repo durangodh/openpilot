@@ -25,17 +25,35 @@ final class Cam {
   }
 
   static void open(CameraManager cm, String id, Executor ex, CameraDevice.StateCallback cb) throws Exception {
-    for (Method m : CameraManager.class.getDeclaredMethods()) {
-      if (!m.getName().equals("openCameraForUid")) continue;
-      Class<?>[] p = m.getParameterTypes();
-      // (String id, StateCallback, Executor, int clientUid, int oomScoreOffset, int|boolean rotationOverride)
-      if (p.length == 6 && p[1] == CameraDevice.StateCallback.class && p[2] == Executor.class) {
-        m.setAccessible(true);
-        m.invoke(cm, id, cb, ex, -1, 0, p[5] == int.class ? (Object) 0 : (Object) false);
-        return;
+    // hidden variants differ between releases, e.g. Android 15 openCameraForUid(id, cb, ex, uid, oomScoreOffset,
+    // rotationOverride) and later ones with extra flags; take any that starts with (String, StateCallback, Executor)
+    // and fill the rest: ints -> clientUid -1 (calling uid), oomScoreOffset 0, rotationOverride 0 (none); booleans false
+    Method pick = null;
+    for (String name : new String[] {"openCameraForUid", "openCameraDeviceUserAsync"}) {
+      for (Method m : CameraManager.class.getDeclaredMethods()) {
+        Class<?>[] p = m.getParameterTypes();
+        if (!m.getName().equals(name) || p.length < 4 || p[0] != String.class) continue;
+        if (p[1] != CameraDevice.StateCallback.class || p[2] != Executor.class) continue;
+        boolean ok = true;
+        for (int i = 3; i < p.length; i++) ok &= p[i] == int.class || p[i] == boolean.class;
+        if (ok && (pick == null || p.length > pick.getParameterTypes().length)) pick = m;
       }
+      if (pick != null) break;
     }
-    Log.w("openCameraForUid overload not found, using openCamera");
-    cm.openCamera(id, ex, cb);
+    if (pick == null) {
+      for (Method m : CameraManager.class.getDeclaredMethods())
+        if (m.getName().startsWith("openCamera")) Log.w("candidate: " + m);
+      Log.w("no hidden open method found, using openCamera");
+      cm.openCamera(id, ex, cb);
+      return;
+    }
+    Class<?>[] p = pick.getParameterTypes();
+    Object[] a = new Object[p.length];
+    a[0] = id; a[1] = cb; a[2] = ex;
+    int ints = 0;
+    for (int i = 3; i < p.length; i++) a[i] = p[i] == boolean.class ? (Object) false : (Object) (ints++ == 0 ? -1 : 0);
+    Log.i("opening camera " + id + " with " + pick);
+    pick.setAccessible(true);
+    pick.invoke(cm, a);
   }
 }
