@@ -107,7 +107,7 @@ index d7f19cd..1ade26c 100644
      from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
      # NOTE: hand_coded_optimizations doesn't support multiblock opts yet
 diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
-index af21998..9da4a0b 100644
+index af21998..6f0369a 100644
 --- a/tinygrad/codegen/opt/search.py
 +++ b/tinygrad/codegen/opt/search.py
 @@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
@@ -164,7 +164,7 @@ index af21998..9da4a0b 100644
 +  from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
 +  kh = base.copy()
 +  if not any(u.op is Ops.STAGE for u in base.ast.backward_slice): kh = hand_coded_optimizations(kh)
-+  if CACHELEVEL >= 1 and (v:=diskcache_get("s20_beam_verify", key)) is not None:
++  if CACHELEVEL >= 1 and getenv("S20_BEAM_VERIFY") < 2 and (v:=diskcache_get("s20_beam_verify", key)) is not None:  # 2: measure again
 +    print(f"\ns20 verify #{_s20_hits[0]} {name}: {v} (saved)", flush=True)
 +    return kb if v == "beam" else kh
 +  rawbufs = _ensure_buffer_alloc(rawbufs)
