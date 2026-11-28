@@ -28,7 +28,9 @@ case "$S20_MODE" in
 from openpilot.common.params import Params
 p = Params()
 if p.get('DongleId') is None:
-  p.put('DongleId', 'UnregisteredDevice')"
+  p.put('DongleId', 'UnregisteredDevice')
+if p.get('IsMetric') is None:  # km/h unless changed in the settings
+  p.put_bool('IsMetric', True)"
     # main() directly: the __main__ path opens an error window on a display the S20 does not have
     exec python -c "from openpilot.system.manager.manager import main; main()"
     ;;

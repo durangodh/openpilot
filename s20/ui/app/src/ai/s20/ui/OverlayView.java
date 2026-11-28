@@ -47,7 +47,8 @@ final class OverlayView extends View {
   private final Path path = new Path();
   private Bitmap comma, track;
   private final long t0 = System.currentTimeMillis();
-  private boolean preview;
+  private boolean preview, homeShown;
+  private final RectF settingsBtn = new RectF();
   private final SimpleDateFormat clock = new SimpleDateFormat("M월 d일 (E)  HH:mm", Locale.KOREAN);
 
   OverlayView(Context c, Geometry geo, CameraRenderer cam, Consumer<Boolean> showCamera, Runnable openSettings) {
@@ -60,7 +61,11 @@ final class OverlayView extends View {
     } catch (Exception ignored) {}
     gestures = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
       @Override public boolean onDown(MotionEvent e) { return true; }
-      @Override public boolean onSingleTapUp(MotionEvent e) { preview = !preview; invalidate(); return true; }
+      @Override public boolean onSingleTapUp(MotionEvent e) {
+        if (homeShown && settingsBtn.contains(e.getX(), e.getY())) openSettings.run();
+        else { preview = !preview; invalidate(); }
+        return true;
+      }
       @Override public void onLongPress(MotionEvent e) { openSettings.run(); }
     });
     Thread t = new Thread(() -> {
@@ -83,6 +88,8 @@ final class OverlayView extends View {
 
   @Override public boolean onTouchEvent(MotionEvent e) { return gestures.onTouchEvent(e); }
 
+  JSONObject latest() { return ui; }
+
   private boolean polygon(JSONArray pts) {
     path.reset();
     if (pts == null || pts.length() < 3) return false;
@@ -101,8 +108,9 @@ final class OverlayView extends View {
     boolean fresh = u != null && System.currentTimeMillis() / 1000.0 - u.optDouble("t") < 3.0;
     boolean onroad = fresh && u.optBoolean("onroad", true);
     showCamera.accept(onroad || preview);
+    homeShown = false;
     if (!fresh && !preview) { spinner(c, W, H); return; }
-    if (!onroad && !preview) { home(c, W, H, u); return; }
+    if (!onroad && !preview) { homeShown = true; home(c, W, H, u); return; }
     if (!fresh) { centered(c, "카메라 미리보기 (openpilot 꺼짐)", W / 2f, 80, 40, Color.WHITE); fps(c, W); return; }
     onroad(c, W, H, u, onroad);
   }
@@ -131,7 +139,12 @@ final class OverlayView extends View {
     // sidebar
     box.setStyle(Paint.Style.FILL); box.setColor(Color.rgb(57, 57, 57));
     c.drawRect(0, 0, sw, H, box);
-    if (comma != null) c.drawBitmap(comma, null, new RectF(sw / 2 - 70, 40, sw / 2 + 70, 180), bmp);
+    // settings button at the top of the sidebar like the comma 3X
+    settingsBtn.set(pad, 36, sw - pad, 156);
+    box.setColor(Color.rgb(80, 80, 80));
+    c.drawRoundRect(settingsBtn, 60, 60, box);
+    centered(c, "⚙  설정", sw / 2f, 112, 40, Color.WHITE);
+    if (comma != null) c.drawBitmap(comma, null, new RectF(sw / 2 - 30, 170, sw / 2 + 30, 230), bmp);
     String thermal = u.optString("thermal");
     double temp = u.optDouble("cpu_temp");
     int tc = thermal.equals("green") ? GOOD : thermal.equals("yellow") ? WARN : thermal.isEmpty() ? GREY : BAD;
@@ -187,7 +200,7 @@ final class OverlayView extends View {
         ver.isEmpty() ? "-" : ver, br, cm, u.optInt("free_space"), u.optInt("mem"));
     text.setTextAlign(Paint.Align.LEFT); text.setTextSize(30); text.setColor(GREY);
     c.drawText(info, x0, H - 90, text);
-    c.drawText("탭: 카메라 미리보기   ·   길게 누르기: 안드로이드 설정", x0, H - 40, text);
+    c.drawText("탭: 카메라 미리보기   ·   ⚙ 설정 (안드로이드 설정은 설정 → S20)", x0, H - 40, text);
   }
 
   private java.nio.MappedByteBuffer ringHdr;
@@ -280,13 +293,16 @@ final class OverlayView extends View {
     }
 
     // speeds: current (km/h) big in the middle, set speed box at top left
-    centered(c, String.format("%.0f", u.optDouble("v_ego") * 3.6), W / 2f, 170, 150, Color.WHITE);
-    centered(c, "km/h", W / 2f, 225, 44, Color.argb(200, 255, 255, 255));
+    JSONObject sv = u.optJSONObject("settings") != null ? u.optJSONObject("settings").optJSONObject("values") : null;
+    boolean metric = sv == null || sv.optBoolean("IsMetric", true);
+    boolean debug = sv != null && sv.optBoolean("ShowDebugInfo");
+    centered(c, String.format(Locale.US, "%.0f", u.optDouble("v_ego") * (metric ? 3.6 : 2.23694)), W / 2f, 170, 150, Color.WHITE);
+    centered(c, metric ? "km/h" : "mph", W / 2f, 225, 44, Color.argb(200, 255, 255, 255));
     double vc = u.optDouble("v_cruise");
     box.setStyle(Paint.Style.FILL); box.setColor(Color.argb(160, 0, 0, 0));
     c.drawRoundRect(60, 50, 280, 250, 30, 30, box);
     centered(c, "MAX", 170, 105, 40, Color.rgb(160, 160, 160));
-    centered(c, vc > 0 && vc < 255 ? String.format("%.0f", vc) : "–", 170, 210, 90, Color.WHITE);
+    centered(c, vc > 0 && vc < 255 ? String.format(Locale.US, "%.0f", metric ? vc : vc * 0.621371) : "–", 170, 210, 90, Color.WHITE);
 
     // alert
     JSONArray al = u.optJSONArray("alert");
@@ -298,7 +314,8 @@ final class OverlayView extends View {
       if (!a2.isEmpty()) centered(c, a2, W / 2f, H - 85, 40, Color.WHITE);
     }
 
-    // status line
+    // status line (developer: UI debug mode)
+    if (!debug) return;
     String st = String.format(Locale.US, "%s  calib:%s  model:%s  cam %.0f fps  CPU %.0f°C", u.optString("state"), u.optString("calib"),
         u.optBoolean("model_ok") ? "ok" : "–", cam.fps, u.optDouble("cpu_temp"));
     text.setTextSize(28); text.setColor(Color.argb(200, 255, 255, 255)); text.setTextAlign(Paint.Align.LEFT);

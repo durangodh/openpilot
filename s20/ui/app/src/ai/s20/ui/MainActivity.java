@@ -2,21 +2,20 @@ package ai.s20.ui;
 
 import android.app.Activity;
 import android.app.KeyguardManager;
-import android.content.Intent;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 /**
  * The phone's home screen, like the comma 3: a spinner while openpilot starts, the offroad home screen, and the camera
- * with the openpilot overlay while driving. Long press: Android settings. Tap on the home screen: camera preview.
+ * with the openpilot overlay while driving. Settings button (or long press): settings. Tap on the home screen: camera preview.
  */
 public final class MainActivity extends Activity {
   private GLSurfaceView gl;
   private boolean camShown = true;
+  private SettingsView settings;
 
   @Override protected void onCreate(Bundle b) {
     super.onCreate(b);
@@ -35,7 +34,11 @@ public final class MainActivity extends Activity {
     gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
     FrameLayout root = new FrameLayout(this);
     root.addView(gl);
-    root.addView(new OverlayView(this, geo, cam, this::showCamera, this::openSettings));
+    OverlayView overlay = new OverlayView(this, geo, cam, this::showCamera, this::openSettings);
+    root.addView(overlay);
+    settings = new SettingsView(this, overlay::latest, () -> hideBars(getWindow().getDecorView()));
+    settings.setVisibility(View.GONE);
+    root.addView(settings);
     setContentView(root);
     hideBars(root);
   }
@@ -50,8 +53,9 @@ public final class MainActivity extends Activity {
     });
   }
 
+  /** the comma 3X style settings (SettingsView); Android settings are in its S20 panel */
   private void openSettings() {
-    runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+    runOnUiThread(() -> settings.open());
   }
 
   @Override protected void onResume() {
@@ -65,7 +69,9 @@ public final class MainActivity extends Activity {
     gl.onPause();
   }
 
-  @Override public void onBackPressed() { /* home screen: nothing to go back to */ }
+  @Override public void onBackPressed() {  // home screen: back only closes the settings
+    if (settings.getVisibility() == View.VISIBLE) { settings.setVisibility(View.GONE); hideBars(getWindow().getDecorView()); }
+  }
 
   private static void hideBars(View v) {
     v.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION

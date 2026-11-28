@@ -9,6 +9,7 @@ import numpy as np
 
 from openpilot.cereal import messaging, log
 from openpilot.common.params import Params
+from s20.ui.settings_bridge import SettingsBridge
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.common.transformations.orientation import rot_from_euler
 from openpilot.common.transformations.camera import view_frame_from_device_frame
@@ -70,9 +71,10 @@ def offroad_info(params: Params) -> dict:
 
 def main():
   sm = messaging.SubMaster(["modelV2", "carState", "selfdriveState", "radarState", "extrinsicsCalibration", "deviceState",
-                            "narrowRoadCameraState", "pandaStates"], ignore_alive=True)
+                            "narrowRoadCameraState", "pandaStates", "carParams"], ignore_alive=True)
   params = Params()
   info, t_info = {}, 0.0
+  settings, settings_vals, t_settings, seen_cmd = SettingsBridge(params, os.path.join(SHARE, "cmd")), {}, 0.0, None
   view_from_calib = view_frame_from_device_frame.copy()
   tmp = OUT + ".tmp"
   last_write = 0.0
@@ -88,6 +90,11 @@ def main():
     if time.monotonic() - t_info > 5.0:
       info, t_info = offroad_info(params), time.monotonic()
     ds = sm["deviceState"]
+    # settings screen of the app: apply its commands, report the values (like the comma 3X settings panels)
+    settings.poll(engaged=ss.enabled)
+    if time.monotonic() - t_settings > 1.0 or settings.last is not seen_cmd:  # right away after a command
+      settings_vals, t_settings, seen_cmd = settings.values(), time.monotonic(), settings.last
+    cp = sm["carParams"]
     model_alive = sm.seen["modelV2"] and sm.alive["modelV2"]
     pandas = [p for p in sm["pandaStates"] if str(p.pandaType) != "unknown"] if sm.seen["pandaStates"] and sm.alive["pandaStates"] else []
     out = {"t": time.time(), "w": CAM.width, "h": CAM.height, "frame": sm["narrowRoadCameraState"].frameId,
@@ -101,7 +108,13 @@ def main():
            "mode": os.getenv("S20_MODE", "manager"), "started": ds.started, "onroad": bool(ds.started or model_alive),
            "thermal": str(ds.thermalStatus) if sm.seen["deviceState"] else "", "mem": ds.memoryUsagePercent,
            "free_space": round(ds.freeSpacePercent), "panda": str(pandas[0].pandaType) if pandas else "",
-           "ignition": any(p.ignitionLine or p.ignitionCan for p in pandas), **info}
+           "ignition": any(p.ignitionLine or p.ignitionCan for p in pandas), **info,
+           "settings": {"values": settings_vals, "last": settings.last, "engaged": ss.enabled,
+                        "has_long": bool(sm.seen["carParams"] and cp.openpilotLongitudinalControl),
+                        "alpha_avail": bool(sm.seen["carParams"] and cp.alphaLongitudinalAvailable),
+                        "car": cp.carFingerprint if sm.seen["carParams"] else "",
+                        "calib_perc": calib.calPerc if sm.seen["extrinsicsCalibration"] else 0,
+                        "calib_rpy": [round(float(np.degrees(x)), 1) for x in calib.rpyCalib] if len(calib.rpyCalib) == 3 else []}}
     if sm.seen["modelV2"] and len(m.position.x):
       path = np.array([m.position.x, m.position.y, m.position.z]).T
       max_x = float(np.clip(path[-1, 0], MIN_DIST, MAX_DIST))
