@@ -50,7 +50,10 @@
   sensord 대신 `s20.sensord.s20sensord`, ui 대신 `s20.ui.s20uid`(안드로이드 앱용 데이터) 실행.
   S20 에서 끄는 것: soundd·micd(소리는 안드로이드), encoderd·stream_encoderd(하드웨어 인코더 없음),
   manage_athenad·uploader(comma connect 등록 안 함), webrtcd
-- `openpilot/selfdrive/modeld/SConscript`: `S20` 이면 모델 컴파일 플래그 `DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 ...`
+- `openpilot/selfdrive/modeld/SConscript`: `S20` 이면 모델 컴파일 플래그 `DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 ...`,
+  주행 모델은 `BEAM=2`(환경변수 `S20_BEAM`, 0이면 끔)로 컴파일 — BEAM 결과는 `~/.cache/tinygrad` 에 남아서 다시 빌드할 때 재사용
+- `openpilot/selfdrive/modeld/models/driving_supercombo.onnx`: 스냅샷(af90646, Cheddar) 이후 나온 콤마 최신 주행 모델
+  **Crumbly Cheddar** (commaai/openpilot c162fdc, 2026-11-25)로 교체. 입출력·가중치 모양 동일, 그래프 노드 순서만 조금 다름
 - `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용
   - `compiler_mesa.py`: IR3 컴파일러 a630 전용 제한에 a650 추가 (Mesa 장치 정보는 gpu_id 650 으로 조회)
   - `ops_qcom.py`: 개인 메모리(스택) 크기를 SP당 fiber 수(a630 2048, a650 4096)에 맞춤

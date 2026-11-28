@@ -44,7 +44,10 @@ taskset = 'taskset -c 0-7 ' if arch == 'comma_arm64' else ''
 
 def compile_model(onnx_path, pkl_path):
   onnx_path, target_pkl_path = File(onnx_path).abspath, File(pkl_path).abspath
-  cmd = (f'{tg_flags} {mac_brew_string} {taskset}python3 "{compiler}/compile_onnx.py" '
+  # s20: the driving model's kernels are tuned on the phone with BEAM (results cached in ~/.cache/tinygrad, so a rebuild
+  # only searches kernels it has not seen). S20_BEAM=0 skips the search.
+  beam = f"BEAM={os.environ.get('S20_BEAM', '2')} " if os.environ.get('S20') and 'driving' in pkl_path and os.environ.get('S20_BEAM', '2') != '0' else ''
+  cmd = (f'{beam}{tg_flags} {mac_brew_string} {taskset}python3 "{compiler}/compile_onnx.py" '
          f'"{onnx_path}" "{target_pkl_path}" --out-of-band --benchmark-runs 1')
   lenv.Command(
     target_pkl_path,
