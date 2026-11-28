@@ -21,8 +21,8 @@ echo "== tinymesa (Mesa ir3 compiler)"
 python3 -c "import tinymesa" 2>/dev/null || \
   pip3 install --break-system-packages tinymesa==25.2.7.2 || { echo "FAIL: pip install tinymesa"; exit 1; }
 
-echo "== tinygrad device list (QCOM renderers)"
-DEV=QCOM python3 -m tinygrad.device
+echo "== clang (tinygrad's CPU device; reading results back copies to CPU)"
+command -v clang >/dev/null || apt install -y clang || { echo "FAIL: apt install clang"; exit 1; }
 
 echo "== tinygrad QCOM:IR3"
 DEV=QCOM:IR3 python3 - <<'EOF'
