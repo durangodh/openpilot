@@ -1,5 +1,5 @@
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..9440b3f 100644
+index 53804bd..0fead43 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
 @@ -145,21 +145,22 @@ class QCOMComputeQueue(HWQueue):
@@ -48,7 +48,7 @@ index 53804bd..9440b3f 100644
 +    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * fibers_per_sp, 0x1000)
 +    # SP_CS_PVT_MEM_STACK_OFFSET.OFFSET is a 19-bit field in 2 KiB units (mesa a6xx.xml shr=11); the raw byte count
 +    # (>= 1 MiB whenever there is private memory) overflows it and points the hardware stack at the private memory
-+    self.hw_stack_offset_reg: int = (self.hw_stack_offset >> 11) if dev.gpu_id[:2] == (6, 5) else self.hw_stack_offset
++    self.hw_stack_offset_reg: int = (self.hw_stack_offset >> int(os.environ.get("S20_STACK_SHR", 11))) if dev.gpu_id[:2] == (6, 5) else self.hw_stack_offset
      self.shared_size: int = max(1, (self.shmem - 1) // 1024)
 -    self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
 +    if dev.gpu_id[:2] == (6, 5):

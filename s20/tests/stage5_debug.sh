@@ -25,7 +25,7 @@ CONFIGS=(
 run_one() {  # run_one <n>
   n=$1; cfg=${CONFIGS[$n]}; log=$LOGS/cfg$n.log
   echo "== [$n] $cfg"
-  env DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
+  env S20_STACK_SHR=${S20_STACK_SHR:-11} DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
 import sys, time, numpy as np
 from tinygrad import Tensor, Device, dtypes
 from tinygrad.nn.onnx import OnnxRunner
