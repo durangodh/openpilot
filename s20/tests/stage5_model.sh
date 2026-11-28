@@ -32,7 +32,9 @@ done
 FLAGS="S20_REG_LIMIT=${S20_REG_LIMIT:-64} DEV=QCOM:IR3 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1"
 
 compile() {  # compile <onnx> <pkl>
-  for image in 1 0; do
+  # IMAGE=1 runs on the a650 but its kernels spill registers and fall back to NOOPT (~100 ms vs ~55 ms), so
+  # IMAGE=0 is the default; S20_IMAGE="1 0" tries IMAGE=1 first
+  for image in ${S20_IMAGE:-0}; do
     echo "== $1 (IMAGE=$image)"
     t0=$(date +%s)
     if env $FLAGS IMAGE=$image python3 "$ROOT/tinygrad_repo/examples/openpilot/compile_onnx.py" \
