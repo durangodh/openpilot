@@ -51,7 +51,9 @@
   S20 에서 끄는 것: soundd·micd(소리는 안드로이드), encoderd·stream_encoderd(하드웨어 인코더 없음),
   manage_athenad·uploader(comma connect 등록 안 함), webrtcd
 - `openpilot/selfdrive/modeld/SConscript`: `S20` 이면 모델 컴파일 플래그 `DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 ...`,
-  주행 모델은 `BEAM=2`(환경변수 `S20_BEAM`, 0이면 끔)로 컴파일 — BEAM 결과는 `~/.cache/tinygrad` 에 남아서 다시 빌드할 때 재사용
+  주행 모델은 BEAM 으로 튜닝된 커널을 사용(`S20_BEAM`, 0이면 끔). 빌드 때는 탐색 안 함(`S20_BEAM_CACHE_ONLY=1`):
+  튜닝된 커널만 BEAM 결과, 나머지는 기본 휴리스틱. 탐색은 `tests/stage5_beam.sh` (멈춰도 이어서 됨)
+  - `tinygrad_a650.patch`: `S20_BEAM_CACHE_ONLY=1` 이면 BEAM 캐시에 있는 커널만 BEAM 적용 (`search.py`, `postrange.py`)
 - `openpilot/selfdrive/modeld/models/driving_supercombo.onnx`: 스냅샷(af90646, Cheddar) 이후 나온 콤마 최신 주행 모델
   **Crumbly Cheddar** (commaai/openpilot c162fdc, 2026-11-25)로 교체. 입출력·가중치 모양 동일, 그래프 노드 순서만 조금 다름
 - `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용

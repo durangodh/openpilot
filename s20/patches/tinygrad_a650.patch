@@ -83,8 +83,22 @@ index ec97cac..104e497 100644
        if (s:=k.full_shape[axes[-1]]) <= 32:
          k.apply_opt(Opt(OptOps.SPLIT, axes[-1], (0, AxisType.UPCAST)))
          # if it's small, upcast a second reduce dimension too
+diff --git a/tinygrad/codegen/opt/postrange.py b/tinygrad/codegen/opt/postrange.py
+index d7f19cd..41dac37 100644
+--- a/tinygrad/codegen/opt/postrange.py
++++ b/tinygrad/codegen/opt/postrange.py
+@@ -242,7 +242,8 @@ def apply_opts(ast:UOp, ren:Renderer, beam:int=0) -> UOp:
+   k.convert_loop_to_global()
+   if ast.arg is not None and ast.arg.opts_to_apply is not None:
+     for opt in ast.arg.opts_to_apply: k.apply_opt(opt)
+-  elif beam >= 1:
++  elif beam >= 1 and (not getenv("S20_BEAM_CACHE_ONLY") or __import__("tinygrad.codegen.opt.search", fromlist=["x"]).s20_beam_cached(
++      k, beam, bool(getenv("BEAM_ESTIMATE", 1)))):
+     from tinygrad.codegen.opt.search import beam_search
+     rawbufs, var_vals = args_from_ast(ast, ren.target.device)
+     # beam search may open devices
 diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
-index af21998..d2569aa 100644
+index af21998..c41869c 100644
 --- a/tinygrad/codegen/opt/search.py
 +++ b/tinygrad/codegen/opt/search.py
 @@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
@@ -97,6 +111,18 @@ index af21998..d2569aa 100644
      uops = prg.src[1].src
      if len(uops) >= (uops_max:=getenv("BEAM_UOPS_MAX", 3000)) > 0:
        if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too many uops. {len(uops)=}, {uops_max=}")
+@@ -102,6 +105,11 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
+   return acted
+ 
+ BEAM_DEBUG = getenv("BEAM_DEBUG")
++def s20_beam_cached(s:Scheduler, amt:int, allow_test_size=True) -> bool:
++  # s20: S20_BEAM_CACHE_ONLY=1 uses BEAM only for kernels already tuned (in the cache), the rest get the usual heuristics
++  key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
++  return not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and diskcache_get("beam_search", key) is not None
++
+ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:int, allow_test_size=True):
+   key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
+   if not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and (val:=diskcache_get("beam_search", key)) is not None:
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
 index 53804bd..2a90370 100644
 --- a/tinygrad/runtime/ops_qcom.py
