@@ -25,7 +25,7 @@ CONFIGS=(
 run_one() {  # run_one <n>
   n=$1; cfg=${CONFIGS[$n]}; log=$LOGS/cfg$n.log
   echo "== [$n] $cfg"
-  env S20_STACK_SHR=${S20_STACK_SHR:-11} DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
+  env S20_SKIP_RE="$S20_SKIP_RE" S20_STACK_SHR=${S20_STACK_SHR:-11} DEV=QCOM:IR3 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 DEBUG=2 $cfg timeout 1200 python3 - "$MODEL" > "$log" 2>&1 <<'EOF'
 import sys, time, numpy as np
 from tinygrad import Tensor, Device, dtypes
 from tinygrad.nn.onnx import OnnxRunner
@@ -46,6 +46,10 @@ def _trace(self, call, prg):
         f"fregs={d.fregs} hregs={d.hregs} pvt={d.pvtmem} shm={d.shmem} brn={d.brnchstck} img={d.image_size} "
         f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads} merged={getattr(d,'mergedregs','?')} "
         f"perwave={getattr(d,'pvt_per_wave','?')} preload={getattr(d,'preload_units','?')} stack={getattr(d,'hw_stack_offset_reg','?')}", flush=True)
+  import os, re
+  if os.environ.get("S20_SKIP_RE") and re.search(os.environ["S20_SKIP_RE"], name):
+    print(f"S20SKIP {name}", flush=True)   # not sent to the GPU: results are wrong, only to find which kernel hangs
+    return None
   return _exec(self, call, prg)
 oq.QCOMComputeQueue.exec = _trace
 runner = OnnxRunner(sys.argv[1])
@@ -63,9 +67,9 @@ print(f"S20OUT finite={np.isfinite(o).all()} mean={float(np.abs(o).mean()):.4f}"
 EOF
   rc=$?
   if grep -q "S20OUT" "$log"; then
-    echo "   OK: $(grep S20RUN "$log" | tail -1)  $(grep S20OUT "$log")"
+    echo "   OK: $(grep S20RUN "$log" | tail -1)  $(grep S20OUT "$log")  skipped: $(grep -c S20SKIP "$log")"
   else
-    echo "   FAIL (rc=$rc): $(grep -m1 -E 'hang detected|timed out|Error' "$log")"
+    echo "   FAIL (rc=$rc): $(grep -m1 -E 'hang detected|timed out|Error' "$log")  skipped: $(grep -c S20SKIP "$log")  kernels sent: $(grep -c S20K "$log")"
     echo "   last kernels before the failure:"
     grep -E "^\*\*\*|^ *[0-9]+ .*(r_|E_)" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
     echo "   kernel(s) sent to the GPU last:"
