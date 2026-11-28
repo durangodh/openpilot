@@ -1,10 +1,38 @@
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..a71e6bc 100644
+index 53804bd..2a06873 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
-@@ -227,9 +227,11 @@ class QCOMProgramData:
+@@ -145,17 +145,18 @@ class QCOMComputeQueue(HWQueue):
+              cast_int(global_size[0], ceil=True), cast_int(global_size[1], ceil=True), cast_int(global_size[2], ceil=True))
+ 
+     self.reg(mesa.REG_A6XX_SP_CS_CNTL_0,
+-             qreg.a6xx_sp_cs_cntl_0(threadsize=mesa.THREAD64, halfregfootprint=data.hregs, fullregfootprint=data.fregs, branchstack=data.brnchstck),
++             qreg.a6xx_sp_cs_cntl_0(threadsize=mesa.THREAD64, halfregfootprint=data.hregs, fullregfootprint=data.fregs, branchstack=data.brnchstck,
++                                    mergedregs=data.mergedregs),
+              qreg.a6xx_sp_cs_cntl_1(constantrammode=mesa.CONSTLEN_256, shared_size=data.shared_size), # should this be CONSTLEN_512?
+              0, data.prg_offset, lib_addr,
+              qreg.a6xx_sp_cs_pvt_mem_param(memsizeperitem=data.pvtmem_size_per_item), stack_addr,
+-             qreg.a6xx_sp_cs_pvt_mem_size(totalpvtmemsize=data.pvtmem_size_total))
++             qreg.a6xx_sp_cs_pvt_mem_size(totalpvtmemsize=data.pvtmem_size_total, perwavememlayout=data.pvt_per_wave))
+ 
+     # the kernargs sit in the cmdbuf, so the const upload is sized to them (in vec4s) rather than to the whole constlen: it must not read past
+     self.cmd(mesa.CP_LOAD_STATE6_FRAG, qreg.cp_load_state6_0(state_type=mesa.ST_CONSTANTS, state_src=mesa.SS6_INDIRECT,
+                                                              state_block=mesa.SB6_CS_SHADER, num_unit=data.kernargs_alloc_size // 16), args_addr)
+     self.cmd(mesa.CP_LOAD_STATE6_FRAG, qreg.cp_load_state6_0(state_type=mesa.ST_SHADER, state_src=mesa.SS6_INDIRECT,
+-                                                             state_block=mesa.SB6_CS_SHADER, num_unit=ceildiv(data.image_size, 128)), lib_addr)
++                                                             state_block=mesa.SB6_CS_SHADER, num_unit=data.preload_units), lib_addr)
+ 
+     self.reg(mesa.REG_A6XX_SP_REG_PROG_ID_0, 0xfcfcfcfc, 0xfcfcfcfc, 0xfcfcfcfc, 0xfc, qreg.a6xx_sp_cs_const_config(constlen=1024 // 4, enabled=True))
+ 
+@@ -225,13 +226,21 @@ class QCOMProgramData:
+ 
+       self.tex_off, self.ibo_off, self.samp_off = 2048, 2048 + 0x40 * self.tex_cnt, 2048 + 0x40 * (self.tex_cnt + self.ibo_cnt)
        self.fregs, self.hregs = v.info.max_reg + 1, v.info.max_half_reg + 1
-     else: self._parse_lib(obj.lib)
+-    else: self._parse_lib(obj.lib)
++      self.mergedregs, self.pvt_per_wave = bool(v.mergedregs), bool(v.pvtmem_per_wave)
++    else:
++      self.mergedregs, self.pvt_per_wave = False, False
++      self._parse_lib(obj.lib)
  
 +    # per-SP private memory = per-fiber size * fibers per SP (mesa fd_dev_info: a630 2048, a650 4096); the size register is in 4 KiB units
 +    fibers_per_sp = 4096 if dev.gpu_id[:2] == (6, 5) else 2048
@@ -14,8 +42,14 @@ index 53804bd..a71e6bc 100644
 +    self.pvtmem_size_total: int = self.pvtmem_size_per_item * 128 * 2 * (fibers_per_sp // 2048)
 +    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * fibers_per_sp, 0x1000)
      self.shared_size: int = max(1, (self.shmem - 1) // 1024)
-     self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
+-    self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
++    reg_size = 256 if dev.gpu_id[:2] == (6, 5) else 384  # reg_size_vec4 * 4: a630 96, a650 64
++    self.max_threads = min(1024, ((reg_size * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
++    # a650: preload at most instr_cache_size (127) instruction groups like mesa; the rest is fetched from memory
++    self.preload_units = min(ceildiv(self.image_size, 128), 127) if dev.gpu_id[:2] == (6, 5) else ceildiv(self.image_size, 128)
      self.kernargs_alloc_size = round_up(2048 + (self.tex_cnt + self.ibo_cnt) * 0x40 + len(self.samplers) * 4, 0x100)
+ 
+   def _parse_lib(self, lib):
 diff --git a/tinygrad/runtime/support/compiler_mesa.py b/tinygrad/runtime/support/compiler_mesa.py
 index b5e7945..09aab0e 100644
 --- a/tinygrad/runtime/support/compiler_mesa.py

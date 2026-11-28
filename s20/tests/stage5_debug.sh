@@ -36,7 +36,8 @@ def _trace(self, call, prg):
   d, _ = oq.qcom_build_program(self.dev, prg, self.devs)
   print(f"S20K {prg.arg.name if hasattr(prg.arg,'name') else '?'} gs={prg.arg.global_size} ls={prg.arg.local_size} "
         f"fregs={d.fregs} hregs={d.hregs} pvt={d.pvtmem} shm={d.shmem} brn={d.brnchstck} img={d.image_size} "
-        f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads}", flush=True)
+        f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads} merged={getattr(d,'mergedregs','?')} "
+        f"perwave={getattr(d,'pvt_per_wave','?')} preload={getattr(d,'preload_units','?')}", flush=True)
   return _exec(self, call, prg)
 oq.QCOMComputeQueue.exec = _trace
 runner = OnnxRunner(sys.argv[1])
