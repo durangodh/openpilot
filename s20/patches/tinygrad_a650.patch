@@ -1,8 +1,8 @@
 diff --git a/tinygrad/codegen/__init__.py b/tinygrad/codegen/__init__.py
-index f4535a4..f2e2ae0 100644
+index f4535a4..0f2eaaa 100644
 --- a/tinygrad/codegen/__init__.py
 +++ b/tinygrad/codegen/__init__.py
-@@ -514,6 +514,38 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
+@@ -514,6 +514,39 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
    return (ast.key, type(renderer), renderer.target, *[x.value for x in to_program_config])
  
  to_program_cache: dict[tuple, UOp] = {}
@@ -23,6 +23,7 @@ index f4535a4..f2e2ae0 100644
 +def _s20_to_program(ast:UOp, renderer:Renderer) -> UOp:
 +  prg = do_to_program(ast, renderer)
 +  if not _s20_bad(i0:=_s20_info(prg, renderer)) or ast.op is not Ops.SINK: return prg
++  if isinstance(ast.arg, KernelInfo) and ast.arg.optimized: return prg  # opts fixed by the caller (BEAM): it rejects it
 +  name = ast.arg.name if isinstance(ast.arg, KernelInfo) else "?"
 +  from tinygrad.codegen.opt import heuristic
 +  tried = []
@@ -82,6 +83,20 @@ index ec97cac..104e497 100644
        if (s:=k.full_shape[axes[-1]]) <= 32:
          k.apply_opt(Opt(OptOps.SPLIT, axes[-1], (0, AxisType.UPCAST)))
          # if it's small, upcast a second reduce dimension too
+diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
+index af21998..d2569aa 100644
+--- a/tinygrad/codegen/opt/search.py
++++ b/tinygrad/codegen/opt/search.py
+@@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
+     prg = to_program(ast.substitute({p: p.replace(arg=replace(p.arg, device=dev)) for p in ast.toposort()
+                                      if p.op is Ops.PARAM and p.addrspace is not AddrSpace.ALU}), x[1].ren)
+     et = time.perf_counter() - st
++    # s20: never time a candidate the a650 hangs on (register spill / too many registers)
++    from tinygrad.codegen import _s20_bad, _s20_info
++    if _s20_bad(_s20_info(prg, x[1].ren)): raise RuntimeError("s20: candidate spills or uses too many registers")
+     uops = prg.src[1].src
+     if len(uops) >= (uops_max:=getenv("BEAM_UOPS_MAX", 3000)) > 0:
+       if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too many uops. {len(uops)=}, {uops_max=}")
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
 index 53804bd..2a90370 100644
 --- a/tinygrad/runtime/ops_qcom.py
