@@ -14,14 +14,20 @@ MODELS=$PWD/openpilot/selfdrive/modeld/models
 export PYTHONPATH="$PWD/tinygrad_repo:$PWD"
 B=2  # the cache is per beam width: keep 2
 CACHE_ONLY=""; [ "$1" = "cache" ] && CACHE_ONLY="S20_BEAM_CACHE_ONLY=1"
-TUNED=$(python3 -c "import sqlite3;db=sqlite3.connect('/root/.cache/tinygrad/cache.db');print(sum(db.execute(f'select count(*) from \"{t}\"').fetchone()[0] for (t,) in db.execute(\"select name from sqlite_master where type='table'\") if 'beam' in t))" 2>/dev/null)
+# BEAM results from before 2026-11-29 were chosen with GPU timings that all read 0 ms (a650 CP_ALWAYS_ON_COUNTER):
+# drop them once. Kernels are now timed with the CPU clock (S20_CPU_TIMER) at full size (BEAM_ESTIMATE=0)
+if [ ! -f ~/.cache/tinygrad/s20_cpu_timer ]; then
+  python3 -c "import sqlite3;db=sqlite3.connect('/root/.cache/tinygrad/cache.db');[db.execute(f'drop table \"{t}\"') for (t,) in list(db.execute(\"select name from sqlite_master where type='table'\")) if 'beam' in t];db.commit()" 2>/dev/null
+  mkdir -p ~/.cache/tinygrad && touch ~/.cache/tinygrad/s20_cpu_timer && echo "== old BEAM results (timed 0 ms) removed"
+fi
+TUNED=$(python3 -c "import sqlite3;db=sqlite3.connect('/root/.cache/tinygrad/cache.db');print(sum(db.execute(f'select count(*) from \"{t}\"').fetchone()[0] for (t,) in db.execute(\"select name from sqlite_master where type='table'\") if t.startswith('beam_search')))" 2>/dev/null)
 echo "== tuned kernels in the cache: ${TUNED:-0}"
 cp -f $MODELS/driving_tinygrad.pkl /root/s20logs/driving_tinygrad.prev.pkl 2>/dev/null  # restored if the result is slow
 # a candidate kernel can hang the a650: the GPU wait gives up after 20 s and exits (rc 75), the candidate is
 # remembered as bad (~/.cache/tinygrad/s20_beam_bad.txt) and the run starts again from the cache
 for try in $(seq 1 40); do
   echo "== BEAM=$B ${CACHE_ONLY:+(tuned kernels only) }on driving_supercombo.onnx ($(date +%H:%M), run $try)"
-  env $CACHE_ONLY S20_BEAM_VERIFY=1 S20_BEAM_GUARD=1 S20_WAIT_MAX_S=20 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 \
+  env $CACHE_ONLY S20_CPU_TIMER=1 BEAM_ESTIMATE=0 S20_BEAM_VERIFY=1 S20_BEAM_GUARD=1 S20_WAIT_MAX_S=20 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 \
     JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 BEAM=$B \
     python "$PWD/tinygrad_repo/examples/openpilot/compile_onnx.py" "$MODELS/driving_supercombo.onnx" \
     "$MODELS/driving_tinygrad.pkl" --out-of-band --benchmark-runs 10 2>&1 | tee /root/s20logs/beam_last.log | grep -vE "^\s*$" | grep -vE "^compiling|it/s" | grep -vE "not used \(S20_BEAM_N" | tail -40

@@ -48,7 +48,7 @@ def compile_model(onnx_path, pkl_path):
   # ~/.cache/tinygrad); kernels not tuned yet get the usual heuristics, so the build stays fast. S20_BEAM=2 turns it on;
   # off by default: the first full BEAM run made the model 9.4 s/run instead of 55 ms (2026-11-29); S20_BEAM_VERIFY keeps
   # a BEAM kernel only if it is faster than the heuristic one at full size
-  beam = (f"BEAM={os.environ.get('S20_BEAM', '0')} S20_BEAM_CACHE_ONLY=1 S20_BEAM_VERIFY=1 "
+  beam = (f"BEAM={os.environ.get('S20_BEAM', '0')} S20_BEAM_CACHE_ONLY=1 S20_BEAM_VERIFY=1 S20_CPU_TIMER=1 BEAM_ESTIMATE=0 "
           if os.environ.get('S20') and 'driving' in pkl_path and os.environ.get('S20_BEAM', '0') != '0' else '')
   cmd = (f'{beam}{tg_flags} {mac_brew_string} {taskset}python3 "{compiler}/compile_onnx.py" '
          f'"{onnx_path}" "{target_pkl_path}" --out-of-band --benchmark-runs 1')

@@ -224,6 +224,31 @@ index af21998..6f0369a 100644
          timed.append((candidates[i], min(tms)))
          if BEAM_DEBUG > 1:
            print(f"{time.perf_counter() - st:7.2f}s: {i:5d} {len(prg.src[1].src):5d} uops",
+diff --git a/tinygrad/engine/realize.py b/tinygrad/engine/realize.py
+index adc1b3d..54f3e58 100644
+--- a/tinygrad/engine/realize.py
++++ b/tinygrad/engine/realize.py
+@@ -289,6 +289,7 @@ def run_linear(linear:UOp, var_vals:dict[str, int]|None=None, input_uops:Sequenc
+   ctx = ExecContext(var_vals or {}, tuple(inputs), update_stats, jit, wait or DEBUG>=2)
+   for call in linear.src: track_stats(ctx, call.without_after, perf_counter_us(), pm_exec.rewrite(call.without_after, ctx))
+ 
++S20_CPU_TIMER = __import__("os").environ.get("S20_CPU_TIMER", "0") == "1"
+ def time_call(call:UOp, var_vals:dict[str, int]|None=None, timeout:int|None=None, clear_l2:bool=False) -> Iterator[float]:
+   ctx = ExecContext(var_vals or {}, update_stats=False, wait=True, timeout=timeout, cache=False)
+   linear = link_linear(compile_linear(UOp(Ops.LINEAR, src=(call,)), beam=0, profile=True, cache=False))
+@@ -298,4 +299,12 @@ def time_call(call:UOp, var_vals:dict[str, int]|None=None, timeout:int|None=None
+       else:
+         from tinygrad.tensor import Tensor
+         with Context(DEBUG=0, BEAM=0, CAPTURING=0, TRACK_MATCH_STATS=0): Tensor.ones(1024, 1024).contiguous().realize(do_update_stats=False)
++    if S20_CPU_TIMER:
++      # s20: the a650 GPU timestamps (CP_ALWAYS_ON_COUNTER) read as 0, so every kernel timed 0 ms and BEAM picked blindly.
++      # time submit + run + wait on the CPU instead (adds a fixed ~0.1 ms, the same for every candidate)
++      import time as _t
++      st = _t.perf_counter()
++      pm_exec.rewrite(linear.src[0].without_after, ctx)
++      yield _t.perf_counter() - st
++      continue
+     yield max(map(unwrap, pm_exec.rewrite(c:=linear.src[0].without_after, ctx)[isinstance(c.arg.aux, HCQInfo):]))
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
 index 53804bd..96cd0ab 100644
 --- a/tinygrad/runtime/ops_qcom.py

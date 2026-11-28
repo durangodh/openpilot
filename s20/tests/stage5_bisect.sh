@@ -12,7 +12,7 @@ L=/root/s20logs/bisect; mkdir -p $L
 SLOW_MS=${S20_MAX_MS:-70}
 
 run() {  # run <n>: prints ms per run with the first n BEAM kernels
-  env S20_BEAM_N=$1 BEAM=2 S20_BEAM_CACHE_ONLY=1 S20_WAIT_MAX_S=60 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 \
+  env S20_BEAM_N=$1 BEAM=2 S20_BEAM_CACHE_ONLY=1 S20_CPU_TIMER=1 BEAM_ESTIMATE=0 S20_WAIT_MAX_S=60 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 \
     NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 python tinygrad_repo/examples/openpilot/compile_onnx.py \
     openpilot/selfdrive/modeld/models/driving_supercombo.onnx /tmp/s20_bisect.pkl --out-of-band --benchmark-runs 3 \
     > $L/n$1.log 2>&1
@@ -21,7 +21,7 @@ run() {  # run <n>: prints ms per run with the first n BEAM kernels
 
 if [ "$1" = "verify" ]; then
   n=${2:-6}
-  env S20_BEAM_VERIFY=2 S20_BEAM_N=$n BEAM=2 S20_BEAM_CACHE_ONLY=1 S20_WAIT_MAX_S=60 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 \
+  env S20_BEAM_VERIFY=2 S20_BEAM_N=$n BEAM=2 S20_BEAM_CACHE_ONLY=1 S20_CPU_TIMER=1 BEAM_ESTIMATE=0 S20_WAIT_MAX_S=60 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 \
     FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 python tinygrad_repo/examples/openpilot/compile_onnx.py \
     openpilot/selfdrive/modeld/models/driving_supercombo.onnx /tmp/s20_bisect.pkl --out-of-band --benchmark-runs 3 \
     > $L/verify$n.log 2>&1

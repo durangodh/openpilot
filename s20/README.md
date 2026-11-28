@@ -54,6 +54,10 @@
   주행 모델은 BEAM 으로 튜닝된 커널을 사용(`S20_BEAM`, 0이면 끔). 빌드 때는 탐색 안 함(`S20_BEAM_CACHE_ONLY=1`):
   튜닝된 커널만 BEAM 결과, 나머지는 기본 휴리스틱. 탐색은 `tests/stage5_beam.sh` (멈춰도 이어서 됨)
   - `tinygrad_a650.patch`: `S20_BEAM_CACHE_ONLY=1` 이면 BEAM 캐시에 있는 커널만 BEAM 적용 (`search.py`, `postrange.py`)
+  - `realize.py`: a650 에서 GPU 타임스탬프(`CP_ALWAYS_ON_COUNTER`)가 0 으로 읽혀 모든 커널이 0 ms 로 재짐 → BEAM 이 사실상
+    무작위로 골라 모델이 9.4 s/회가 됨 (2026-11-29). `S20_CPU_TIMER=1` 이면 제출~완료를 CPU 시계로 잼 (+고정 ~0.1 ms)
+  - `search.py`: `S20_BEAM_GUARD` GPU 를 멈추게 한 후보 기록·건너뛰기, `S20_BEAM_VERIFY` 실제 크기로 BEAM vs 기본 비교,
+    `S20_BEAM_N` 앞 N 개만 사용 (`tests/stage5_bisect.sh`) / `ops_qcom.py`: `S20_WAIT_MAX_S` GPU 응답 대기 절대 제한
 - `openpilot/selfdrive/modeld/models/driving_supercombo.onnx`: 스냅샷(af90646, Cheddar) 이후 나온 콤마 최신 주행 모델
   **Crumbly Cheddar** (commaai/openpilot c162fdc, 2026-11-25)로 교체. 입출력·가중치 모양 동일, 그래프 노드 순서만 조금 다름
 - `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용
