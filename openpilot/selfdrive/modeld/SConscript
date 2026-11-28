@@ -11,7 +11,7 @@ Import('env', 'arch')
 
 # TODO: add GCC support to tinygrad?
 # tinygrad's CPU:LLVM backend requires libLLVM, skip the build on PC if it's not available
-if arch not in ('comma_arm64', 'Darwin') and ctypes.util.find_library('LLVM') is None:
+if arch not in ('comma_arm64', 'Darwin') and not os.environ.get('S20') and ctypes.util.find_library('LLVM') is None:
   print("\033[93mmodeld: LLVM not found, skipping tinygrad model compilation. Install LLVM to compile models.\033[0m")
   Return()
 
@@ -24,7 +24,10 @@ tinygrad_files = ["#"+x for x in glob.glob(env.Dir("#tinygrad_repo").relpath + "
 
 camera_configs = [(c.width, c.height) for c in (_ar_ox_fisheye, _os_fisheye)]
 
-if arch == 'comma_arm64':
+if os.environ.get('S20'):
+  # s20: Galaxy S20 FE (Adreno 650): Mesa IR3 renderer, IMAGE=0 (IMAGE=1 spills registers on the a650, see s20/README.md)
+  tg_flags = 'DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
+elif arch == 'comma_arm64':
   tg_flags = 'DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
 else:
   # JIT=2 disables graph batching, which produces incorrect outputs after buffers change.
