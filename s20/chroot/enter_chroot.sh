@@ -28,6 +28,13 @@ mnt /data/s20pilot/share "$ROOT/s20share" "-o bind"
 # SELinux blocks a lot from the chroot; permissive while porting
 setenforce 0 2>/dev/null
 
+# with arguments: run that command in the chroot and return (used by test scripts); without: interactive shell
+if [ $# -gt 0 ]; then
+  exec chroot "$ROOT" /usr/bin/env -i \
+    HOME=/root TERM="$TERM" LANG=C.UTF-8 TZ=Asia/Seoul DEBIAN_FRONTEND=noninteractive \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    /bin/bash -lc "$*"
+fi
 exec chroot "$ROOT" /usr/bin/env -i \
   HOME=/root TERM="$TERM" LANG=C.UTF-8 TZ=Asia/Seoul DEBIAN_FRONTEND=noninteractive \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
