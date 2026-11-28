@@ -23,6 +23,28 @@ final class FakeContext extends ContextWrapper {
   @Override public Context getApplicationContext() { return this; }
   @Override public int getDeviceId() { return 0; }
 
+  // CameraManager.getRotationOverride() calls ActivityManager.getAppTasks() with the ActivityManager's own context
+  // package; the system context's is "android", refused for uid 2000. Hand out an ActivityManager bound to this context.
+  private Object activityManager;
+
+  @Override public Object getSystemService(String name) {
+    if (Context.ACTIVITY_SERVICE.equals(name)) {
+      if (activityManager == null) {
+        try {
+          java.lang.reflect.Constructor<?> c = android.app.ActivityManager.class
+              .getDeclaredConstructor(Context.class, android.os.Handler.class);
+          c.setAccessible(true);
+          activityManager = c.newInstance(this, null);
+        } catch (Throwable t) {
+          Log.w("ActivityManager for shell context: " + t);
+          return super.getSystemService(name);
+        }
+      }
+      return activityManager;
+    }
+    return super.getSystemService(name);
+  }
+
   @Override public ApplicationInfo getApplicationInfo() {
     ApplicationInfo base = super.getApplicationInfo();
     ApplicationInfo info = base != null ? new ApplicationInfo(base) : new ApplicationInfo();
