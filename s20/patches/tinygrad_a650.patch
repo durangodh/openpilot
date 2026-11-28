@@ -1,5 +1,5 @@
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..2a06873 100644
+index 53804bd..1f52056 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
 @@ -145,17 +145,18 @@ class QCOMComputeQueue(HWQueue):
@@ -24,7 +24,7 @@ index 53804bd..2a06873 100644
  
      self.reg(mesa.REG_A6XX_SP_REG_PROG_ID_0, 0xfcfcfcfc, 0xfcfcfcfc, 0xfcfcfcfc, 0xfc, qreg.a6xx_sp_cs_const_config(constlen=1024 // 4, enabled=True))
  
-@@ -225,13 +226,21 @@ class QCOMProgramData:
+@@ -225,13 +226,25 @@ class QCOMProgramData:
  
        self.tex_off, self.ibo_off, self.samp_off = 2048, 2048 + 0x40 * self.tex_cnt, 2048 + 0x40 * (self.tex_cnt + self.ibo_cnt)
        self.fregs, self.hregs = v.info.max_reg + 1, v.info.max_half_reg + 1
@@ -43,8 +43,12 @@ index 53804bd..2a06873 100644
 +    self.hw_stack_offset: int = round_up(next_power2(round_up(self.pvtmem, 512)) * fibers_per_sp, 0x1000)
      self.shared_size: int = max(1, (self.shmem - 1) // 1024)
 -    self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
-+    reg_size = 256 if dev.gpu_id[:2] == (6, 5) else 384  # reg_size_vec4 * 4: a630 96, a650 64
-+    self.max_threads = min(1024, ((reg_size * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
++    if dev.gpu_id[:2] == (6, 5):
++      # mesa ir3_get_reg_dependent_max_waves: reg_size_vec4 (a650: 64) // regs * wave_granularity (2) waves of 64 threads;
++      # with separate (non-merged) half registers two halves share a full slot, so regs = max(full, ceil(half/2))
++      regs = max(1, self.fregs if self.mergedregs else max(self.fregs, ceildiv(self.hregs, 2)))
++      self.max_threads = min(1024, (64 // regs) * 2 * 64)
++    else: self.max_threads = min(1024, ((384 * 32) // (max(1, (self.fregs + round_up(self.hregs, 2) // 2)) * 128)) * 128)
 +    # a650: preload at most instr_cache_size (127) instruction groups like mesa; the rest is fetched from memory
 +    self.preload_units = min(ceildiv(self.image_size, 128), 127) if dev.gpu_id[:2] == (6, 5) else ceildiv(self.image_size, 128)
      self.kernargs_alloc_size = round_up(2048 + (self.tex_cnt + self.ibo_cnt) * 0x40 + len(self.samplers) * 4, 0x100)
