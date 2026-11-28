@@ -68,7 +68,13 @@ def main():
     if not os.path.exists(path):
       print(f"s20camerad: no {path}, {msg} not published")
       continue
-    cams.append(Cam(path, msg, stream))
+    c = Cam(path, msg, stream)
+    # a ring left over from an earlier run (e.g. the wide camera) would make modeld wait for frames that never come
+    fresh = c.ring.wait_next(c.ring.latest_id() - 1, timeout=3.0)
+    if fresh is None or boottime_ns() - fresh[2] > 2_000_000_000:
+      print(f"s20camerad: {path} is not being written (stale or camera off), {msg} not published")
+      continue
+    cams.append(c)
   if not cams:
     raise SystemExit(f"s20camerad: no camera rings in {SHARE}; start s20cam on the Android side first")
 
