@@ -38,6 +38,7 @@
 | 5 | 빌드 | `scons` 완료, 모델 컴파일 — `build.sh` **통과 2026-11-28** | `tests/stage5_model.sh` — 2026-11-28 주행 모델 컴파일·실행 통과: FLOAT16+NOLOCALS+JIT, **IMAGE=0 주행 54~56 ms/회, 운전자 모니터링 42~44 ms/회** (IMAGE=1 도 돌지만 커널 다수가 512 B spill + 48 레지스터 → NOOPT, ~100 ms. 기본값 IMAGE=0) |
 | 6 | 카메라 브리지 | 도로·광각 20fps | `android/`, `camerad/` — 2026-11-28 도로 카메라 30fps 수신(지연 ~3 ms), 20Hz로 골라 VisionIPC 전송. 광각은 동시 열기 불가 |
 | 7 | 화면·GPS·센서 | UI 표시, 위치 수신 | 7a IMU `sensord/` — **통과 2026-11-28** (가속도·자이로 103 Hz, 정지 시 [-0.44, -0.09, -9.88]) / 7b 화면, GPS 남음 |
+| 7c | 자동 시작 (c3처럼) | 부팅 로고 → 시작 스피너 → 오프로드 홈 → 주행 화면 | `android/autostart.sh install`, `launch_s20.sh`, `ui/bootanim/` |
 | 8 | 주행 | — | — |
 
 ## 원칙
@@ -45,7 +46,10 @@
 - master 코드를 고친 곳은 아래 목록에 기록한다 (업스트림 갱신 시 충돌 확인용).
 
 ### master 수정 목록
-- `openpilot/system/manager/process_config.py`: 환경변수 `S20` 이 있으면 camerad 대신 `s20.camerad.s20camerad` 실행
+- `openpilot/system/manager/process_config.py`: 환경변수 `S20` 이 있으면 camerad 대신 `s20.camerad.s20camerad`,
+  sensord 대신 `s20.sensord.s20sensord`, ui 대신 `s20.ui.s20uid`(안드로이드 앱용 데이터) 실행.
+  S20 에서 끄는 것: soundd·micd(소리는 안드로이드), encoderd·stream_encoderd(하드웨어 인코더 없음),
+  manage_athenad·uploader(comma connect 등록 안 함), webrtcd
 - `openpilot/selfdrive/modeld/SConscript`: `S20` 이면 모델 컴파일 플래그 `DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 ...`
 - `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용
   - `compiler_mesa.py`: IR3 컴파일러 a630 전용 제한에 a650 추가 (Mesa 장치 정보는 gpu_id 650 으로 조회)

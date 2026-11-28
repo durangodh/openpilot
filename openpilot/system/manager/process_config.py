@@ -72,11 +72,12 @@ def and_(*fns):
   return lambda *args: operator.and_(*(fn(*args) for fn in fns))
 
 procs = [
-  DaemonProcess("manage_athenad", "openpilot.system.athena.manage_athenad", "AthenadPid"),
+  # S20: no comma connect registration (athena/uploader), no hardware encoder, Android owns the screen and audio
+  DaemonProcess("manage_athenad", "openpilot.system.athena.manage_athenad", "AthenadPid", enabled=not S20),
 
   NativeProcess("loggerd", "openpilot/system/loggerd", ["./loggerd"], logging),
-  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], only_onroad),
-  NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar)),
+  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], only_onroad, enabled=not S20),
+  NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar), enabled=not S20),
   PythonProcess("logmessaged", "openpilot.system.logmessaged", always_run),
 
   NativeProcess("camerad", "openpilot/system/camerad", ["./camerad"], or_(driverview, livestream), enabled=not WEBCAM and not S20),
@@ -84,7 +85,7 @@ procs = [
   PythonProcess("webcamerad", "openpilot.system.camerad.webcam.camerad", driverview, enabled=WEBCAM),
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
-  PythonProcess("micd", "openpilot.system.micd", iscar),
+  PythonProcess("micd", "openpilot.system.micd", iscar, enabled=not S20),
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   PythonProcess("modeld", "openpilot.selfdrive.modeld.modeld", only_onroad),
@@ -94,8 +95,9 @@ procs = [
 
   PythonProcess("sensord", "openpilot.system.sensord.sensord", only_onroad, enabled=not PC),
   PythonProcess("s20sensord", "s20.sensord.s20sensord", only_onroad, enabled=S20),
-  PythonProcess("ui", "openpilot.selfdrive.ui.ui", always_run),
-  PythonProcess("soundd", "openpilot.selfdrive.ui.soundd", driverview),
+  PythonProcess("ui", "openpilot.selfdrive.ui.ui", always_run, enabled=not S20),
+  PythonProcess("s20uid", "s20.ui.s20uid", always_run, enabled=S20),  # data for the S20 screen app
+  PythonProcess("soundd", "openpilot.selfdrive.ui.soundd", driverview, enabled=not S20),
   PythonProcess("locationd", "openpilot.selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "openpilot/selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "openpilot.selfdrive.locationd.calibrationd", only_onroad),
@@ -119,10 +121,10 @@ procs = [
   PythonProcess("hardwared", "openpilot.system.hardware.hardwared", always_run),
   PythonProcess("tombstoned", "openpilot.system.tombstoned", always_run, enabled=not PC),
   PythonProcess("updated", "openpilot.system.updated.updated", only_offroad, enabled=not PC),
-  PythonProcess("uploader", "openpilot.system.loggerd.uploader", always_run),
+  PythonProcess("uploader", "openpilot.system.loggerd.uploader", always_run, enabled=not S20),
 
   # debug procs
-  PythonProcess("webrtcd", "openpilot.system.webrtc.webrtcd", or_(livestream, notcar)),
+  PythonProcess("webrtcd", "openpilot.system.webrtc.webrtcd", or_(livestream, notcar), enabled=not S20),
   PythonProcess("joystick", "openpilot.tools.joystick.joystick_control", and_(joystick, iscar)),
 ]
 

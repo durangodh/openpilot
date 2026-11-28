@@ -8,6 +8,7 @@ import json, os, time
 import numpy as np
 
 from openpilot.cereal import messaging, log
+from openpilot.common.params import Params
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.common.transformations.orientation import rot_from_euler
 from openpilot.common.transformations.camera import view_frame_from_device_frame
@@ -38,9 +39,40 @@ def line_polygon(T, line: np.ndarray, half_w: float, z_off: float, max_x: float)
   return np.round(poly).astype(int).tolist()
 
 
+def offroad_info(params: Params) -> dict:
+  """Home screen data like the comma 3 offroad screen: version and the offroad alerts (Offroad_* params)."""
+  def s(k):
+    try:
+      v = params.get(k)
+      return v.decode() if isinstance(v, bytes) else (v or "")
+    except Exception:
+      return ""
+  alerts = []
+  for k in params.all_keys():
+    k = k.decode() if isinstance(k, bytes) else k
+    if not k.startswith("Offroad_"):
+      continue
+    try:
+      a = params.get(k)
+    except Exception:
+      continue
+    if isinstance(a, (bytes, str)):
+      try:
+        a = json.loads(a)
+      except Exception:
+        a = None
+    if isinstance(a, dict) and a.get("text"):
+      alerts.append({"key": k[8:], "severity": int(a.get("severity", 0)), "text": a["text"].replace("%1", str(a.get("extra", "")))})
+  alerts.sort(key=lambda a: -a["severity"])
+  return {"version": s("Version"), "branch": s("GitBranch"), "commit": s("GitCommit")[:7], "dongle": s("DongleId"),
+          "alerts": alerts}
+
+
 def main():
   sm = messaging.SubMaster(["modelV2", "carState", "selfdriveState", "radarState", "extrinsicsCalibration", "deviceState",
-                            "narrowRoadCameraState"], ignore_alive=True)
+                            "narrowRoadCameraState", "pandaStates"], ignore_alive=True)
+  params = Params()
+  info, t_info = {}, 0.0
   view_from_calib = view_frame_from_device_frame.copy()
   tmp = OUT + ".tmp"
   last_write = 0.0
@@ -53,13 +85,23 @@ def main():
     z_off = calib.height[0] if len(calib.height) else HEIGHT_INIT
 
     m, cs, ss, rs = sm["modelV2"], sm["carState"], sm["selfdriveState"], sm["radarState"]
+    if time.monotonic() - t_info > 5.0:
+      info, t_info = offroad_info(params), time.monotonic()
+    ds = sm["deviceState"]
+    model_alive = sm.seen["modelV2"] and sm.alive["modelV2"]
+    pandas = [p for p in sm["pandaStates"] if str(p.pandaType) != "unknown"] if sm.seen["pandaStates"] and sm.alive["pandaStates"] else []
     out = {"t": time.time(), "w": CAM.width, "h": CAM.height, "frame": sm["narrowRoadCameraState"].frameId,
            "v_ego": cs.vEgoCluster or cs.vEgo, "v_cruise": cs.vCruiseCluster, "blink": [cs.leftBlinker, cs.rightBlinker],
            "steer": cs.steeringAngleDeg, "state": str(ss.state), "enabled": ss.enabled, "active": ss.active,
            "engageable": ss.engageable, "alert": [ss.alertText1, ss.alertText2], "alert_status": str(ss.alertStatus),
            "calib": str(calib.calStatus) if sm.seen["extrinsicsCalibration"] else "none",
            "model_ok": sm.seen["modelV2"] and sm.alive["modelV2"], "lanes": [], "edges": [], "path": [], "lead": None,
-           "cpu_temp": max(sm["deviceState"].cpuTempC) if len(sm["deviceState"].cpuTempC) else 0}
+           "cpu_temp": max(ds.cpuTempC) if len(ds.cpuTempC) else 0,
+           # home screen (offroad) like the comma 3: started comes from hardwared (ignition), demo mode has only the model
+           "mode": os.getenv("S20_MODE", "manager"), "started": ds.started, "onroad": bool(ds.started or model_alive),
+           "thermal": str(ds.thermalStatus) if sm.seen["deviceState"] else "", "mem": ds.memoryUsagePercent,
+           "free_space": round(ds.freeSpacePercent), "panda": str(pandas[0].pandaType) if pandas else "",
+           "ignition": any(p.ignitionLine or p.ignitionCan for p in pandas), **info}
     if sm.seen["modelV2"] and len(m.position.x):
       path = np.array([m.position.x, m.position.y, m.position.z]).T
       max_x = float(np.clip(path[-1, 0], MIN_DIST, MAX_DIST))

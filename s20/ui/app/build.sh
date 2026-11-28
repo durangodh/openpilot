@@ -4,8 +4,14 @@
 set -e
 cd "$(dirname "$0")"
 : "${ANDROID_JAR:?}"; : "${BT:?}"
-rm -rf build && mkdir -p build/classes
-"$BT/aapt2" link -o build/base.apk --manifest AndroidManifest.xml -I "$ANDROID_JAR" --min-sdk-version 30 --target-sdk-version 30
+rm -rf build && mkdir -p build/classes build/assets
+# comma logo + spinner ring from openpilot (git lfs files)
+IMG=../../../openpilot/selfdrive/assets/images
+for f in spinner_comma.png spinner_track.png; do
+  head -c 8 $IMG/$f | grep -q PNG || { echo "$IMG/$f is a git lfs pointer: git lfs pull --include='openpilot/selfdrive/assets/images/*'"; exit 1; }
+  cp $IMG/$f build/assets/
+done
+"$BT/aapt2" link -o build/base.apk --manifest AndroidManifest.xml -I "$ANDROID_JAR" --min-sdk-version 30 --target-sdk-version 30 -A build/assets
 javac --release 17 -cp "$ANDROID_JAR" -d build/classes $(find src -name '*.java')
 "$BT/d8" --min-api 30 --lib "$ANDROID_JAR" --output build $(find build/classes -name '*.class')
 (cd build && cp base.apk unsigned.apk && zip -q unsigned.apk classes.dex)
