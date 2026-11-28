@@ -4,9 +4,12 @@ torqued fits commanded torque against measured lateral acceleration (open loop).
 instead watches how well the controller actually tracks and nudges the values the feedforward
 uses until the feedback has nothing left to fix:
 
-latAccelFactor  In steady curves the feedforward (f) alone should hold the car on the path;
-                whatever P/I/D add is the feedforward's error. A factor that is right leaves
-                f ~= f + p + i + d, so each steady sample implies factor * f / (f + p + i + d).
+latAccelFactor  In steady curves the total torque f + p + i + d is what really holds the car,
+                so each steady sample implies kf * desired / (f + p + i + d): the factor at
+                which the lateral-accel term alone would give that torque. (Until 2026-11-28 the
+                sample was factor * f / total. f also carries the friction compensation, which
+                stays on through a curve because the curve integrator deadzone leaves a small
+                error, so the factor crept up ~15 % and curves felt weak.)
                 Left and right curves are kept apart and averaged, so road crown and a small
                 angle offset cancel.
 friction        At small lateral accelerations stiction shows as lag: the car follows the
@@ -41,6 +44,7 @@ SIDE_MIN = 300
 FACTOR_BOUNDS = (0.75, 1.25)  # x the car's tune
 FACTOR_GAIN = 0.3            # fraction of the gap closed per evaluation
 FACTOR_STEP_MAX = 0.02       # x the car's tune per evaluation
+TARGET_MIN = 50              # samples per side before the heading (→) is shown
 
 # friction
 SMALL_ACCEL_MAX = 0.6
@@ -64,8 +68,10 @@ HISTORY_S = 1.0
 
 class LateralAutoTune:
   def __init__(self, base_factor, base_friction, factor=None, friction=None, sad=None, factor_learned=False,
-               delay_estimate=None, delay_windows=0):
+               delay_estimate=None, delay_windows=0, kf=1.0):
     self.base_factor = float(base_factor)
+    # torque controller k_f: torqueState f/p/i/d are in output units (f = kf * feedforward)
+    self.kf = float(kf) if kf and kf > 0 else 1.0
     self.base_friction = float(base_friction)
     self.factor = float(factor) if factor else self.base_factor
     self.friction = float(friction) if friction else self.base_friction
@@ -126,12 +132,12 @@ class LateralAutoTune:
     if abs(self.history[-1] - self.history[-window]) / STEADY_WINDOW_S > STEADY_RATE_MAX:
       return
     total = f + feedback
-    if abs(f) < 0.05 or f * total <= 0:
+    if abs(f) < 0.05 or f * total <= 0 or desired * total <= 0:
       return
-    share = f / total
-    if not 0.5 <= share <= 2.0:
+    implied = self.kf * desired / total
+    if not 0.5 <= implied / self.factor <= 2.0:
       return
-    (self.left if desired > 0 else self.right).append(self.factor * share)
+    (self.left if desired > 0 else self.right).append(implied)
 
   def _friction_sample(self, desired, actual, steer_delay):
     if abs(desired) > SMALL_ACCEL_MAX:
@@ -220,9 +226,18 @@ class LateralAutoTune:
       self.updates += 1
     return changed
 
+  def factor_target(self):
+    """Where the factor is heading (both sides' median), None until each side has TARGET_MIN."""
+    if len(self.left) < TARGET_MIN or len(self.right) < TARGET_MIN:
+      return None
+    lo, hi = (b * self.base_factor for b in FACTOR_BOUNDS)
+    return float(np.clip(0.5 * (float(np.median(self.left)) + float(np.median(self.right))), lo, hi))
+
   def status(self):
+    target = self.factor_target()
     return {
       "factor": round(self.factor, 4),
+      "factor_target": None if target is None else round(target, 3),
       "friction": round(self.friction, 4),
       "base_factor": round(self.base_factor, 4),
       "base_friction": round(self.base_friction, 4),

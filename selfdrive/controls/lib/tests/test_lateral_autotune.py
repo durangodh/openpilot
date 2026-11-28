@@ -144,3 +144,39 @@ def test_factor_learned_sticks_after_the_halving():
   drive_curves(tuner, 2.6, 5 * 60)
   assert tuner.status()["factor_learned"]
   assert LateralAutoTune(2.75, 0.10, 2.7, 0.1, None, True).status()["factor_learned"]
+
+
+def test_steady_friction_compensation_does_not_raise_the_factor():
+  """2026-11-28: a small steady error keeps friction compensation on through the curve. It is part of f
+  but not of the lateral-accel term; the factor must still settle on the car's, not ~15 % above it."""
+  tuner = LateralAutoTune(2.75, 0.085)
+  t = 0.0
+  while t < 30 * 60:
+    phase = t % 20.0
+    side = 1.0 if phase < 10.0 else -1.0
+    desired = side * 1.5 * min(1.0, (phase % 10.0) / 2.0)
+    needed = desired / 2.75
+    f = desired / tuner.factor + math.copysign(0.08, desired)   # friction comp on all curve long
+    tuner.update(True, 25.0, False, False, False, desired, desired - 0.1 * side, f, needed - f, 0.0, 0.0, 0.3)
+    t += DT
+  assert abs(tuner.factor - 2.75) < 0.05, tuner.status()
+
+
+def test_kf_scales_the_implied_factor():
+  tuner = LateralAutoTune(2.75, 0.10, kf=1.2)
+  t = 0.0
+  while t < 30 * 60:
+    phase = t % 20.0
+    desired = (1.0 if phase < 10.0 else -1.0) * 1.2 * min(1.0, (phase % 10.0) / 2.0)
+    needed = 1.2 * desired / 2.6                     # output units: kf * lateral term
+    f = 1.2 * desired / tuner.factor
+    tuner.update(True, 25.0, False, False, False, desired, desired, f, needed - f, 0.0, 0.0, 0.3)
+    t += DT
+  assert abs(tuner.factor - 2.6) < 0.05, tuner.status()
+
+
+def test_factor_target_shows_where_it_is_heading():
+  tuner = LateralAutoTune(2.75, 0.10)
+  assert tuner.status()["factor_target"] is None
+  drive_curves(tuner, 2.5, 25)
+  assert abs(tuner.status()["factor_target"] - 2.5) < 0.02

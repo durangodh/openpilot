@@ -25,7 +25,7 @@ GearShifter = car.CarState.GearShifter
 SAVE_S = 60.0
 
 
-def load(params, base_factor, base_friction, sad):
+def load(params, base_factor, base_friction, sad, kf=1.0):
   try:
     saved = json.loads(params.get("LateralAutoTuneValues", encoding="utf8") or "{}")
   except (TypeError, ValueError):
@@ -33,10 +33,10 @@ def load(params, base_factor, base_friction, sad):
   # Learned values belong to one car tune; a different base starts over.
   if saved.get("base_factor") != round(base_factor, 4) or saved.get("base_friction") != round(base_friction, 4):
     return LateralAutoTune(base_factor, base_friction, sad=saved.get("sad") or sad,
-                           delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"))
+                           delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"), kf=kf)
   return LateralAutoTune(base_factor, base_friction, saved.get("factor"), saved.get("friction"),
                          saved.get("sad") or sad, bool(saved.get("factor_learned")),
-                         delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"))
+                         delay_estimate=saved.get("delay"), delay_windows=saved.get("delay_windows"), kf=kf)
 
 
 def save(params, tuner):
@@ -108,7 +108,10 @@ def status_text(params, tuner, learner):
     st = tuner.status()
     parts = ["LAT " + ("auto" if lat_tune else "learn")]
     if lat_tune or lat_delay:
-      parts.append(f"F {st['factor']:.2f}/{st['base_factor']:.2f}  FR {st['friction']:.3f}")
+      # →: where the factor is heading from the current curve samples
+      target = st.get("factor_target")
+      head = "" if target is None else f" ->{target:.2f}"
+      parts.append(f"F {st['factor']:.2f}/{st['base_factor']:.2f}{head}  FR {st['friction']:.3f}")
       sad = st.get("sad")
       # progress only while something is still missing; once enough, the counts mean nothing more
       windows = st['delay_windows']
@@ -200,7 +203,7 @@ def main():
   tuner = None
   if torque_car:
     torque = CP.lateralTuning.torque
-    tuner = load(params, torque.latAccelFactor, torque.friction, live_tune.manual_steer_actuator_delay())
+    tuner = load(params, torque.latAccelFactor, torque.friction, live_tune.manual_steer_actuator_delay(), torque.kf)
   learner = load_long(params)
   delay = load_delay(params)
   # One process for both learners: each extra carState subscriber takes one of its 15 msgq slots.
