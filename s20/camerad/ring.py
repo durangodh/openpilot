@@ -10,6 +10,8 @@ class Ring:
     self.mm = mmap.mmap(self.f.fileno(), 0, access=mmap.ACCESS_READ)
     magic, ver, self.width, self.height, self.frame_size, self.slots = struct.unpack_from("<6I", self.mm, 0)
     assert magic == MAGIC and ver == 1, f"{path}: not an s20cam ring (magic {magic:#x} version {ver})"
+    self.focal, flags = struct.unpack_from("<fI", self.mm, 32)
+    self.flipped = bool(flags & 1)
 
   def latest_id(self) -> int:
     return struct.unpack_from("<Q", self.mm, 24)[0] - 1  # -1: nothing yet
@@ -38,22 +40,26 @@ def boottime_ns() -> int:
   return time.clock_gettime_ns(time.CLOCK_BOOTTIME)
 
 
-def nv12_to_ppm(nv12: bytes, w: int, h: int, path: str):
+def nv12_to_png(nv12: bytes, w: int, h: int, path: str):
   import numpy as np
   y = np.frombuffer(nv12, np.uint8, w * h).reshape(h, w).astype(np.float32)
   uv = np.frombuffer(nv12, np.uint8, w * h // 2, w * h).reshape(h // 2, w // 2, 2).astype(np.float32) - 128
   u = uv[..., 0].repeat(2, 0).repeat(2, 1); v = uv[..., 1].repeat(2, 0).repeat(2, 1)
   rgb = np.stack([y + 1.402 * v, y - 0.344 * u - 0.714 * v, y + 1.772 * u], -1).clip(0, 255).astype(np.uint8)
+  import zlib
+  raw = b"".join(b"\x00" + rgb[y].tobytes() for y in range(h))
+  chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
   with open(path, "wb") as f:
-    f.write(f"P6 {w} {h} 255\n".encode()); f.write(rgb.tobytes())
+    f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(raw, 3)) + chunk(b"IEND", b""))
 
 
 if __name__ == "__main__":
-  # python3 s20/camerad/ring.py /s20share/road.ring [seconds]: frame rate, latency, one snapshot
+  # python3 s20/camerad/ring.py /s20share/road.ring [seconds]: frame rate, latency, one snapshot (.png)
   import sys
   r = Ring(sys.argv[1])
   secs = float(sys.argv[2]) if len(sys.argv) > 2 else 5
-  print(f"{sys.argv[1]}: {r.width}x{r.height}, {r.slots} slots")
+  print(f"{sys.argv[1]}: {r.width}x{r.height}, focal {r.focal:.1f} px, {'rotated 180, ' if r.flipped else ''}{r.slots} slots")
   last, n, lat, gaps, t0 = r.latest_id(), 0, [], 0, time.monotonic()
   frame = None
   while time.monotonic() - t0 < secs:
@@ -62,5 +68,5 @@ if __name__ == "__main__":
     last = frame[0]; n += 1; lat.append((boottime_ns() - frame[2]) / 1e6)
   if n:
     print(f"{n / (time.monotonic() - t0):.1f} fps read, {gaps} frames skipped, bridge latency {sum(lat) / len(lat):.1f} ms avg, {max(lat):.1f} max")
-    out = os.path.splitext(sys.argv[1])[0] + ".ppm"
-    nv12_to_ppm(frame[3], r.width, r.height, out); print("snapshot:", out)
+    out = os.path.splitext(sys.argv[1])[0] + ".png"
+    nv12_to_png(frame[3], r.width, r.height, out); print("snapshot:", out)

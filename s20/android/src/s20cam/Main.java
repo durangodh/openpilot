@@ -19,8 +19,8 @@ import java.util.Set;
  * Camera bridge for the S20 FE port (stage 6). Runs on the Android side with app_process as the shell user:
  *
  *   list                                       print every camera: facing, focal length, sensor, intrinsics, YUV sizes
- *   stream <id>:<w>x<h>:<file> [<id>:<w>x<h>:<file>] [fps=20]
- *                                              stream YUV frames of one or two cameras into ring files (see RingWriter)
+ *   auto [road=0] [wide=2|none] [dir=...] [fps=20] [flip=1] [dry]
+ *                                              stream the road and wide cameras into ring files as comma-like frames
  */
 public final class Main {
   private Main() {}
@@ -31,15 +31,23 @@ public final class Main {
     if (args.length == 0 || args[0].equals("list")) {
       list(cm);
       System.exit(0);
-    } else if (args[0].equals("stream")) {
-      int fps = 20;
+    } else if (args[0].equals("auto")) {
+      // auto [road=0] [wide=2|none] [dir=/data/s20pilot/share] [fps=20] [flip=0|1] [out=1928x1208] [roadf=2648] [widef=567]
+      // defaults make the frames match openpilot's comma 3 camera config (AR0231/OX03C10: 2648 px road, 567 px wide)
+      java.util.Map<String, String> o = new java.util.HashMap<>();
+      for (int i = 1; i < args.length; i++) { String[] kv = args[i].split("=", 2); o.put(kv[0], kv.length > 1 ? kv[1] : ""); }
+      String[] out = o.getOrDefault("out", "1928x1208").split("x");
+      int ow = Integer.parseInt(out[0]), oh = Integer.parseInt(out[1]);
+      String dir = o.getOrDefault("dir", "/data/s20pilot/share");
+      boolean flip = o.getOrDefault("flip", "0").equals("1");
       List<Streamer.Spec> specs = new ArrayList<>();
-      for (int i = 1; i < args.length; i++) {
-        if (args[i].startsWith("fps=")) fps = Integer.parseInt(args[i].substring(4));
-        else specs.add(Streamer.Spec.parse(args[i]));
-      }
-      if (specs.isEmpty()) throw new IllegalArgumentException("stream needs <id>:<w>x<h>:<file>");
-      new Streamer(cm, specs, fps).start();
+      String road = o.getOrDefault("road", "0"), wide = o.getOrDefault("wide", "2");
+      specs.add(new Streamer.Spec(Plan.make(road, Cam.chars(cm, road), ow, oh, Float.parseFloat(o.getOrDefault("roadf", "2648"))), dir + "/road.ring", flip));
+      if (!wide.equals("none"))
+        specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip));
+      for (Streamer.Spec sp : specs) Log.i("plan " + sp.plan);
+      if (o.containsKey("dry")) System.exit(0);
+      new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20"))).start();
       Looper.loop();
     } else {
       throw new IllegalArgumentException("unknown command " + args[0]);

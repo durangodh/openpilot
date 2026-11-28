@@ -20,13 +20,8 @@ import java.util.concurrent.Executor;
 
 final class Streamer {
   static final class Spec {
-    final String id; final int w, h; final String file;
-    Spec(String id, int w, int h, String file) { this.id = id; this.w = w; this.h = h; this.file = file; }
-    static Spec parse(String s) {  // <id>:<w>x<h>:<file>
-      String[] a = s.split(":", 3);
-      String[] wh = a[1].split("x");
-      return new Spec(a[0], Integer.parseInt(wh[0]), Integer.parseInt(wh[1]), a[2]);
-    }
+    final Plan plan; final String file; final boolean flip;
+    Spec(Plan plan, String file, boolean flip) { this.plan = plan; this.file = file; this.flip = flip; }
   }
 
   private final CameraManager cm;
@@ -50,8 +45,9 @@ final class Streamer {
   }
 
   private void open(Spec s) throws Exception {
-    RingWriter ring = new RingWriter(s.file, s.w, s.h);
-    ImageReader reader = ImageReader.newInstance(s.w, s.h, ImageFormat.YUV_420_888, 4);
+    Plan pl = s.plan;
+    RingWriter ring = new RingWriter(s.file, pl.outW, pl.outH, pl.capW, pl.capH, pl.offX, pl.offY, pl.focal, s.flip);
+    ImageReader reader = ImageReader.newInstance(pl.capW, pl.capH, ImageFormat.YUV_420_888, 4);
     final long[] last = {System.nanoTime(), 0};
     reader.setOnImageAvailableListener(r -> {
       Image img = r.acquireLatestImage();
@@ -59,33 +55,34 @@ final class Streamer {
       try { ring.write(img); } finally { img.close(); }
       long now = System.nanoTime();
       if (now - last[0] > 5_000_000_000L) {
-        Log.i("camera " + s.id + ": " + String.format("%.1f", (ring.frames() - last[1]) * 1e9 / (now - last[0])) + " fps");
+        Log.i("camera " + pl.id + ": " + String.format("%.1f", (ring.frames() - last[1]) * 1e9 / (now - last[0])) + " fps");
         last[0] = now; last[1] = ring.frames();
       }
     }, handler);
-    CameraCharacteristics ch = Cam.chars(cm, s.id);
-    Cam.open(cm, s.id, executor, new CameraDevice.StateCallback() {
+    CameraCharacteristics ch = Cam.chars(cm, pl.id);
+    Cam.open(cm, pl.id, executor, new CameraDevice.StateCallback() {
       @Override public void onOpened(CameraDevice dev) {
         try {
           CaptureRequest.Builder rb = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
           rb.addTarget(reader.getSurface());
           setup(rb, ch);
+          rb.set(CaptureRequest.SCALER_CROP_REGION, pl.crop);
           SessionConfiguration sc = new SessionConfiguration(SessionConfiguration.SESSION_REGULAR,
               Collections.singletonList(new OutputConfiguration(reader.getSurface())), executor,
               new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession session) {
                   try {
                     session.setRepeatingRequest(rb.build(), null, handler);
-                    Log.i("camera " + s.id + " streaming " + s.w + "x" + s.h + " -> " + s.file);
-                  } catch (Exception e) { fail("repeating request " + s.id, e); }
+                    Log.i("streaming " + pl + (s.flip ? ", rotated 180" : "") + " -> " + s.file);
+                  } catch (Exception e) { fail("repeating request " + pl.id, e); }
                 }
-                @Override public void onConfigureFailed(CameraCaptureSession session) { fail("configure " + s.id, null); }
+                @Override public void onConfigureFailed(CameraCaptureSession session) { fail("configure " + pl.id, null); }
               });
           dev.createCaptureSession(sc);
-        } catch (Exception e) { fail("session " + s.id, e); }
+        } catch (Exception e) { fail("session " + pl.id, e); }
       }
-      @Override public void onDisconnected(CameraDevice dev) { fail("disconnected " + s.id, null); }
-      @Override public void onError(CameraDevice dev, int error) { fail("camera " + s.id + " error " + error, null); }
+      @Override public void onDisconnected(CameraDevice dev) { fail("disconnected " + pl.id, null); }
+      @Override public void onError(CameraDevice dev, int error) { fail("camera " + pl.id + " error " + error, null); }
     });
   }
 
