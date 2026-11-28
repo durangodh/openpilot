@@ -29,10 +29,12 @@ final class Streamer {
   private final CameraManager cm;
   private final List<Spec> specs;
   private final int fps;
+  private final boolean ctrlOff;  // CONTROL_MODE_OFF: some HALs only honour SENSOR_FRAME_DURATION with all 3A off
   private final Handler handler;
   private final Executor executor;
 
-  Streamer(CameraManager cm, List<Spec> specs, int fps) {
+  Streamer(CameraManager cm, List<Spec> specs, int fps, boolean ctrlOff) {
+    this.ctrlOff = ctrlOff;
     this.cm = cm;
     this.specs = specs;
     this.fps = fps;
@@ -141,7 +143,8 @@ final class Streamer {
       // no exact range (S20 FE: 15, 24, 30 fixed): run the sensor at exactly 1/fps and do exposure ourselves
       c.ae = new Exposure(ch, 1_000_000_000L / fps);
       rb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-      Log.i("camera " + c.pl.id + ": manual exposure at " + fps + " fps");
+      if (ctrlOff) rb.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF);
+      Log.i("camera " + c.pl.id + ": manual exposure at " + fps + " fps" + (ctrlOff ? ", 3A off" : ""));
       return;
     }
     // last resort: the camera's AE with the closest range that contains fps

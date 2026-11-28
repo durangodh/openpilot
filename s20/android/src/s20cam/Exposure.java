@@ -27,7 +27,7 @@ final class Exposure {
     Range<Long> er = ch.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
     Range<Integer> ir = ch.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
     expMin = er.getLower();
-    expMax = Math.min(er.getUpper(), frameNs * 9 / 10);
+    expMax = Math.min(er.getUpper(), frameNs * 7 / 10);
     expPreferMax = Math.min(expMax, 10_000_000L);  // up to 10 ms before raising gain
     isoMin = ir.getLower();
     isoMax = ir.getUpper();

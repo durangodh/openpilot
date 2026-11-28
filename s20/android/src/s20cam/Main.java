@@ -49,7 +49,7 @@ public final class Main {
         specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip, false));
       for (Streamer.Spec sp : specs) Log.i("plan " + sp.plan);
       if (o.containsKey("dry")) System.exit(0);
-      new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20"))).start();
+      new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20")), o.getOrDefault("ctrl", "auto").equals("off")).start();
       Looper.loop();
     } else {
       throw new IllegalArgumentException("unknown command " + args[0]);
