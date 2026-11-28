@@ -11,6 +11,9 @@
 cd "$(dirname "$0")/../.." || exit 1
 export PYTHONPATH="$PWD/tinygrad_repo:$PYTHONPATH"
 
+echo "== s20 patches (tinygrad a650)"
+bash s20/apply_patches.sh || exit 1
+
 echo "== kgsl device"
 ls -l /dev/kgsl-3d0 || { echo "FAIL: no /dev/kgsl-3d0"; exit 1; }
 

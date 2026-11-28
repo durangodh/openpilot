@@ -45,7 +45,10 @@
 - master 코드를 고친 곳은 아래 목록에 기록한다 (업스트림 갱신 시 충돌 확인용).
 
 ### master 수정 목록
-(아직 없음)
+- `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용
+  - `compiler_mesa.py`: IR3 컴파일러 a630 전용 제한에 a650 추가 (Mesa 장치 정보는 gpu_id 650 으로 조회)
+  - `ops_qcom.py`: 개인 메모리(스택) 크기를 SP당 fiber 수(a630 2048, a650 4096)에 맞춤
+  - 컨테이너(x86, tinymesa 25.2.7.2)에서 a650 IR3 컴파일 확인. 실기기 확인은 단계 3
 
 ## 업스트림 갱신
 이 브랜치는 콤마 master 스냅샷(이력 압축) 위에 있다. 갱신할 때:
