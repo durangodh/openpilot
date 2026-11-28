@@ -1,8 +1,8 @@
 diff --git a/tinygrad/codegen/__init__.py b/tinygrad/codegen/__init__.py
-index f4535a4..d73925e 100644
+index f4535a4..aef041c 100644
 --- a/tinygrad/codegen/__init__.py
 +++ b/tinygrad/codegen/__init__.py
-@@ -514,6 +514,29 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
+@@ -514,6 +514,33 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
    return (ast.key, type(renderer), renderer.target, *[x.value for x in to_program_config])
  
  to_program_cache: dict[tuple, UOp] = {}
@@ -10,8 +10,12 @@ index f4535a4..d73925e 100644
 +  # private memory (register spill) of an IR3 shader; the a650 hangs on it with tinygrad's QCOM runtime
 +  if type(renderer).__name__ != "IR3Renderer" or renderer.target.arch.split(",")[0] != "a650": return 0
 +  from tinygrad.runtime.support.compiler_mesa import IR3Compiler
-+  try: return IR3Compiler.unpack_lib(prg.src[-1].arg)[0].pvtmem_size
++  try: v = IR3Compiler.unpack_lib(prg.src[-1].arg)[0]
 +  except Exception: return 0
++  # also retry when full + half registers together exceed the 48 vec4 a thread can hold (half registers are not merged
++  # here): the a650 hung on a texture kernel with 48 full + 33 half registers, while 228 other texture kernels ran
++  regs = (v.info.max_reg + 1) + (v.info.max_half_reg + 2) // 2
++  return v.pvtmem_size or (regs > 48 and -regs)
 +
 +def _s20_to_program(ast:UOp, renderer:Renderer) -> UOp:
 +  prg = do_to_program(ast, renderer)
@@ -23,10 +27,10 @@ index f4535a4..d73925e 100644
 +    try: prg = do_to_program(ast, renderer)
 +    finally: heuristic.S20_UPCAST_LIMIT[0] = 1 << 30
 +    if not _s20_pvtmem(prg, renderer):
-+      if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} spill avoided with upcast limit {lim}")
++      if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} private memory/registers fixed with upcast limit {lim}")
 +      return prg
 +  with Context(NOOPT=1): prg = do_to_program(ast, renderer)
-+  if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} NOOPT, private memory {_s20_pvtmem(prg, renderer)} B")
++  if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} NOOPT, still {_s20_pvtmem(prg, renderer)} (B private memory, or -registers)")
 +  return prg
 +
  def to_program(ast:UOp, renderer:Renderer) -> UOp:
