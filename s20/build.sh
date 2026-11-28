@@ -16,7 +16,13 @@ git lfs install --local >/dev/null; git lfs pull >>$LOG 2>&1 || { echo "FAIL: gi
 step "dependencies (apt + uv)"
 bash tools/setup_dependencies.sh >>$LOG 2>&1 || { echo "FAIL: setup_dependencies (see $LOG)"; tail -20 $LOG; exit 1; }
 source .venv/bin/activate
-uv pip install tinymesa==25.2.7.2 >>$LOG 2>&1 || pip install tinymesa==25.2.7.2 >>$LOG 2>&1
+# the model compile runs in this venv, which does not see the system-wide tinymesa from stage 3
+if ! python -c "import tinymesa" 2>/dev/null; then
+  uv pip install --python .venv/bin/python tinymesa==25.2.7.2 >>$LOG 2>&1 || \
+    { python -m ensurepip >>$LOG 2>&1; python -m pip install tinymesa==25.2.7.2 >>$LOG 2>&1; }
+fi
+python -c "import tinymesa" 2>/dev/null || { echo "FAIL: tinymesa not installed in .venv (see $LOG)"; tail -10 $LOG; exit 1; }
+echo "tinymesa ok in .venv" | tee -a $LOG
 step "s20 patches"
 bash s20/apply_patches.sh | tee -a $LOG || exit 1
 step "scons (S20=1)"
