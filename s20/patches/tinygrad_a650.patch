@@ -84,10 +84,10 @@ index ec97cac..104e497 100644
          k.apply_opt(Opt(OptOps.SPLIT, axes[-1], (0, AxisType.UPCAST)))
          # if it's small, upcast a second reduce dimension too
 diff --git a/tinygrad/codegen/opt/postrange.py b/tinygrad/codegen/opt/postrange.py
-index d7f19cd..41dac37 100644
+index d7f19cd..1ade26c 100644
 --- a/tinygrad/codegen/opt/postrange.py
 +++ b/tinygrad/codegen/opt/postrange.py
-@@ -242,7 +242,8 @@ def apply_opts(ast:UOp, ren:Renderer, beam:int=0) -> UOp:
+@@ -242,12 +242,17 @@ def apply_opts(ast:UOp, ren:Renderer, beam:int=0) -> UOp:
    k.convert_loop_to_global()
    if ast.arg is not None and ast.arg.opts_to_apply is not None:
      for opt in ast.arg.opts_to_apply: k.apply_opt(opt)
@@ -97,8 +97,17 @@ index d7f19cd..41dac37 100644
      from tinygrad.codegen.opt.search import beam_search
      rawbufs, var_vals = args_from_ast(ast, ren.target.device)
      # beam search may open devices
+     with Context(ALLOW_DEVICE_USAGE=1):
++      base = k.copy()
+       k = beam_search(k, rawbufs, var_vals, beam, bool(getenv("BEAM_ESTIMATE", 1)))
++      if getenv("S20_BEAM_VERIFY"):
++        from tinygrad.codegen.opt.search import s20_beam_verify
++        k = s20_beam_verify(base, k, rawbufs, var_vals, beam)
+   elif not NOOPT and (ast.arg is None or ast.arg.applied_opts == ()):
+     from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
+     # NOTE: hand_coded_optimizations doesn't support multiblock opts yet
 diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
-index af21998..1c03967 100644
+index af21998..ad340a3 100644
 --- a/tinygrad/codegen/opt/search.py
 +++ b/tinygrad/codegen/opt/search.py
 @@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
@@ -111,7 +120,7 @@ index af21998..1c03967 100644
      uops = prg.src[1].src
      if len(uops) >= (uops_max:=getenv("BEAM_UOPS_MAX", 3000)) > 0:
        if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too many uops. {len(uops)=}, {uops_max=}")
-@@ -102,6 +105,43 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
+@@ -102,6 +105,71 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
    return acted
  
  BEAM_DEBUG = getenv("BEAM_DEBUG")
@@ -147,6 +156,34 @@ index af21998..1c03967 100644
 +  with open(_S20_PENDING, "w") as f:
 +    f.write(cid); f.flush(); os.fsync(f.fileno())
 +
++def s20_beam_verify(base:Scheduler, kb:Scheduler, rawbufs:list[Buffer], var_vals:dict[str, int], amt:int) -> Scheduler:
++  # s20: S20_BEAM_VERIFY=1 times the BEAM choice against the usual heuristics at full size and keeps the faster one.
++  # BEAM times candidates on a shrunken global size; on the a650 some choices were far slower at full size (9.4 s model)
++  key = {"ast": base.ast.key, "amt": amt, "device": base.ren.target.device, "suffix": base.ren.suffix}
++  name = base.ast.arg.name if base.ast.arg is not None else "?"
++  from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
++  kh = base.copy()
++  if not any(u.op is Ops.STAGE for u in base.ast.backward_slice): kh = hand_coded_optimizations(kh)
++  if CACHELEVEL >= 1 and (v:=diskcache_get("s20_beam_verify", key)) is not None: return kb if v == "beam" else kh
++  rawbufs = _ensure_buffer_alloc(rawbufs)
++  params = {p.arg.slot:p.dtype for p in base.ast.toposort() if p.op is Ops.PARAM and p.addrspace is not AddrSpace.ALU}
++  buf_uops = [UOp.from_buffer(b, params[i]) for i, b in enumerate(rawbufs)]
++  tms: dict[str, float] = {}
++  for tag, kk in (("heuristic", kh), ("beam", kb)):
++    _, r = _try_compile((0, kk))
++    try:
++      tms[tag] = math.inf if r is None else min(_time_program(r[0], var_vals, buf_uops, allow_test_size=False, cnt=3,
++                                                early_stop=tms["heuristic"] * 3 if tag == "beam" and tms["heuristic"] < math.inf else None))
++    except Exception:
++      tms[tag] = math.inf
++  pick = "beam" if tms["beam"] <= tms["heuristic"] else "heuristic"
++  try: name = __import__("re").sub(r"\x1b\[[0-9;]*m", "", str(kb.copy().get_optimized_ast().arg.name))
++  except Exception: pass
++  if pick != "beam" or tms["beam"] > 0.002 or DEBUG >= 2:
++    print(f"s20 verify {name}: beam {tms['beam']*1e3:.3f} ms, heuristic {tms['heuristic']*1e3:.3f} ms -> {pick}", flush=True)
++  if CACHELEVEL >= 1 and (tms["beam"] < math.inf or tms["heuristic"] < math.inf): diskcache_put("s20_beam_verify", key, pick)
++  return kb if pick == "beam" else kh
++
 +def s20_beam_cached(s:Scheduler, amt:int, allow_test_size=True) -> bool:
 +  # s20: S20_BEAM_CACHE_ONLY=1 uses BEAM only for kernels already tuned (in the cache), the rest get the usual heuristics
 +  key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
@@ -155,7 +192,7 @@ index af21998..1c03967 100644
  def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:int, allow_test_size=True):
    key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
    if not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and (val:=diskcache_get("beam_search", key)) is not None:
-@@ -141,13 +181,19 @@ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:i
+@@ -141,13 +209,19 @@ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:i
            if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too much compute. {this_compute_ops} when least is {least_compute_ops}")
            continue
          seen_libs.add(lib)
