@@ -45,9 +45,10 @@ taskset = 'taskset -c 0-7 ' if arch == 'comma_arm64' else ''
 def compile_model(onnx_path, pkl_path):
   onnx_path, target_pkl_path = File(onnx_path).abspath, File(pkl_path).abspath
   # s20: the driving model uses the kernels tuned on the phone with BEAM (s20/tests/stage5_beam.sh, cached in
-  # ~/.cache/tinygrad); kernels not tuned yet get the usual heuristics, so the build stays fast. S20_BEAM=0: no BEAM
-  beam = (f"BEAM={os.environ.get('S20_BEAM', '2')} S20_BEAM_CACHE_ONLY=1 "
-          if os.environ.get('S20') and 'driving' in pkl_path and os.environ.get('S20_BEAM', '2') != '0' else '')
+  # ~/.cache/tinygrad); kernels not tuned yet get the usual heuristics, so the build stays fast. S20_BEAM=2 turns it on;
+  # off by default: the first full BEAM run made the model 9.4 s/run instead of 55 ms (2026-11-29, being checked)
+  beam = (f"BEAM={os.environ.get('S20_BEAM', '0')} S20_BEAM_CACHE_ONLY=1 "
+          if os.environ.get('S20') and 'driving' in pkl_path and os.environ.get('S20_BEAM', '0') != '0' else '')
   cmd = (f'{beam}{tg_flags} {mac_brew_string} {taskset}python3 "{compiler}/compile_onnx.py" '
          f'"{onnx_path}" "{target_pkl_path}" --out-of-band --benchmark-runs 1')
   lenv.Command(

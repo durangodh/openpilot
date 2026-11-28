@@ -29,6 +29,13 @@ for try in $(seq 1 40); do
   sleep 5
 done
 echo "== done rc=$rc ($(date +%H:%M))"
-[ $rc = 0 ] && echo "PASS (old model kept in /root/s20logs/driving_tinygrad.nobeam.pkl)" || {
+# a tuned model must not be slower than the untuned one (~55 ms): otherwise keep the previous model
+MS=$(grep -oE "\[[0-9]+/10\] [0-9.]+ ms" /root/s20logs/beam.out 2>/dev/null | tail -1 | awk '{print int($2)}')
+if [ $rc = 0 ] && [ -n "$MS" ] && [ "$MS" -gt 150 ]; then
+  echo "SLOW: ${MS} ms per run with BEAM. Previous model restored; find the slow kernels: bash s20/tests/stage5_slow.sh beam"
+  cp -f /root/s20logs/driving_tinygrad.nobeam.pkl $MODELS/driving_tinygrad.pkl
+  rc=1
+fi
+[ $rc = 0 ] && echo "PASS ${MS} ms (old model kept in /root/s20logs/driving_tinygrad.nobeam.pkl)" || {
   echo "FAIL: the previous model file is unchanged unless compile_onnx wrote it; run: bash s20/build.sh"; }
 exit $rc
