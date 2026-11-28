@@ -83,7 +83,7 @@ index ec97cac..104e497 100644
          k.apply_opt(Opt(OptOps.SPLIT, axes[-1], (0, AxisType.UPCAST)))
          # if it's small, upcast a second reduce dimension too
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..039e077 100644
+index 53804bd..2a90370 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
 @@ -141,25 +141,26 @@ class QCOMComputeQueue(HWQueue):
@@ -163,6 +163,18 @@ index 53804bd..039e077 100644
      self.kernargs_alloc_size = round_up(2048 + (self.tex_cnt + self.ibo_cnt) * 0x40 + len(self.samplers) * 4, 0x100)
  
    def _parse_lib(self, lib):
+@@ -293,6 +312,11 @@ class QCOMAllocator(Allocator['QCOMDevice']):
+     self.dev._gpu_free(storage)
+   def _offset(self, buf:int, size:int, offset:int) -> int: return buf + offset
+ 
++  # s20: a host (CPU/NPY) buffer used by a QCOM command (modeld's packed inputs) is mapped into the GPU like an
++  # external pointer (KGSL_MAP_USER_MEM); the base Allocator has no _map, so linking modeld failed with "need map"
++  def _map(self, buf) -> BufferStorage: return self.dev._gpu_map(buf.host.addr, buf.nbytes)
++  def _unmap(self, mb): self.dev._gpu_free(mb)
++
+ def flag(nm, val): return (val << getattr(kgsl, f"{nm}_SHIFT")) & getattr(kgsl, f"{nm}_MASK")
+ 
+ Compiled.pm_encode += PatternMatcher([
 diff --git a/tinygrad/runtime/support/compiler_mesa.py b/tinygrad/runtime/support/compiler_mesa.py
 index b5e7945..09aab0e 100644
 --- a/tinygrad/runtime/support/compiler_mesa.py
