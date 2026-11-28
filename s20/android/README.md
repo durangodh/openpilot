@@ -1,18 +1,18 @@
 # 카메라 브리지 (단계 6)
 
 콤마 camerad는 콤마 전용 센서·ISP를 직접 제어하므로 S20 FE에서는 쓸 수 없다.
-대신 안드로이드 쪽에서 Camera2로 프레임을 받아 chroot의 VisionIPC로 넘긴다.
+안드로이드 쪽에서 Camera2로 프레임을 받아 chroot로 넘긴다.
 
-## 계획
-- 안드로이드: Camera2 NDK 서비스 (루트 실행)
-  - 도로 카메라 = 메인(광각 26mm), 광각 카메라 = 초광각(13mm)
-  - 출력 YUV_420_888 → NV12, 20fps, 노출·초점 고정
-  - 프레임을 `/data/s20pilot/share`의 공유메모리 링버퍼에 기록
-- chroot: `s20camerad` (camerad 대체)
-  - 링버퍼에서 읽어 VisionIPC `VISION_STREAM_ROAD` / `VISION_STREAM_WIDE_ROAD`로 발행
-  - `roadCameraState` / `wideRoadCameraState` 메시지 발행
-- 해상도는 콤마 카메라(1928x1208) 기준으로 맞추고, 화각 차이는 `calib/`의 intrinsics로 보정
+## 구성
+- `src/s20cam/` — 안드로이드 쪽 (Java, `app_process` 로 shell 사용자(uid 2000)로 실행, 앱 설치 없음)
+  - `list`: 카메라별 방향·초점거리·센서 크기·내부 파라미터(intrinsics)·왜곡·YUV 크기/최대 fps 출력
+  - `stream <id>:<w>x<h>:<파일> [...] [fps=20]`: 카메라 1~2대를 NV12 프레임 링 파일로 기록
+    (OIS·손떨림 보정·왜곡 보정 끔, 초점 무한대, AE fps 고정)
+- `s20cam.jar` — 빌드 결과 (`build.sh`, JDK + android.jar(35) + d8 필요)
+- `s20cam.sh` — 폰에서 루트로 실행하는 실행기 (`/data/s20pilot/share` 에 링 파일)
+- chroot 쪽 읽기: `s20/camerad/ring.py` (링 형식은 `RingWriter.java` 주석 참고)
+  - `python3 s20/camerad/ring.py /s20share/road.ring 5` → fps, 지연, 스냅샷(.ppm)
 
-## 확인할 것
-- 리니지 r8q 카메라 HAL에서 메인과 초광각 동시 스트리밍 가능 여부
-- 프레임 타임스탬프(SOF)를 chroot 쪽 monotonic 시계와 맞추는 방법
+## 다음
+- `s20camerad`: 링 → VisionIPC `VISION_STREAM_ROAD`/`WIDE_ROAD` + `roadCameraState`/`wideRoadCameraState`
+- 카메라 내부 파라미터를 openpilot 카메라 설정에 추가, 해상도에 맞춘 워프 모델 컴파일
