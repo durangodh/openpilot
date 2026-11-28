@@ -60,9 +60,12 @@ public final class Main {
       Log.i("concurrent camera sets: " + conc);
     } catch (Throwable t) { Log.i("concurrent camera sets: n/a (" + t + ")"); }
     List<String> all = new ArrayList<>(Arrays.asList(ids));
+    // hidden physical cameras (e.g. the ultra-wide) are often reachable by id without being listed
+    for (int i = 0; i < 8; i++) if (!all.contains(Integer.toString(i))) all.add(Integer.toString(i));
     for (int k = 0; k < all.size(); k++) {
       String id = all.get(k);
-      CameraCharacteristics c = cm.getCameraCharacteristics(id);
+      CameraCharacteristics c;
+      try { c = Cam.chars(cm, id); } catch (Throwable t) { Log.i("=== camera " + id + ": not available (" + (t.getCause() != null ? t.getCause() : t) + ")"); continue; }
       Integer facing = c.get(CameraCharacteristics.LENS_FACING);
       String f = facing == null ? "?" : facing == CameraCharacteristics.LENS_FACING_BACK ? "back"
                : facing == CameraCharacteristics.LENS_FACING_FRONT ? "front" : "external";

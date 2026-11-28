@@ -63,8 +63,8 @@ final class Streamer {
         last[0] = now; last[1] = ring.frames();
       }
     }, handler);
-    CameraCharacteristics ch = cm.getCameraCharacteristics(s.id);
-    cm.openCamera(s.id, executor, new CameraDevice.StateCallback() {
+    CameraCharacteristics ch = Cam.chars(cm, s.id);
+    Cam.open(cm, s.id, executor, new CameraDevice.StateCallback() {
       @Override public void onOpened(CameraDevice dev) {
         try {
           CaptureRequest.Builder rb = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
