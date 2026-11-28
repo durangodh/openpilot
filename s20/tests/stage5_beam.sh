@@ -24,7 +24,7 @@ for try in $(seq 1 40); do
   env $CACHE_ONLY S20_BEAM_VERIFY=1 S20_BEAM_GUARD=1 S20_WAIT_MAX_S=20 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 \
     JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 BEAM=$B \
     python "$PWD/tinygrad_repo/examples/openpilot/compile_onnx.py" "$MODELS/driving_supercombo.onnx" \
-    "$MODELS/driving_tinygrad.pkl" --out-of-band --benchmark-runs 10 2>&1 | tee /root/s20logs/beam_last.log | grep -vE "^\s*$" | grep -vE "^compiling|it/s" | tail -40
+    "$MODELS/driving_tinygrad.pkl" --out-of-band --benchmark-runs 10 2>&1 | tee /root/s20logs/beam_last.log | grep -vE "^\s*$" | grep -vE "^compiling|it/s" | grep -vE "not used \(S20_BEAM_N" | tail -40
   rc=${PIPESTATUS[0]}
   [ $rc = 0 ] && break
   echo "== run $try ended rc=$rc: restarting (bad candidates: $(wc -l < ~/.cache/tinygrad/s20_beam_bad.txt 2>/dev/null || echo 0))"

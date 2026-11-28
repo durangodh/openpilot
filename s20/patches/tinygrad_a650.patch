@@ -107,7 +107,7 @@ index d7f19cd..1ade26c 100644
      from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
      # NOTE: hand_coded_optimizations doesn't support multiblock opts yet
 diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
-index af21998..ad340a3 100644
+index af21998..9da4a0b 100644
 --- a/tinygrad/codegen/opt/search.py
 +++ b/tinygrad/codegen/opt/search.py
 @@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
@@ -120,7 +120,7 @@ index af21998..ad340a3 100644
      uops = prg.src[1].src
      if len(uops) >= (uops_max:=getenv("BEAM_UOPS_MAX", 3000)) > 0:
        if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too many uops. {len(uops)=}, {uops_max=}")
-@@ -102,6 +105,71 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
+@@ -102,6 +105,83 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
    return acted
  
  BEAM_DEBUG = getenv("BEAM_DEBUG")
@@ -164,7 +164,9 @@ index af21998..ad340a3 100644
 +  from tinygrad.codegen.opt.heuristic import hand_coded_optimizations
 +  kh = base.copy()
 +  if not any(u.op is Ops.STAGE for u in base.ast.backward_slice): kh = hand_coded_optimizations(kh)
-+  if CACHELEVEL >= 1 and (v:=diskcache_get("s20_beam_verify", key)) is not None: return kb if v == "beam" else kh
++  if CACHELEVEL >= 1 and (v:=diskcache_get("s20_beam_verify", key)) is not None:
++    print(f"\ns20 verify #{_s20_hits[0]} {name}: {v} (saved)", flush=True)
++    return kb if v == "beam" else kh
 +  rawbufs = _ensure_buffer_alloc(rawbufs)
 +  params = {p.arg.slot:p.dtype for p in base.ast.toposort() if p.op is Ops.PARAM and p.addrspace is not AddrSpace.ALU}
 +  buf_uops = [UOp.from_buffer(b, params[i]) for i, b in enumerate(rawbufs)]
@@ -179,20 +181,30 @@ index af21998..ad340a3 100644
 +  pick = "beam" if tms["beam"] <= tms["heuristic"] else "heuristic"
 +  try: name = __import__("re").sub(r"\x1b\[[0-9;]*m", "", str(kb.copy().get_optimized_ast().arg.name))
 +  except Exception: pass
-+  if pick != "beam" or tms["beam"] > 0.002 or DEBUG >= 2:
-+    print(f"s20 verify {name}: beam {tms['beam']*1e3:.3f} ms, heuristic {tms['heuristic']*1e3:.3f} ms -> {pick}", flush=True)
++  print(f"\ns20 verify #{_s20_hits[0]} {name}: beam {tms['beam']*1e3:.3f} ms, heuristic {tms['heuristic']*1e3:.3f} ms -> {pick}", flush=True)
 +  if CACHELEVEL >= 1 and (tms["beam"] < math.inf or tms["heuristic"] < math.inf): diskcache_put("s20_beam_verify", key, pick)
 +  return kb if pick == "beam" else kh
 +
++_s20_hits: list[int] = [0]
 +def s20_beam_cached(s:Scheduler, amt:int, allow_test_size=True) -> bool:
-+  # s20: S20_BEAM_CACHE_ONLY=1 uses BEAM only for kernels already tuned (in the cache), the rest get the usual heuristics
++  # s20: S20_BEAM_CACHE_ONLY=1 uses BEAM only for kernels already tuned (in the cache), the rest get the usual heuristics.
++  # S20_BEAM_N=n uses only the first n of them (to find a kernel that makes the model slow by halving n)
 +  key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
-+  return not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and diskcache_get("beam_search", key) is not None
++  if IGNORE_BEAM_CACHE or CACHELEVEL < 1 or diskcache_get("beam_search", key) is None: return False
++  _s20_hits[0] += 1
++  n = int(v) if (v:=__import__("os").environ.get("S20_BEAM_N", "").strip()).isdigit() else -1
++  if n >= 0 and _s20_hits[0] > n:
++    print(f"s20 beam #{_s20_hits[0]}: not used (S20_BEAM_N={n})", flush=True)
++    return False
++  try: name = __import__("re").sub(r"\x1b\[[0-9;]*m", "", str(s.copy().get_optimized_ast().arg.name))
++  except Exception: name = "?"
++  print(f"\ns20 beam #{_s20_hits[0]}: used ({name} before opts)", flush=True)
++  return True
 +
  def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:int, allow_test_size=True):
    key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
    if not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and (val:=diskcache_get("beam_search", key)) is not None:
-@@ -141,13 +209,19 @@ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:i
+@@ -141,13 +221,19 @@ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:i
            if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too much compute. {this_compute_ops} when least is {least_compute_ops}")
            continue
          seen_libs.add(lib)
