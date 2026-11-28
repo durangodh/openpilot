@@ -15,11 +15,19 @@ CACHE_ONLY=""; [ "$1" = "cache" ] && CACHE_ONLY="S20_BEAM_CACHE_ONLY=1"
 TUNED=$(python3 -c "import sqlite3;db=sqlite3.connect('/root/.cache/tinygrad/cache.db');print(sum(db.execute(f'select count(*) from \"{t}\"').fetchone()[0] for (t,) in db.execute(\"select name from sqlite_master where type='table'\") if 'beam' in t))" 2>/dev/null)
 echo "== tuned kernels in the cache: ${TUNED:-0}"
 [ -f /root/s20logs/driving_tinygrad.nobeam.pkl ] || cp -f $MODELS/driving_tinygrad.pkl /root/s20logs/driving_tinygrad.nobeam.pkl 2>/dev/null  # first, untuned model
-echo "== BEAM=$B ${CACHE_ONLY:+(tuned kernels only) }on driving_supercombo.onnx ($(date +%H:%M))"
-env $CACHE_ONLY S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 BEAM=$B \
-  python "$PWD/tinygrad_repo/examples/openpilot/compile_onnx.py" "$MODELS/driving_supercombo.onnx" \
-  "$MODELS/driving_tinygrad.pkl" --out-of-band --benchmark-runs 10 2>&1 | grep -vE "^\s*$" | tail -15
-rc=${PIPESTATUS[0]}
+# a candidate kernel can hang the a650: the GPU wait gives up after 20 s and exits (rc 75), the candidate is
+# remembered as bad (~/.cache/tinygrad/s20_beam_bad.txt) and the run starts again from the cache
+for try in $(seq 1 40); do
+  echo "== BEAM=$B ${CACHE_ONLY:+(tuned kernels only) }on driving_supercombo.onnx ($(date +%H:%M), run $try)"
+  env $CACHE_ONLY S20_BEAM_GUARD=1 S20_WAIT_MAX_S=20 S20_REG_LIMIT=64 DEV=QCOM:IR3 IMAGE=0 FLOAT16=1 NOLOCALS=1 \
+    JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 BEAM=$B \
+    python "$PWD/tinygrad_repo/examples/openpilot/compile_onnx.py" "$MODELS/driving_supercombo.onnx" \
+    "$MODELS/driving_tinygrad.pkl" --out-of-band --benchmark-runs 10 2>&1 | grep -vE "^\s*$" | tail -15
+  rc=${PIPESTATUS[0]}
+  [ $rc = 0 ] && break
+  echo "== run $try ended rc=$rc: restarting (bad candidates: $(wc -l < ~/.cache/tinygrad/s20_beam_bad.txt 2>/dev/null || echo 0))"
+  sleep 5
+done
 echo "== done rc=$rc ($(date +%H:%M))"
 [ $rc = 0 ] && echo "PASS (old model kept in /root/s20logs/driving_tinygrad.nobeam.pkl)" || {
   echo "FAIL: the previous model file is unchanged unless compile_onnx wrote it; run: bash s20/build.sh"; }

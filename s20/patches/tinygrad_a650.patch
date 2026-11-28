@@ -98,7 +98,7 @@ index d7f19cd..41dac37 100644
      rawbufs, var_vals = args_from_ast(ast, ren.target.device)
      # beam search may open devices
 diff --git a/tinygrad/codegen/opt/search.py b/tinygrad/codegen/opt/search.py
-index af21998..c41869c 100644
+index af21998..1c03967 100644
 --- a/tinygrad/codegen/opt/search.py
 +++ b/tinygrad/codegen/opt/search.py
 @@ -63,6 +63,9 @@ def _try_compile(x:tuple[int,Scheduler]) -> tuple[int, tuple[UOp, float]|None]:
@@ -111,10 +111,42 @@ index af21998..c41869c 100644
      uops = prg.src[1].src
      if len(uops) >= (uops_max:=getenv("BEAM_UOPS_MAX", 3000)) > 0:
        if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too many uops. {len(uops)=}, {uops_max=}")
-@@ -102,6 +105,11 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
+@@ -102,6 +105,43 @@ def get_kernel_actions(s:Scheduler, include_0=True, max_up:int|None=None) -> dic
    return acted
  
  BEAM_DEBUG = getenv("BEAM_DEBUG")
++# s20: S20_BEAM_GUARD=1 remembers the candidate being timed in a file; if the GPU hangs on it and the process dies,
++# the next run marks it bad and never sends it to the GPU again (the a650 hangs on some candidates)
++_S20_DIR = __import__("os").path.expanduser("~/.cache/tinygrad")
++_S20_PENDING, _S20_BAD = f"{_S20_DIR}/s20_beam_pending.txt", f"{_S20_DIR}/s20_beam_bad.txt"
++_s20_bad_ids: set[str]|None = None
++
++def _s20_guard_load() -> set[str]:
++  global _s20_bad_ids
++  import os
++  if _s20_bad_ids is None:
++    os.makedirs(_S20_DIR, exist_ok=True)
++    if os.path.exists(_S20_PENDING):  # the last run died while timing this candidate
++      with open(_S20_PENDING) as f: pend = f.read().strip()
++      if pend:
++        with open(_S20_BAD, "a") as f: f.write(pend + "\n")
++        print(f"s20: candidate {pend} hung the GPU last time, skipping it")
++      os.remove(_S20_PENDING)
++    _s20_bad_ids = set(open(_S20_BAD).read().split()) if os.path.exists(_S20_BAD) else set()
++  return _s20_bad_ids
++
++def _s20_cand_id(s:Scheduler) -> str:
++  import hashlib
++  return hashlib.sha256(repr((s.ast.key, s.applied_opts)).encode()).hexdigest()[:24]
++
++def _s20_pending(cid:str|None):
++  import os
++  if cid is None:
++    if os.path.exists(_S20_PENDING): os.remove(_S20_PENDING)
++    return
++  with open(_S20_PENDING, "w") as f:
++    f.write(cid); f.flush(); os.fsync(f.fileno())
++
 +def s20_beam_cached(s:Scheduler, amt:int, allow_test_size=True) -> bool:
 +  # s20: S20_BEAM_CACHE_ONLY=1 uses BEAM only for kernels already tuned (in the cache), the rest get the usual heuristics
 +  key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
@@ -123,8 +155,28 @@ index af21998..c41869c 100644
  def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:int, allow_test_size=True):
    key = {"ast": s.ast.key, "amt": amt, "allow_test_size": allow_test_size, "device": s.ren.target.device, "suffix": s.ren.suffix}
    if not IGNORE_BEAM_CACHE and CACHELEVEL >= 1 and (val:=diskcache_get("beam_search", key)) is not None:
+@@ -141,13 +181,19 @@ def beam_search(s:Scheduler, rawbufs:list[Buffer], var_vals:dict[str,int], amt:i
+           if getenv("BEAM_LOG_SURPASS_MAX"): print(f"too much compute. {this_compute_ops} when least is {least_compute_ops}")
+           continue
+         seen_libs.add(lib)
++        s20_cid = None
++        if getenv("S20_BEAM_GUARD"):
++          if (s20_cid:=_s20_cand_id(candidates[i])) in _s20_guard_load(): continue
++          _s20_pending(s20_cid)
+         try: tms = _time_program(prg, var_vals, buf_uops, early_stop=beam[0][1]*3 if len(beam) else 1.0,
+                                  allow_test_size=allow_test_size, clear_l2=hasattr(dev, 'invalidate_caches'),
+                                  dev_timeout=getenv("BEAM_DEV_TIMEOUT", 1))
+         except Exception as e:
++          if s20_cid is not None: _s20_pending(None)
+           if BEAM_DEBUG: print(f"BEAM failed for opts: {candidates[i].applied_opts}\n{e}")
+           if isinstance(e, RuntimeError): continue
+           raise
++        if s20_cid is not None: _s20_pending(None)
+         timed.append((candidates[i], min(tms)))
+         if BEAM_DEBUG > 1:
+           print(f"{time.perf_counter() - st:7.2f}s: {i:5d} {len(prg.src[1].src):5d} uops",
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
-index 53804bd..2a90370 100644
+index 53804bd..96cd0ab 100644
 --- a/tinygrad/runtime/ops_qcom.py
 +++ b/tinygrad/runtime/ops_qcom.py
 @@ -141,25 +141,26 @@ class QCOMComputeQueue(HWQueue):
@@ -216,6 +268,24 @@ index 53804bd..2a90370 100644
  def flag(nm, val): return (val << getattr(kgsl, f"{nm}_SHIFT")) & getattr(kgsl, f"{nm}_MASK")
  
  Compiled.pm_encode += PatternMatcher([
+@@ -371,6 +395,17 @@ class QCOMDevice(Compiled):
+       ts = kgsl.IOCTL_KGSL_CMDSTREAM_READTIMESTAMP_CTXTID(self.fd, context_id=self.ctx, type=kgsl.KGSL_TIMESTAMP_QUEUED).timestamp
+       with contextlib.suppress(OSError, RuntimeError):
+         kgsl.IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID(self.fd, context_id=self.ctx, timestamp=ts, timeout=int(timeout or self.wait_timeout_ms))
++    if (wait_max := float(os.environ.get("S20_WAIT_MAX_S", 0))) > 0:
++      # s20: an absolute limit. After a GPU hang the generic wait below can spin forever (seen in a BEAM run for 50 min);
++      # the process exits so s20/tests/stage5_beam.sh restarts it and skips the candidate (search.py S20_BEAM_GUARD)
++      import time, sys
++      deadline, err = time.perf_counter() + wait_max, self.error_state.host.view(fmt='q')
++      while sig[0] < value and not err[0]:
++        if time.perf_counter() > deadline:
++          print(f"s20: {self.device} gave no answer for {wait_max:.0f} s (GPU hang), exiting", file=sys.stderr, flush=True)
++          os._exit(75)
++      if err[0]: raise RuntimeError(f"{self.device} failed with {err[0]}")
++      return
+     super()._wait_signal(sig, value, timeout)
+ 
+   def _ensure_stack_size(self, sz:int) -> Buffer: # one stack for the device, grown to the deepest program's private memory
 diff --git a/tinygrad/runtime/support/compiler_mesa.py b/tinygrad/runtime/support/compiler_mesa.py
 index b5e7945..09aab0e 100644
 --- a/tinygrad/runtime/support/compiler_mesa.py
