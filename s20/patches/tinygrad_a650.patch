@@ -1,3 +1,78 @@
+diff --git a/tinygrad/codegen/__init__.py b/tinygrad/codegen/__init__.py
+index f4535a4..d73925e 100644
+--- a/tinygrad/codegen/__init__.py
++++ b/tinygrad/codegen/__init__.py
+@@ -514,6 +514,29 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
+   return (ast.key, type(renderer), renderer.target, *[x.value for x in to_program_config])
+ 
+ to_program_cache: dict[tuple, UOp] = {}
++def _s20_pvtmem(prg:UOp, renderer:Renderer) -> int:
++  # private memory (register spill) of an IR3 shader; the a650 hangs on it with tinygrad's QCOM runtime
++  if type(renderer).__name__ != "IR3Renderer" or renderer.target.arch.split(",")[0] != "a650": return 0
++  from tinygrad.runtime.support.compiler_mesa import IR3Compiler
++  try: return IR3Compiler.unpack_lib(prg.src[-1].arg)[0].pvtmem_size
++  except Exception: return 0
++
++def _s20_to_program(ast:UOp, renderer:Renderer) -> UOp:
++  prg = do_to_program(ast, renderer)
++  if not _s20_pvtmem(prg, renderer) or ast.op is not Ops.SINK: return prg
++  # spilled: retry with fewer upcasts (fewer live registers), last with no optimizations at all
++  from tinygrad.codegen.opt import heuristic
++  for lim in (16, 8, 4, 2, 1):
++    heuristic.S20_UPCAST_LIMIT[0] = lim
++    try: prg = do_to_program(ast, renderer)
++    finally: heuristic.S20_UPCAST_LIMIT[0] = 1 << 30
++    if not _s20_pvtmem(prg, renderer):
++      if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} spill avoided with upcast limit {lim}")
++      return prg
++  with Context(NOOPT=1): prg = do_to_program(ast, renderer)
++  if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} NOOPT, private memory {_s20_pvtmem(prg, renderer)} B")
++  return prg
++
+ def to_program(ast:UOp, renderer:Renderer) -> UOp:
+-  if (prg:=to_program_cache.get(key:=to_program_key(ast, renderer))) is None: to_program_cache[key] = prg = do_to_program(ast, renderer)
++  if (prg:=to_program_cache.get(key:=to_program_key(ast, renderer))) is None: to_program_cache[key] = prg = _s20_to_program(ast, renderer)
+   return prg
+diff --git a/tinygrad/codegen/opt/heuristic.py b/tinygrad/codegen/opt/heuristic.py
+index ec97cac..104e497 100644
+--- a/tinygrad/codegen/opt/heuristic.py
++++ b/tinygrad/codegen/opt/heuristic.py
+@@ -5,6 +5,8 @@ from tinygrad.uop.ops import Ops, resolve, AxisType
+ from tinygrad.codegen.late.coalesce import image_valid_dims
+ from tinygrad.codegen.opt.postrange import Scheduler
+ 
++S20_UPCAST_LIMIT = [1 << 30]  # s20: lowered per kernel to avoid IR3 register spills
++
+ def hand_coded_optimizations(k:Scheduler) -> Scheduler:
+   # first try the tensor cores
+   """ Attempts to apply a tensor core optimization to the kernel. If one exists and applies properly, return true, otherwise return false.
+@@ -97,7 +99,7 @@ def hand_coded_optimizations(k:Scheduler) -> Scheduler:
+   for axis in k.upcastable_dims():
+     # for Schedule, we check if the range is used in INDEX gates or WHERE gates
+     is_masked = k.rngs[axis] in where_gate_rngs
+-    if k.full_shape[axis] <= 7 and is_masked and prod(k.full_shape[j] for j in to_upcast) * k.full_shape[axis] <= 7 * 7:
++    if k.full_shape[axis] <= 7 and is_masked and prod(k.full_shape[j] for j in to_upcast) * k.full_shape[axis] <= min(7 * 7, S20_UPCAST_LIMIT[0]):
+       # upcasting a masked global axis moves that range out of the launch grid into each work-item
+       # under IMAGE, skip the upcast unless enough global work-items remain after it to hide memory latency
+       if IMAGE and k.axis_types[axis] is AxisType.GLOBAL:
+@@ -111,7 +113,7 @@ def hand_coded_optimizations(k:Scheduler) -> Scheduler:
+   # potentially do more upcasts of non reduce axes based on a heuristic
+   is_dsp = k.ren.target.device == "DSP"
+   upcasted_axis: set[int] = set()
+-  while resolve(prod(k.full_shape[i] for i in k.upcastable_dims()) >= 1024) and (k.upcast_size() < 32):
++  while resolve(prod(k.full_shape[i] for i in k.upcastable_dims()) >= 1024) and (k.upcast_size() < min(32, S20_UPCAST_LIMIT[0])):
+     xb_choices = []
+     # consider all upcastable axes with 3 or 4 upcast (128 on the DSP)
+     for axis, upcast_amount in itertools.product(k.upcastable_dims(), ([128] if not len(upcasted_axis) else []) if is_dsp else [3,4]):
+@@ -139,7 +141,7 @@ def hand_coded_optimizations(k:Scheduler) -> Scheduler:
+   # if last reduce dim is small(ish), loop unroll the reduce
+   # NOTE: this can fail on multireduce with mismatching dimensions, this is okay
+   try:
+-    if (axes:=k.upcastable_dims(reduce=True)) and (k.upcast_size() <= 4 or not k.axes_of(AxisType.UPCAST, reduce=True)) and k.upcast_size() < 64:
++    if (axes:=k.upcastable_dims(reduce=True)) and (k.upcast_size() <= 4 or not k.axes_of(AxisType.UPCAST, reduce=True)) and k.upcast_size() < min(64, S20_UPCAST_LIMIT[0]):
+       if (s:=k.full_shape[axes[-1]]) <= 32:
+         k.apply_opt(Opt(OptOps.SPLIT, axes[-1], (0, AxisType.UPCAST)))
+         # if it's small, upcast a second reduce dimension too
 diff --git a/tinygrad/runtime/ops_qcom.py b/tinygrad/runtime/ops_qcom.py
 index 53804bd..039e077 100644
 --- a/tinygrad/runtime/ops_qcom.py

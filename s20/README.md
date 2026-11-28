@@ -48,7 +48,11 @@
 - `tinygrad_repo` (서브모듈): `patches/tinygrad_a650.patch` — `s20/apply_patches.sh` 로 적용
   - `compiler_mesa.py`: IR3 컴파일러 a630 전용 제한에 a650 추가 (Mesa 장치 정보는 gpu_id 650 으로 조회)
   - `ops_qcom.py`: 개인 메모리(스택) 크기를 SP당 fiber 수(a630 2048, a650 4096)에 맞춤
-  - 컨테이너(x86, tinymesa 25.2.7.2)에서 a650 IR3 컴파일 확인. 실기기 확인은 단계 3
+  - `ops_qcom.py`: MERGEDREGS·PERWAVEMEMLAYOUT·wave 크기(THREAD128)를 컴파일 결과대로, a650 레지스터 64 vec4,
+    셰이더 미리 올리기 127 단위, 스택 오프셋 2 KiB 단위 (S20_* 환경변수로 실험 가능)
+  - `codegen/__init__.py`, `opt/heuristic.py`: a650 IR3 셰이더가 레지스터를 개인 메모리로 넘치면(spill)
+    upcast 한도를 16→8→4→2→1, 마지막엔 NOOPT 로 다시 컴파일. 개인 메모리 쓰는 커널에서 a650 이 멈추기 때문
+    (2026-11-28: 주행 모델 16번째 커널 r_16_32_3_3_25_8, pvt 1 KiB 에서 GPU hang, 레지스터 설정 8조합 모두 실패)
 
 ## 업스트림 갱신
 이 브랜치는 콤마 master 스냅샷(이력 압축) 위에 있다. 갱신할 때:
