@@ -34,7 +34,15 @@ from tinygrad.runtime import ops_qcom as oq
 _exec = oq.QCOMComputeQueue.exec
 def _trace(self, call, prg):
   d, _ = oq.qcom_build_program(self.dev, prg, self.devs)
-  print(f"S20K {prg.arg.name if hasattr(prg.arg,'name') else '?'} gs={prg.arg.global_size} ls={prg.arg.local_size} "
+  _k = getattr(_trace, "n", 0); _trace.n = _k + 1
+  name = getattr(prg.src[0].arg, "name", "?")
+  params = ",".join(str(getattr(q, "dtype", "?")).replace("dtypes.", "") for q in getattr(prg, "kernel_params", []))
+  print(f"S20N {_k} {name} params=[{params}]", flush=True)
+  if _k < 3:
+    try:
+      import pickle; pickle.dump(prg, open(f"/root/s20logs/k{_k}.pkl", "wb"))
+    except Exception as e: print("S20N pickle failed:", e, flush=True)
+  print(f"S20K {name} gs={prg.arg.global_size} ls={prg.arg.local_size} "
         f"fregs={d.fregs} hregs={d.hregs} pvt={d.pvtmem} shm={d.shmem} brn={d.brnchstck} img={d.image_size} "
         f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads} merged={getattr(d,'mergedregs','?')} "
         f"perwave={getattr(d,'pvt_per_wave','?')} preload={getattr(d,'preload_units','?')} stack={getattr(d,'hw_stack_offset_reg','?')}", flush=True)
@@ -62,6 +70,7 @@ EOF
     grep -E "^\*\*\*|^ *[0-9]+ .*(r_|E_)" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
     echo "   kernel(s) sent to the GPU last:"
     grep "^S20K" "$log" | tail -3 | cut -c1-230 | sed 's/^/     /'
+    grep "^S20N" "$log" | head -3 | cut -c1-230 | sed 's/^/     /'
   fi
 }
 
