@@ -29,6 +29,6 @@ mnt /data/s20pilot/share "$ROOT/s20share" "-o bind"
 setenforce 0 2>/dev/null
 
 exec chroot "$ROOT" /usr/bin/env -i \
-  HOME=/root TERM="$TERM" LANG=C.UTF-8 \
+  HOME=/root TERM="$TERM" LANG=C.UTF-8 TZ=Asia/Seoul DEBIAN_FRONTEND=noninteractive \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   /bin/bash -l
