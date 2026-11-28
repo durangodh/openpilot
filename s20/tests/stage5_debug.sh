@@ -34,8 +34,9 @@ from tinygrad.runtime import ops_qcom as oq
 _exec = oq.QCOMComputeQueue.exec
 def _trace(self, call, prg):
   d, _ = oq.qcom_build_program(self.dev, prg, self.devs)
+  import os, re
   _k = getattr(_trace, "n", 0); _trace.n = _k + 1
-  name = getattr(prg.src[0].arg, "name", "?")
+  name = re.sub(r"\x1b\[[0-9;]*m", "", str(getattr(prg.src[0].arg, "name", "?")))
   params = ",".join(str(getattr(q, "dtype", "?")).replace("dtypes.", "") for q in getattr(prg, "kernel_params", []))
   print(f"S20N {_k} {name} params=[{params}]", flush=True)
   if _k < 3:
@@ -52,6 +53,19 @@ def _trace(self, call, prg):
     return None
   return _exec(self, call, prg)
 oq.QCOMComputeQueue.exec = _trace
+# one GPU submission per kernel (DEBUG=2 waits after each), so the last kernel printed is the one before the hang
+import itertools
+from tinygrad.runtime.support import hcq2 as h
+def _one_by_one(l, profile):
+  srcs = []
+  for hcq, grp in itertools.groupby(zip(l.src, [h.get_enqueue_devs(c) for c in l.src]), key=lambda e: bool(e[1])):
+    run = list(grp)
+    if not hcq: srcs += [c for c, _ in run]; continue
+    for c, d in run:
+      q = "COMPUTE:0" if c.body.op is h.Ops.PROGRAM else "ENCDEC:0" if c.body.op is h.Ops.CUSTOM_FUNCTION else "COPY:0"
+      srcs.append(h._finalize_batch(h.BatchCtx([(c, d[0], q)], profile), False))
+  return l.replace(src=tuple(srcs))
+h.sched_batches = _one_by_one
 runner = OnnxRunner(sys.argv[1])
 def arr(t):
   dt = np.float16 if t.dtype == dtypes.half else np.float32 if dtypes.is_float(t.dtype) else np.uint8
@@ -71,10 +85,10 @@ EOF
   else
     echo "   FAIL (rc=$rc): $(grep -m1 -E 'hang detected|timed out|Error' "$log")  skipped: $(grep -c S20SKIP "$log")  kernels sent: $(grep -c S20K "$log")"
     echo "   last kernels before the failure:"
-    grep -E "^\*\*\*|^ *[0-9]+ .*(r_|E_)" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
+    sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E "^\*\*\* " | tail -3 | cut -c1-110 | sed 's/^/     /'
+    echo "   GPU kernels finished: $(sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^\*\*\* QCOM' | grep -vc copy)"
     echo "   kernel(s) sent to the GPU last:"
-    grep "^S20K" "$log" | tail -3 | cut -c1-230 | sed 's/^/     /'
-    grep "^S20N" "$log" | head -3 | cut -c1-230 | sed 's/^/     /'
+    grep "^S20N" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
   fi
 }
 
