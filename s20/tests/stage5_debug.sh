@@ -29,6 +29,16 @@ run_one() {  # run_one <n>
 import sys, time, numpy as np
 from tinygrad import Tensor, Device, dtypes
 from tinygrad.nn.onnx import OnnxRunner
+# print every QCOM kernel as it is encoded, before it runs, so a hang names its kernel
+from tinygrad.runtime import ops_qcom as oq
+_exec = oq.QCOMComputeQueue.exec
+def _trace(self, call, prg):
+  d, _ = oq.qcom_build_program(self.dev, prg, self.devs)
+  print(f"S20K {prg.arg.name if hasattr(prg.arg,'name') else '?'} gs={prg.arg.global_size} ls={prg.arg.local_size} "
+        f"fregs={d.fregs} hregs={d.hregs} pvt={d.pvtmem} shm={d.shmem} brn={d.brnchstck} img={d.image_size} "
+        f"tex={d.tex_cnt} ibo={d.ibo_cnt} samp={d.samp_cnt} maxthr={d.max_threads}", flush=True)
+  return _exec(self, call, prg)
+oq.QCOMComputeQueue.exec = _trace
 runner = OnnxRunner(sys.argv[1])
 def arr(t):
   dt = np.float16 if t.dtype == dtypes.half else np.float32 if dtypes.is_float(t.dtype) else np.uint8
@@ -48,7 +58,9 @@ EOF
   else
     echo "   FAIL (rc=$rc): $(grep -m1 -E 'hang detected|timed out|Error' "$log")"
     echo "   last kernels before the failure:"
-    grep -E "^\*\*\*|^ *[0-9]+ .*(r_|E_)" "$log" | tail -4 | cut -c1-160 | sed 's/^/     /'
+    grep -E "^\*\*\*|^ *[0-9]+ .*(r_|E_)" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
+    echo "   kernel(s) sent to the GPU last:"
+    grep "^S20K" "$log" | tail -3 | cut -c1-230 | sed 's/^/     /'
   fi
 }
 
