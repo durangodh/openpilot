@@ -24,6 +24,7 @@ import java.util.Set;
  */
 public final class Main {
   private Main() {}
+  private static Sensors imu;  // held for the life of the process (GC would stop the sensor listeners)
 
   public static void main(String[] args) throws Exception {
     Workarounds.apply();
@@ -35,7 +36,8 @@ public final class Main {
     } else if (args[0].equals("imu")) {
       // imu [dir=/data/s20pilot/share]: only the accelerometer and gyroscope
       String dir = args.length > 1 && args[1].startsWith("dir=") ? args[1].substring(4) : "/data/s20pilot/share";
-      new Sensors(dir + "/imu.ring").start(10_000);
+      imu = new Sensors(dir + "/imu.ring");
+      imu.start(10_000);
       Looper.loop();
     } else if (args[0].equals("auto")) {
       // auto [road=0] [wide=2|none] [dir=/data/s20pilot/share] [fps=20] [flip=0|1] [out=1928x1208] [roadf=2648] [widef=567]
@@ -54,7 +56,7 @@ public final class Main {
         specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip, false));
       for (Streamer.Spec sp : specs) Log.i("plan " + sp.plan);
       if (o.containsKey("dry")) System.exit(0);
-      if (!o.getOrDefault("imu", "1").equals("0")) new Sensors(dir + "/imu.ring").start(10_000);  // 100 Hz
+      if (!o.getOrDefault("imu", "1").equals("0")) { imu = new Sensors(dir + "/imu.ring"); imu.start(10_000); }  // 100 Hz
       android.util.Range<Integer> aeRange = null;
       if (o.containsKey("aerange")) {  // e.g. aerange=7-30
         String[] r = o.get("aerange").split("-");

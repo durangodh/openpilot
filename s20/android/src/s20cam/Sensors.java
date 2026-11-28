@@ -26,6 +26,9 @@ final class Sensors implements SensorEventListener {
   static final int CAP = 4096, REC = 32, HDR = 64;
 
   private final MappedByteBuffer buf;
+  // keep the manager reachable: when it was a local, GC finalized it after ~10 s and the listeners stopped
+  private SensorManager sm;
+  private HandlerThread thread;
   private long n = 0, nAcc = 0, nGyro = 0, t0 = System.nanoTime();
 
   Sensors(String path) throws Exception {
@@ -43,10 +46,10 @@ final class Sensors implements SensorEventListener {
   }
 
   void start(int periodUs) {
-    HandlerThread t = new HandlerThread("s20imu");
-    t.start();
-    Handler h = new Handler(t.getLooper());
-    SensorManager sm = sensorManager(t.getLooper());
+    thread = new HandlerThread("s20imu");
+    thread.start();
+    Handler h = new Handler(thread.getLooper());
+    sm = sensorManager(thread.getLooper());
     Sensor acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
     Sensor gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE_UNCALIBRATED);
     if (gyro == null) gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
