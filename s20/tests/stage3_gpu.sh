@@ -41,5 +41,19 @@ t = time.perf_counter()
 for _ in range(10): (a @ b).realize()
 dev.synchronize()
 print(f"matmul 512x512: {(time.perf_counter()-t)/10*1000:.2f} ms")
+
+# correctness: same matmul on the CPU device
+g = (a @ b).tolist()
+c = (a.to("CPU") @ b.to("CPU")).tolist()
+err = max(abs(x - y) for rg, rc in zip(g, c) for x, y in zip(rg, rc))
+print(f"matmul max |gpu-cpu|: {err:.2e}")
+assert err < 1e-2, "GPU matmul result differs from CPU"
+
+# a conv like the driving model's first layers (image-shaped buffers on QCOM)
+x, w = Tensor.rand(1, 12, 128, 256).realize(), Tensor.rand(16, 12, 3, 3).realize()
+cg = x.conv2d(w, stride=2, padding=1).sum().item()
+cc = x.to("CPU").conv2d(w.to("CPU"), stride=2, padding=1).sum().item()
+print(f"conv2d sum gpu {cg:.3f} cpu {cc:.3f}")
+assert abs(cg - cc) <= 1e-3 * abs(cc), "GPU conv2d result differs from CPU"
 print("PASS")
 EOF

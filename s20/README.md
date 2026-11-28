@@ -33,7 +33,7 @@
 |---|---|---|---|
 | 1 | LineageOS + Magisk | 루트 쉘 | `root/README.md` — **통과 2026-11-28** (23.2-20261114-NIGHTLY-r8q, kgsl-3d0 확인) |
 | 2 | 우분투 chroot | chroot 진입, apt 동작 | `chroot/setup_chroot.sh` — **통과 2026-11-28** |
-| 3 | **GPU** | tinygrad `DEV=QCOM:IR3` 연산 성공, gpu_id 6.5.x (QCOMCL 컴파일러는 a630 전용이라 Mesa ir3 사용) | `tests/stage3_gpu.sh` |
+| 3 | **GPU** | **통과 2026-11-28** (gpu_id 6.5.0, IR3, matmul 512² 4.58 ms) — tinygrad `DEV=QCOM:IR3` 연산 성공, gpu_id 6.5.x (QCOMCL 컴파일러는 a630 전용이라 Mesa ir3 사용) | `tests/stage3_gpu.sh` |
 | 4 | 판다 | USB 인식, CAN 수신 | `tests/stage4_panda.sh` |
 | 5 | 빌드 | `scons` 완료, 모델 컴파일 | — |
 | 6 | 카메라 브리지 | 도로·광각 20fps | `android/` |
