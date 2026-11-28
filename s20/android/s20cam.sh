@@ -8,4 +8,6 @@ SRC=/data/s20pilot/rootfs/root/openpilot/s20/android/s20cam.jar
 mkdir -p /data/s20pilot/share && chmod 777 /data/s20pilot/share
 [ -f $SRC ] && cp -f $SRC $JAR
 chmod 755 /data/s20pilot; chmod 644 $JAR
+# the sensor service stops sending to idle (background) uids after a few seconds: mark the shell package active
+cmd sensorservice set-uid-state com.android.shell active 2>/dev/null || echo "[s20cam.sh] WARN sensorservice set-uid-state failed"
 exec su 2000 -c "CLASSPATH=$JAR app_process / s20cam.Main $*"
