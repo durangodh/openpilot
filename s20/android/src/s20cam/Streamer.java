@@ -30,11 +30,15 @@ final class Streamer {
   private final List<Spec> specs;
   private final int fps;
   private final boolean ctrlOff;  // CONTROL_MODE_OFF: some HALs only honour SENSOR_FRAME_DURATION with all 3A off
+  private final boolean manualTemplate;  // TEMPLATE_MANUAL instead of TEMPLATE_RECORD
+  private final Range<Integer> aeRange;  // also send this AE fps range with manual exposure (HAL may clamp to it)
   private final Handler handler;
   private final Executor executor;
 
-  Streamer(CameraManager cm, List<Spec> specs, int fps, boolean ctrlOff) {
+  Streamer(CameraManager cm, List<Spec> specs, int fps, boolean ctrlOff, boolean manualTemplate, Range<Integer> aeRange) {
     this.ctrlOff = ctrlOff;
+    this.manualTemplate = manualTemplate;
+    this.aeRange = aeRange;
     this.cm = cm;
     this.specs = specs;
     this.fps = fps;
@@ -56,6 +60,7 @@ final class Streamer {
     CameraCaptureSession session; CaptureRequest.Builder rb;
     Exposure ae;  // null: the camera's AE runs at an exact [fps, fps] range
     long t0 = System.nanoTime(), n0 = 0;
+    volatile long lastFrameDuration, lastExposure;  // as reported by the HAL
 
     Cam(Spec s) throws Exception {
       this.s = s; this.pl = s.plan; this.ch = Cam.this.chars();
@@ -70,7 +75,8 @@ final class Streamer {
         long now = System.nanoTime();
         if (now - t0 > 5_000_000_000L) {
           Log.i("camera " + pl.id + ": " + String.format("%.1f fps, luma %d", (ring.frames() - n0) * 1e9 / (now - t0), luma)
-              + (ae != null ? ", " + ae : ""));
+              + (ae != null ? ", " + ae : "")
+              + String.format(", HAL frame %.1f ms exp %.2f ms", lastFrameDuration / 1e6, lastExposure / 1e6));
           t0 = now; n0 = ring.frames();
         }
       }, handler);
@@ -81,7 +87,14 @@ final class Streamer {
     void repeat() {
       try {
         if (ae != null) ae.apply(rb);
-        session.setRepeatingRequest(rb.build(), null, handler);
+        session.setRepeatingRequest(rb.build(), new CameraCaptureSession.CaptureCallback() {
+          @Override public void onCaptureCompleted(CameraCaptureSession ss, CaptureRequest req, android.hardware.camera2.TotalCaptureResult r) {
+            Long fd = r.get(android.hardware.camera2.CaptureResult.SENSOR_FRAME_DURATION);
+            Long ex = r.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME);
+            if (fd != null) lastFrameDuration = fd;
+            if (ex != null) lastExposure = ex;
+          }
+        }, handler);
       } catch (Exception e) { problem(s, "repeating request", e); }
     }
   }
@@ -91,7 +104,7 @@ final class Streamer {
     s20cam.Cam.open(cm, c.pl.id, executor, new CameraDevice.StateCallback() {
       @Override public void onOpened(CameraDevice dev) {
         try {
-          c.rb = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+          c.rb = dev.createCaptureRequest(manualTemplate ? CameraDevice.TEMPLATE_MANUAL : CameraDevice.TEMPLATE_RECORD);
           c.rb.addTarget(c.reader.getSurface());
           setup(c);
           c.rb.set(CaptureRequest.SCALER_CROP_REGION, c.pl.crop);
@@ -144,6 +157,7 @@ final class Streamer {
       c.ae = new Exposure(ch, 1_000_000_000L / fps);
       rb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
       if (ctrlOff) rb.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF);
+      if (aeRange != null) rb.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, aeRange);
       Log.i("camera " + c.pl.id + ": manual exposure at " + fps + " fps" + (ctrlOff ? ", 3A off" : ""));
       return;
     }

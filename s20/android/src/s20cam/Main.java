@@ -49,7 +49,13 @@ public final class Main {
         specs.add(new Streamer.Spec(Plan.make(wide, Cam.chars(cm, wide), ow, oh, Float.parseFloat(o.getOrDefault("widef", "567"))), dir + "/wide.ring", flip, false));
       for (Streamer.Spec sp : specs) Log.i("plan " + sp.plan);
       if (o.containsKey("dry")) System.exit(0);
-      new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20")), o.getOrDefault("ctrl", "auto").equals("off")).start();
+      android.util.Range<Integer> aeRange = null;
+      if (o.containsKey("aerange")) {  // e.g. aerange=7-30
+        String[] r = o.get("aerange").split("-");
+        aeRange = new android.util.Range<>(Integer.parseInt(r[0]), Integer.parseInt(r[1]));
+      }
+      new Streamer(cm, specs, Integer.parseInt(o.getOrDefault("fps", "20")), o.getOrDefault("ctrl", "auto").equals("off"),
+                   o.getOrDefault("tmpl", "record").equals("manual"), aeRange).start();
       Looper.loop();
     } else {
       throw new IllegalArgumentException("unknown command " + args[0]);
