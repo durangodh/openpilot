@@ -86,9 +86,10 @@ EOF
     echo "   FAIL (rc=$rc): $(grep -m1 -E 'hang detected|timed out|Error' "$log")  skipped: $(grep -c S20SKIP "$log")  kernels sent: $(grep -c S20K "$log")"
     echo "   last kernels before the failure:"
     sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E "^\*\*\* " | tail -3 | cut -c1-110 | sed 's/^/     /'
-    echo "   GPU kernels finished: $(sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^\*\*\* QCOM' | grep -vc copy)"
-    echo "   kernel(s) sent to the GPU last:"
-    grep "^S20N" "$log" | tail -2 | cut -c1-160 | sed 's/^/     /'
+    fin=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^\*\*\* QCOM' | grep -vc copy)
+    echo "   GPU kernels finished: $fin -> the hanging kernel is #$fin:"
+    grep "^S20N $fin " "$log" | cut -c1-200 | sed 's/^/     /'
+    grep "^S20K" "$log" | sed -n "$((fin+1))p" | cut -c1-260 | sed 's/^/     /'
   fi
 }
 
