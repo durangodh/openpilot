@@ -1,36 +1,41 @@
 diff --git a/tinygrad/codegen/__init__.py b/tinygrad/codegen/__init__.py
-index f4535a4..aef041c 100644
+index f4535a4..f2e2ae0 100644
 --- a/tinygrad/codegen/__init__.py
 +++ b/tinygrad/codegen/__init__.py
-@@ -514,6 +514,33 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
+@@ -514,6 +514,38 @@ def to_program_key(ast:UOp, renderer:Renderer) -> tuple:
    return (ast.key, type(renderer), renderer.target, *[x.value for x in to_program_config])
  
  to_program_cache: dict[tuple, UOp] = {}
-+def _s20_pvtmem(prg:UOp, renderer:Renderer) -> int:
-+  # private memory (register spill) of an IR3 shader; the a650 hangs on it with tinygrad's QCOM runtime
-+  if type(renderer).__name__ != "IR3Renderer" or renderer.target.arch.split(",")[0] != "a650": return 0
++def _s20_info(prg:UOp, renderer:Renderer) -> tuple[int, int, int]|None:
++  # (private memory bytes, full regs, half regs) of an a650 IR3 shader, else None
++  if type(renderer).__name__ != "IR3Renderer" or renderer.target.arch.split(",")[0] != "a650": return None
 +  from tinygrad.runtime.support.compiler_mesa import IR3Compiler
 +  try: v = IR3Compiler.unpack_lib(prg.src[-1].arg)[0]
-+  except Exception: return 0
-+  # also retry when full + half registers together exceed the 48 vec4 a thread can hold (half registers are not merged
-+  # here): the a650 hung on a texture kernel with 48 full + 33 half registers, while 228 other texture kernels ran
-+  regs = (v.info.max_reg + 1) + (v.info.max_half_reg + 2) // 2
-+  return v.pvtmem_size or (regs > 48 and -regs)
++  except Exception: return None
++  return v.pvtmem_size, v.info.max_reg + 1, v.info.max_half_reg + 1
++
++def _s20_bad(i:tuple[int, int, int]|None) -> bool:
++  # the a650 hung on private memory (register spill) and on a kernel with 48 full + 33 half registers,
++  # while kernels with fewer ran; S20_REG_LIMIT caps full + half/2 (default 64)
++  import os
++  return i is not None and (i[0] > 0 or i[1] + (i[2] + 1) // 2 > int(os.environ.get("S20_REG_LIMIT", 64)))
 +
 +def _s20_to_program(ast:UOp, renderer:Renderer) -> UOp:
 +  prg = do_to_program(ast, renderer)
-+  if not _s20_pvtmem(prg, renderer) or ast.op is not Ops.SINK: return prg
-+  # spilled: retry with fewer upcasts (fewer live registers), last with no optimizations at all
++  if not _s20_bad(i0:=_s20_info(prg, renderer)) or ast.op is not Ops.SINK: return prg
++  name = ast.arg.name if isinstance(ast.arg, KernelInfo) else "?"
 +  from tinygrad.codegen.opt import heuristic
++  tried = []
 +  for lim in (16, 8, 4, 2, 1):
 +    heuristic.S20_UPCAST_LIMIT[0] = lim
 +    try: prg = do_to_program(ast, renderer)
 +    finally: heuristic.S20_UPCAST_LIMIT[0] = 1 << 30
-+    if not _s20_pvtmem(prg, renderer):
-+      if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} private memory/registers fixed with upcast limit {lim}")
++    tried.append((lim, i:=_s20_info(prg, renderer)))
++    if not _s20_bad(i):
++      if DEBUG >= 1: print(f"s20: {name} (pvt,full,half)={i0} -> {i} with upcast limit {lim}")
 +      return prg
 +  with Context(NOOPT=1): prg = do_to_program(ast, renderer)
-+  if DEBUG >= 1: print(f"s20: {ast.arg.name if isinstance(ast.arg, KernelInfo) else '?'} NOOPT, still {_s20_pvtmem(prg, renderer)} (B private memory, or -registers)")
++  if DEBUG >= 1: print(f"s20: {name} (pvt,full,half)={i0} tried {tried} -> NOOPT {_s20_info(prg, renderer)}")
 +  return prg
 +
  def to_program(ast:UOp, renderer:Renderer) -> UOp:

@@ -29,7 +29,7 @@ for f in driving_supercombo.onnx dmonitoring_model.onnx; do
   ls -l "$MODELS/$f"
 done
 
-FLAGS="DEV=QCOM:IR3 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1"
+FLAGS="S20_REG_LIMIT=${S20_REG_LIMIT:-64} DEV=QCOM:IR3 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1"
 
 compile() {  # compile <onnx> <pkl>
   for image in 1 0; do
