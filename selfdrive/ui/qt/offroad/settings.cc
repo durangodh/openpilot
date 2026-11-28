@@ -2046,6 +2046,10 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "LOW SPEED JITTER FILTER (ms)",
       "5 km/h 이하, 거의 직진(반경 50 m 이상)일 때만 목표 곡률의 잔떨림을 걸러냅니다(9 km/h 까지 점감, 회전 중엔 자동 우회). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
       "../assets/offroad/icon_openpilot.png", 0, 1000, 50, 0, 300, this));
+  list->addItem(new ParamValueControlF("LatLowSpeedIMinKph",
+      "LOW SPEED I MIN SPEED (km/h)",
+      "적분(I) 보정이 켜지는 최저속도(km/h)입니다. 이보다 느리면 적분을 멈춥니다. 값 감소(-): 저속 직진에서 한쪽으로 치우치는 것을 더 잘 잡음 / 값 증가(+): 정지 후 출발 때 핸들 떨림이 줄어듦. 출발 때 핸들이 떨리면 올리세요. 예전 고정값: 18. 기본값: 7.",
+      "../assets/offroad/icon_openpilot.png", 0, 20, 1, 0, 7, this));
 
 
   list->addItem(horizontal_line());

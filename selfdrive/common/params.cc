@@ -336,6 +336,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
     {"LatCurveIDeadzone", PERSISTENT},         // 커브 구간 적분 정지 기준 토크 x0.001
+    {"LatLowSpeedIMinKph", PERSISTENT},        // 조향 적분이 켜지는 최저속도 km/h (예전 고정 18)
     {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속 목표곡률 저역통과 시간상수 ms (0=끔)
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},

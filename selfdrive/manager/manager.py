@@ -174,6 +174,7 @@ def manager_init() -> None:
     ("LatJerkFrictionFactor", "40"),
     ("LatCurveIDeadzone", "20"),
     ("LatLowSpeedCurvTauMs", "300"),
+    ("LatLowSpeedIMinKph", "7"),
     ("SteerDeltaUp", "3"),
     ("SteerDeltaDown", "7"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정

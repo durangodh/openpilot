@@ -146,6 +146,9 @@ class LatControlTorque(LatControl):
     self.lat_jerk_friction_factor = 0.2
     self.desired_lat_jerk_time = 0.3
     self.low_speed_curv_tau = 0.30       # s = LatLowSpeedCurvTauMs / 1000, 0 = 끔
+    # 적분이 켜지는 최저속도(m/s) = LatLowSpeedIMinKph / 3.6. 예전 고정 5 m/s(18 km/h) 아래에선
+    # 적분이 없어 저속 직진의 작은 쏠림(핸들은 곧은데 왼쪽으로 감)을 못 메웠다(2026-11-28).
+    self.low_speed_i_min = 7.0 / 3.6
     self.low_speed_curv_filtered = 0.0
     self.t_diffs = np.diff(T_IDXS)
     self.friction_upper_idx = len(T_IDXS)
@@ -228,6 +231,7 @@ class LatControlTorque(LatControl):
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
+    self.low_speed_i_min = max(0.0, min(20.0, self._pget("LatLowSpeedIMinKph", 7))) / 3.6
     self.desired_lat_jerk_time = max(0.1, live_tune.steer_actuator_delay() + 0.3)
     self.friction_upper_idx = next(
       (i for i, t in enumerate(T_IDXS) if t > max(self.desired_lat_jerk_time, 0.1)),
@@ -343,7 +347,7 @@ class LatControlTorque(LatControl):
       self.pid.i_leak_factor = interp(curve_ratio, [0.0, 1.0], I_LEAK_FACTOR_V)
 
       low_error = abs(pid_log.error) < err_freeze_deadzone
-      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5 or low_error
+      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < self.low_speed_i_min or low_error
       output_torque = self.pid.update(pid_log.error,
                                       feedforward=ff,
                                       speed=CS.vEgo,
